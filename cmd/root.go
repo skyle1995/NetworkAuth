@@ -78,19 +78,9 @@ func setupLogrusForNonHTTP() {
 	// 设置输出目标（稍后会根据配置文件调整）
 	logrus.SetOutput(os.Stdout)
 	if cfgFile != "" {
-		// 使用命令行指定的配置文件
 		config.Init(cfgFile)
 	} else {
-		// 使用默认配置文件路径，基于可执行文件所在目录
-		execPath, err := os.Executable()
-		if err != nil {
-			// 如果获取可执行文件路径失败，使用当前工作目录
-			config.Init("./config.json")
-		} else {
-			execDir := filepath.Dir(execPath)
-			configPath := filepath.Join(execDir, "config.json")
-			config.Init(configPath)
-		}
+		config.Init("./config.json")
 	}
 
 	// 根据配置文件进一步配置logrus
