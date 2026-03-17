@@ -70,10 +70,11 @@ func FunctionListHandler(c *gin.Context) {
 	// 构建基础查询
 	query := db.Model(&models.Function{})
 
-	// 如果指定了搜索关键词，则在编号、别名、代码、备注中进行模糊搜索
+	// 如果指定了搜索关键词，则在编号、别名、代码、备注中进行精确搜索
 	if search != "" {
-		query = query.Where("number LIKE ? OR alias LIKE ? OR code LIKE ? OR remark LIKE ?",
-			"%"+search+"%", "%"+search+"%", "%"+search+"%", "%"+search+"%")
+		// 优化：使用精确匹配提升查询性能
+		query = query.Where("number = ? OR alias = ? OR code = ? OR remark = ?",
+			search, search, search, search)
 	}
 
 	// 如果指定了应用筛选，则按应用UUID筛选

@@ -64,7 +64,8 @@ func AppsListHandler(c *gin.Context) {
 
 	// 如果有搜索条件
 	if search != "" {
-		query = query.Where("name LIKE ? OR uuid LIKE ?", "%"+search+"%", "%"+search+"%")
+		// 优化：使用精确匹配提升查询性能
+		query = query.Where("name = ? OR uuid = ?", search, search)
 	}
 
 	// 获取总数
