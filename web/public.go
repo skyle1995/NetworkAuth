@@ -13,7 +13,7 @@ import (
 
 // TemplatesFS 嵌入模板的文件系统
 //
-//go:embed template/*.html template/admin/*.html
+//go:embed template/*/*.html
 var templatesFS embed.FS
 
 // StaticFS 嵌入静态资源的文件系统（包含 CSS/JS 的 static 与 图片/字体等资源的 assets）
@@ -50,10 +50,10 @@ func ParseTemplates() (*template.Template, error) { // Go 顶级函数不支持�
 	if distFS := getDistRootFS(); distFS != nil {
 		// 期望 dist 目录下存在 template 与 template/admin 结构
 		// 如：{dist}/template/*.html 与 {dist}/template/admin/*.html
-		return template.ParseFS(distFS, "template/*.html", "template/admin/*.html")
+		return template.ParseFS(distFS, "template/*/*.html")
 	}
 	// 默认：使用嵌入模板
-	return template.ParseFS(templatesFS, "template/*.html", "template/admin/*.html")
+	return template.ParseFS(templatesFS, "template/*/*.html")
 }
 
 // GetStaticFS 返回静态资源文件系统（包含 static 与 assets 目录）
@@ -64,10 +64,4 @@ func GetStaticFS() (fs.FS, error) { // Go 顶级函数不支持箭头写法
 		return distFS, nil
 	}
 	return staticFS, nil
-}
-
-// IsDevMode 检查是否为开发模式
-// 注意：这个函数保留用于向后兼容，建议使用 middleware.IsDevMode()
-func IsDevMode() bool {
-	return viper.GetBool("server.dev_mode")
 }

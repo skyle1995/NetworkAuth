@@ -1,10 +1,10 @@
 package services
 
 import (
+	"NetworkAuth/models"
+	"NetworkAuth/utils"
 	"context"
 	"fmt"
-	"networkDev/models"
-	"networkDev/utils"
 	"time"
 
 	"gorm.io/gorm"
@@ -69,7 +69,11 @@ func BatchUpdateEntityStatus(model interface{}, ids []uint, status int, db *gorm
 // 返回: 数量和错误
 func CountEntitiesByCondition(model interface{}, condition string, db *gorm.DB, args ...interface{}) (int64, error) {
 	var count int64
-	err := db.Model(model).Where(condition, args...).Count(&count).Error
+	query := db.Model(model)
+	if condition != "" {
+		query = query.Where(condition, args...)
+	}
+	err := query.Count(&count).Error
 	return count, err
 }
 
@@ -85,7 +89,11 @@ func CountEntitiesByCondition(model interface{}, condition string, db *gorm.DB, 
 // args: 查询参数
 // 返回: 错误
 func FindEntitiesByCondition(model interface{}, result interface{}, condition string, db *gorm.DB, args ...interface{}) error {
-	return db.Model(model).Where(condition, args...).Find(result).Error
+	query := db.Model(model)
+	if condition != "" {
+		query = query.Where(condition, args...)
+	}
+	return query.Find(result).Error
 }
 
 // CheckEntityExists 检查实体是否存在

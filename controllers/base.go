@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"networkDev/database"
+	"NetworkAuth/database"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -15,6 +15,7 @@ import (
 // ============================================================================
 
 // BaseController 基础控制器结构体
+// 提供通用的数据库访问和响应处理方法
 type BaseController struct{}
 
 // ============================================================================
@@ -86,11 +87,18 @@ func (bc *BaseController) HandleInternalError(c *gin.Context, message string, er
 
 // HandleSuccess 统一处理成功响应
 func (bc *BaseController) HandleSuccess(c *gin.Context, message string, data interface{}) {
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"code": 0,
 		"msg":  message,
 		"data": data,
-	})
+	}
+
+	// 检查是否有刷新的Token
+	if newToken, exists := c.Get("new_token"); exists {
+		resp["token"] = newToken
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // HandleCreated 统一处理创建成功响应
@@ -173,9 +181,9 @@ func (bc *BaseController) BindURI(c *gin.Context, obj interface{}) bool {
 // 返回包含系统基础信息的数据映射，包括站点标题、页脚文本、备案信息等
 func (bc *BaseController) GetDefaultTemplateData() gin.H {
 	return gin.H{
-		"Title":         "凌动技术",
-		"SystemName":    "网络验证系统",
-		"FooterText":    "© 2025 凌动技术 保留所有权利",
+		"Title":         "NetworkAuth",
+		"SystemName":    "NetworkAuth",
+		"FooterText":    "© 2026 NetworkAuth 保留所有权利",
 		"ICPRecord":     "",
 		"ICPRecordLink": "https://beian.miit.gov.cn",
 		"PSBRecord":     "",

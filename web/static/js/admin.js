@@ -1,6 +1,6 @@
-const VERSION = '2.10.1';
-const layuicss = `https://unpkg.com/layui@${VERSION}/dist/css/layui.css`;
-const layuijs = `https://unpkg.com/layui@${VERSION}/dist/layui.js`;
+const VERSION = '2.9.20'; // Using local version
+const layuicss = '/static/lib/layui/css/layui.css';
+const layuijs = '/static/lib/layui/layui.js';
 const rootPath = (function (src) {
   src = (document.currentScript && document.currentScript.tagName.toUpperCase() === 'SCRIPT') ? document.currentScript.src : document.scripts[document.scripts.length - 1].src;
   return src.substring(0, src.lastIndexOf('/') + 1);
@@ -69,21 +69,36 @@ addLink({ href: layuicss }).then(() => {
   app.style.display = 'block';
 });
 
-addLink({ id: 'layui_theme_css', href: `./static/src/layui-theme-dark-selector.css` });
-
-// TODO 弃用，下个版本只支持选择器模式
-//addLink({ id: 'layui_theme_css', href: `${rootPath}dist/layui-theme-dark.css` });
+addLink({ id: 'layui_theme_css', href: `/static/src/layui-theme-dark-selector.css` });
 
 loadScript(layuijs, function () {
   layui
     .config({
-      base: './static/lib/',
+      base: '/static/lib/',
     })
     .extend({
       drawer: 'drawer/drawer',
     });
-  layui.use(['drawer', 'colorMode'], function () {
+  layui.use(['drawer', 'colorMode', 'jquery', 'layer'], async function () {
     const { $, element, form, layer, util, dropdown, drawer, colorMode } = layui;
+
+    // --- CSRF Setup for jQuery ---
+    // Ensure token is loaded
+    await CSRFManager.getToken();
+    
+    $.ajaxSetup({
+        beforeSend: function(xhr) {
+            if (CSRFManager.token) {
+                xhr.setRequestHeader('X-CSRF-Token', CSRFManager.token);
+            }
+        },
+        complete: function(xhr) {
+             if (xhr.status === 401) {
+                 window.location.href = '/admin/login';
+             }
+        }
+    });
+    // -----------------------------
 
     const APPERANCE_KEY = 'layui-theme-demo-prefer-dark';
 
@@ -176,13 +191,10 @@ loadScript(layuijs, function () {
 
     /*
      * 后台通用脚本
-     * 说明：统一处理全局的退出登录逻辑，遵循后端 jsonResponse 的返回格式：
-     * code: 0 表示成功，非0表示失败
-     * msg: 提示信息
-     * data: 业务数据
+     * 说明：统一处理全局的退出登录逻辑
      */
     
-    // 绑定退出登录按钮事件（箭头函数写法）
+    // 绑定退出登录按钮事件
     const bindLogout = () => {
       const btn = document.getElementById('logout-btn');
       if (!btn) return;
@@ -192,8 +204,7 @@ loadScript(layuijs, function () {
       });
     };
     
-    // 执行退出登录（箭头函数写法）
-    // 功能：弹出确认框 -> 显示加载层 -> 调用 /admin/logout -> 依据 code===0 判断
+    // 执行退出登录
     const handleLogout = () => {
       layer.confirm('确定要退出登录吗？', {
         icon: 3,
@@ -201,12 +212,10 @@ loadScript(layuijs, function () {
       }, (index) => {
         layer.close(index);
         
-        // 显示加载层
         const loadIndex = layer.load(2, {
           content: '正在退出登录...'
         });
         
-        // 调用登出接口
         fetchWithCSRF('/admin/logout', {
           method: 'POST',
           headers: {
@@ -217,14 +226,13 @@ loadScript(layuijs, function () {
         .then(response => response.json())
         .then(data => {
           layer.close(loadIndex);
-          const ok = data && data.code === 0;
+          const ok = data && (data.code === 0 || data.success);
           const msg = (data && (data.msg || data.message)) || (ok ? '退出登录成功' : '退出登录失败');
           if (ok) {
             layer.msg(msg, {
               icon: 1,
               time: 1000
             }, () => {
-              // 跳转到登录页或后端返回的地址
               const redirect = (data && data.data && data.data.redirect) || '/admin/login';
               window.location.href = redirect;
             });
@@ -240,7 +248,6 @@ loadScript(layuijs, function () {
       });
     };
     
-    // 页面就绪后绑定事件（箭头函数写法）
     (() => {
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', bindLogout);
@@ -257,107 +264,87 @@ loadScript(layuijs, function () {
       }, (index) => {
         layer.close(index);
         
-        // 获取当前hash值，确定当前页面路径
         let currentPath = window.location.hash.replace('#', '') || 'dashboard';
         
-        // 显示加载层
         const loadIndex = layer.load(2, {
           content: '正在刷新...'
         });
         
-        // 延迟一下再刷新内容，让用户看到加载效果
         setTimeout(() => {
-          // 重新加载当前内容页面
           routerTo({ path: currentPath });
           layer.close(loadIndex);
         }, 500);
       });
     };
 
-    // 绑定刷新按钮点击事件
     $('#refresh-btn').on('click', handleRefresh);
 
     // 统一的Tips提示功能
-    // 使用事件委托避免重复绑定问题
     $(document).off('click', '[data-tips]').on('click', '[data-tips]', function() {
       var tipsType = $(this).data('tips');
       var tipsContent = getTipsContent(tipsType);
       layer.tips(tipsContent, this, {
-        tips: [2, '#16b777'], // 向右显示，绿色背景
-        time: 3000 // 3秒后自动关闭
+        tips: [2, '#16b777'],
+        time: 3000
       });
     });
 
-    // 获取Tips内容的统一函数
     function getTipsContent(type) {
       var tips = {
-        // 用户资料相关 (user.html)
         'user-username': '用户名：用于登录的用户名，可以修改但需要保证唯一性',
         'user-old-password': '旧密码：修改密码时需要输入当前密码进行验证，不修改密码时可留空',
         'user-new-password': '新密码：要设置的新密码，长度至少6位，不修改密码时可留空',
-        // 基本信息设置 (settings.html)
         'site-title': '站点标题：网站的主标题，显示在浏览器标题栏和搜索引擎结果中',
         'site-keywords': '关键词：网站的SEO关键词，用于搜索引擎优化，多个关键词用逗号分隔',
         'site-description': '站点描述：网站的简要描述，用于SEO和搜索引擎结果展示',
         'site-logo': '站点Logo：网站的标志图片路径，建议使用SVG格式',
-        // 系统配置 (settings.html)
         'maintenance-mode': '维护模式：开启后网站将进入维护模式，普通用户无法访问',
         'default-user-role': '默认角色：新注册用户的默认权限级别，0为管理员，1为普通成员',
         'session-timeout': '会话超时：用户登录会话的有效时间，单位为秒，超时后需要重新登录',
-        // 页脚与备案信息 (settings.html)
         'footer-text': '页脚文本：显示在网站底部的版权信息或其他文本',
         'icp-record': 'ICP备案：网站的ICP备案号，中国大陆网站必须显示',
         'icp-record-link': 'ICP备案链接：ICP备案号对应的查询链接，通常指向工信部备案网站',
         'psb-record': '公安备案：网站的公安备案号，部分地区要求显示',
         'psb-record-link': '公安备案链接：公安备案号对应的查询链接，通常指向公安部备案网站',
-        // 应用管理相关 (apps.html)
         'app-name': '应用名称：设置应用的显示名称，用户在客户端看到的应用标识',
         'app-version': '应用版本：当前应用的版本号，用于版本控制和更新检测',
         'app-status': '应用状态：控制应用是否可用，禁用后用户无法使用该应用',
         'force-update': '强制更新：开启后用户必须更新到最新版本才能使用',
         'download-type': '更新方式：设置应用的更新下载方式，支持不同的分发渠道',
         'download-url': '下载地址：应用安装包的下载链接地址',
-        // 多开配置相关 (apps.html)
         'login-type': '登录方式：设置用户登录验证的方式，如账号密码、卡密等',
         'multi-open-scope': '多开范围：设置多开功能的作用范围，如全局或特定应用',
         'clean-interval': '清理间隔：系统自动清理无效会话的时间间隔（分钟）',
         'check-interval': '校验间隔：系统检查用户状态的时间间隔（分钟）',
         'multi-open-count': '多开数量：允许用户同时运行的应用实例数量',
-        // 机器验证相关 (apps.html)
         'machine-verify': '机器码验证：控制是否启用机器码验证功能，用于限制软件在特定设备上运行',
         'machine-rebind': '机器码重绑：允许用户重新绑定机器码，当设备更换或重装系统时使用',
         'machine-rebind-limit': '重绑限制：设置重绑的时间限制，每天表示每天可重绑，永久表示不限制重绑时间',
         'machine-free-count': '免费次数：用户可以免费重绑机器码的次数',
         'machine-rebind-count': '重绑次数：用户总共可以重绑机器码的次数限制',
         'machine-rebind-deduct': '重绑扣除：每次重绑机器码时扣除的时间（分钟）',
-        // IP验证相关 (apps.html)
         'ip-verify': 'IP地址验证：控制是否启用IP地址验证，关闭/开启/开启(市)/开启(省)分别对应不同的验证级别',
         'ip-rebind': 'IP地址重绑：允许用户重新绑定IP地址，当网络环境变化时使用',
         'ip-rebind-limit': '重绑限制：设置IP重绑的时间限制，每天表示每天可重绑，永久表示不限制重绑时间',
         'ip-free-count': '免费次数：用户可以免费重绑IP地址的次数',
         'ip-rebind-count': '重绑次数：用户总共可以重绑IP地址的次数限制',
         'ip-rebind-deduct': '重绑扣除：每次重绑IP地址时扣除的时间（分钟）',
-        // 注册设置相关 (apps.html)
         'register-enabled': '账号注册：控制是否允许新用户注册账号',
         'register-limit': '注册限制：设置注册的限制规则，如时间限制等',
         'register-limit-time': '限制时间：注册限制的时间周期，每天或永久',
         'register-count': '注册次数：在限制时间内允许注册的账号数量',
-        // 试用设置相关 (apps.html)
         'trial-enabled': '领取试用：控制是否允许用户领取试用时间',
         'trial-limit-time': '限制时间：试用领取的时间限制周期',
         'trial-time': '试用时间：用户可以领取的试用时长（分钟）',
-        // API接口管理相关 (apis.html)
         'submit-algorithm': '提交算法：客户端向服务器提交数据时使用的加密算法<br/>• 不加密：数据明文传输，适用于内网环境<br/>• RC4：对称加密，速度快，适用于一般场景<br/>• RSA：非对称加密，安全性高，适用于敏感数据<br/>• RSA（动态）：动态生成密钥的RSA加密，安全性最高<br/>• 易加密：自定义对称加密算法，使用15-30位整数密钥数组',
         'submit-keys': '提交密钥：用于加密客户端提交数据的密钥<br/>• RC4：16位十六进制密钥，用于对称加密<br/>• RSA：公钥用于客户端加密，私钥用于服务器解密<br/>• 易加密：15-30位整数数组，逗号分隔<br/>• 密钥由系统自动生成，确保安全性',
         'return-algorithm': '返回算法：服务器向客户端返回数据时使用的加密算法<br/>• 不加密：数据明文传输，适用于内网环境<br/>• RC4：对称加密，速度快，适用于一般场景<br/>• RSA：非对称加密，安全性高，适用于敏感数据<br/>• RSA（动态）：动态生成密钥的RSA加密，安全性最高<br/>• 易加密：自定义对称加密算法，使用15-30位整数密钥数组',
         'return-keys': '返回密钥：用于加密服务器返回数据的密钥<br/>• RC4：16位十六进制密钥，用于对称加密<br/>• RSA：公钥用于服务器加密，私钥用于客户端解密<br/>• 易加密：15-30位整数数组，逗号分隔<br/>• 密钥由系统自动生成，确保安全性',
         'api-status': '接口状态：控制当前API接口是否可用<br/>• 启用：接口正常工作，客户端可以调用<br/>• 禁用：接口暂停服务，客户端调用将返回错误',
-        // 变量管理相关 (variables.html)
         'variable-alias': '变量别名：变量的唯一标识符，必须以英文字母开头，只能包含数字和英文字母，用于在代码中引用该变量',
         'variable-app': '关联应用：选择变量所属的应用，选择"全局变量"表示该变量可在所有应用中使用',
         'variable-data': '变量数据：存储的具体数据内容，可以是文本、数字、JSON等格式，根据实际需要填写',
         'variable-remark': '备注：对该变量的说明和描述，帮助理解变量的用途和使用场景，可选填写',
-        // 函数管理相关 (functions.html)
         'function-alias': '函数别名：函数的唯一标识符，必须以英文字母开头，只能包含数字和英文字母，用于在代码中调用该函数',
         'function-app': '关联应用：选择函数所属的应用，选择"全局函数"表示该函数可在所有应用中使用',
         'function-code': '函数代码：存储的JavaScript代码内容，使用Goja引擎执行，支持ES5语法和部分ES6特性',
@@ -369,7 +356,7 @@ loadScript(layuijs, function () {
     function routerTo({
       elem = '#router-view',
       path = 'dashboard',
-      prefix = 'admin/', //路由前缀
+      prefix = '/admin/', //路由前缀
       suffix = '', //路由后缀
     } = {}) {
       var routerView = $(elem);
@@ -379,7 +366,7 @@ loadScript(layuijs, function () {
         layer.load(2);
       }, 100);
 
-      history.replaceState({}, '', `#${path}`); // 因为并没有处理路由
+      history.replaceState({}, '', `#${path}`); 
       routerView.attr('src', url)
       routerView.off('load').on('load',function(){
         element.render();

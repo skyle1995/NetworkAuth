@@ -1,6 +1,156 @@
 {{ define "settings.html" }}
 <section>
   <h2>系统设置</h2>
+  <!-- 系统配置设置 -->
+  <div class="layui-panel" style="margin-top: 16px;">
+    <h3 style="margin: 0; padding: 15px 20px; border-bottom: 1px solid var(--lay-color-border-2); padding-bottom: 10px; margin-bottom: 15px;">安全配置</h3>
+    <div style="padding: 20px;">
+      <form class="layui-form" id="systemForm">
+        <div class="layui-form-item">
+          <label class="layui-form-label" style="cursor: pointer;" data-tips="maintenance-mode">维护模式</label>
+          <div class="layui-input-block">
+            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 10px;">
+              <input type="checkbox" name="maintenance_mode" lay-skin="switch" lay-text="开启|关闭" title="开启|关闭">
+            </div>
+          </div>
+        </div>
+        <div class="layui-form-item">
+          <label class="layui-form-label" style="cursor: pointer;" data-tips="encryption-key">加密密钥</label>
+          <div class="layui-input-block">
+            <div style="display: flex; gap: 10px;">
+              <input type="text" name="encryption_key" placeholder="请输入数据加密密钥" class="layui-input" readonly>
+              <button type="button" class="layui-btn layui-btn-primary" id="generateEncBtn">生成</button>
+            </div>
+          </div>
+        </div>
+        <div class="layui-form-item">
+          <label class="layui-form-label" style="cursor: pointer;" data-tips="jwt-secret">JWT密钥</label>
+          <div class="layui-input-block">
+            <div style="display: flex; gap: 10px;">
+              <input type="text" name="jwt_secret" placeholder="请输入JWT签名密钥" class="layui-input" readonly>
+              <button type="button" class="layui-btn layui-btn-primary" id="generateJwtBtn">生成</button>
+            </div>
+          </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label" style="cursor: pointer;" data-tips="jwt-refresh">JWT刷新</label>
+            <div class="layui-input-block">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="number" name="jwt_refresh" placeholder="6" min="1" lay-affix="number" class="layui-input"
+                  style="width: 120px;" />
+                <span class="layui-form-mid">小时（至少1小时）</span>
+              </div>
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label" style="cursor: pointer;" data-tips="jwt-expire">JWT有效期</label>
+            <div class="layui-input-block">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="number" name="jwt_expire" placeholder="24" min="1" lay-affix="number" class="layui-input"
+                  style="width: 120px;" />
+                <span class="layui-form-mid">小时（至少1小时）</span>
+              </div>
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <div class="layui-input-block">
+                <button type="button" class="layui-btn layui-btn-sm" lay-submit lay-filter="save_system">保存安全配置</button>
+                <button type="button" class="layui-btn layui-btn-primary layui-btn-sm reset-btn" data-type="system">重置</button>
+            </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Cookie 设置 -->
+  <div class="layui-panel" style="margin-top: 16px;">
+    <h3 style="margin: 0; padding: 15px 20px; border-bottom: 1px solid var(--lay-color-border-2); padding-bottom: 10px; margin-bottom: 15px;">Cookie 设置</h3>
+    <div style="padding: 20px;">
+      <form class="layui-form" id="cookieForm">
+        <div class="layui-form-item">
+          <label class="layui-form-label" style="cursor: pointer;" data-tips="cookie-secure">Secure</label>
+          <div class="layui-input-block">
+             <div style="display: flex; align-items: center; justify-content: flex-start; gap: 10px;">
+               <input type="checkbox" name="cookie_secure" lay-skin="switch" lay-text="开启|关闭" title="开启|关闭">
+             </div>
+          </div>
+        </div>
+        <div class="layui-form-item">
+          <label class="layui-form-label" style="cursor: pointer;" data-tips="cookie-samesite">Same</label>
+          <div class="layui-input-block">
+            <select name="cookie_same_site">
+              <option value="Strict">Strict</option>
+              <option value="Lax">Lax</option>
+              <option value="None">None</option>
+            </select>
+          </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label" style="cursor: pointer;" data-tips="cookie-domain">Domain</label>
+            <div class="layui-input-block">
+                <input type="text" name="cookie_domain" placeholder="留空则默认为当前域名" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label" style="cursor: pointer;" data-tips="cookie-max-age">MaxAge</label>
+            <div class="layui-input-block">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="number" name="cookie_max_age" placeholder="86400" min="0" lay-affix="number" class="layui-input"
+                  style="width: 120px;" />
+                <span class="layui-form-mid">秒</span>
+              </div>
+            </div>
+        </div>
+
+        <div class="layui-form-item">
+            <div class="layui-input-block">
+                <button type="button" class="layui-btn layui-btn-sm" lay-submit lay-filter="save_cookie">保存Cookie设置</button>
+                <button type="button" class="layui-btn layui-btn-primary layui-btn-sm reset-btn" data-type="cookie">重置</button>
+            </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 日志清理设置 -->
+  <div class="layui-panel" style="margin-top: 16px;">
+    <h3 style="margin: 0; padding: 15px 20px; border-bottom: 1px solid var(--lay-color-border-2); padding-bottom: 10px; margin-bottom: 15px;">日志清理设置</h3>
+    <div style="padding: 20px;">
+      <form class="layui-form" id="logCleanupForm">
+        <div class="layui-form-item">
+            <label class="layui-form-label" style="cursor: pointer;" data-tips="login-log-cleanup">登录日志</label>
+            <div class="layui-input-block">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span class="layui-form-mid">保留</span>
+                <input type="number" name="login_log_cleanup_days" placeholder="30" min="0" lay-affix="number" class="layui-input" style="width: 80px;" />
+                <span class="layui-form-mid">天，且保留最近</span>
+                <input type="number" name="login_log_cleanup_limit" placeholder="10000" min="0" lay-affix="number" class="layui-input" style="width: 100px;" />
+                <span class="layui-form-mid">条（0为不限制）</span>
+              </div>
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label" style="cursor: pointer;" data-tips="operation-log-cleanup">操作日志</label>
+            <div class="layui-input-block">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span class="layui-form-mid">保留</span>
+                <input type="number" name="operation_log_cleanup_days" placeholder="30" min="0" lay-affix="number" class="layui-input" style="width: 80px;" />
+                <span class="layui-form-mid">天，且保留最近</span>
+                <input type="number" name="operation_log_cleanup_limit" placeholder="10000" min="0" lay-affix="number" class="layui-input" style="width: 100px;" />
+                <span class="layui-form-mid">条（0为不限制）</span>
+              </div>
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <div class="layui-input-block">
+                <button type="button" class="layui-btn layui-btn-sm" lay-submit lay-filter="save_cleanup">保存清理策略</button>
+                <button type="button" class="layui-btn layui-btn-primary layui-btn-sm reset-btn" data-type="cleanup">重置</button>
+            </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- 基本信息设置 -->
   <div class="layui-panel" style="margin-top: 16px;">
     <h3 style="margin: 0; padding: 15px 20px; border-bottom: 1px solid var(--lay-color-border-2); padding-bottom: 10px; margin-bottom: 15px;">基本信息设置</h3>
@@ -30,43 +180,12 @@
             <input type="text" name="site_logo" placeholder="/assets/logo.svg" class="layui-input" />
           </div>
         </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- 系统配置设置 -->
-  <div class="layui-panel" style="margin-top: 16px;">
-    <h3 style="margin: 0; padding: 15px 20px; border-bottom: 1px solid var(--lay-color-border-2); padding-bottom: 10px; margin-bottom: 15px;">系统配置</h3>
-    <div style="padding: 20px;">
-      <form class="layui-form" id="systemForm">
         <div class="layui-form-item">
-          <label class="layui-form-label" style="cursor: pointer;" data-tips="maintenance-mode">维护模式</label>
           <div class="layui-input-block">
-            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 10px;">
-              <input type="checkbox" name="maintenance_mode" lay-skin="switch" lay-text="开启|关闭" title="开启|关闭">
-            </div>
+            <button type="button" class="layui-btn layui-btn-sm" lay-submit lay-filter="save_basic">保存基本信息</button>
+            <button type="button" class="layui-btn layui-btn-primary layui-btn-sm reset-btn" data-type="basic">重置</button>
           </div>
         </div>
-        <div class="layui-form-item">
-          <label class="layui-form-label" style="cursor: pointer;" data-tips="default-user-role">默认角色</label>
-          <div class="layui-input-block">
-            <select name="default_user_role">
-              <option value="0">管理员</option>
-              <option value="1">普通用户</option>
-            </select>
-          </div>
-        </div>
-        <div class="layui-form-item">
-          <label class="layui-form-label" style="cursor: pointer;" data-tips="session-timeout">会话超时</label>
-          <div class="layui-input-block">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <input type="number" name="session_timeout" placeholder="3600" min="300" max="86400" lay-affix="number" class="layui-input"
-                style="width: 120px;" />
-              <span class="layui-form-mid">秒（300-86400秒）</span>
-            </div>
-          </div>
-        </div>
-
       </form>
     </div>
   </div>
@@ -107,15 +226,13 @@
               class="layui-input" />
           </div>
         </div>
+        <div class="layui-form-item">
+          <div class="layui-input-block">
+            <button type="button" class="layui-btn layui-btn-sm" lay-submit lay-filter="save_footer">保存页脚备案</button>
+            <button type="button" class="layui-btn layui-btn-primary layui-btn-sm reset-btn" data-type="footer">重置</button>
+          </div>
+        </div>
       </form>
-    </div>
-  </div>
-
-  <!-- 操作按钮 -->
-  <div class="layui-form-item" style="margin-top: 24px;">
-    <div class="layui-input-block">
-      <button type="button" class="layui-btn" id="saveAllBtn" lay-submit lay-filter="saveAll">保存所有设置</button>
-      <button type="button" class="layui-btn layui-btn-primary" id="resetBtn">重置</button>
     </div>
   </div>
 </section>
@@ -164,29 +281,53 @@
 
       /**
        * 将 settings 数据回填到各表单控件
-       * - 文本/文本域/下拉：直接赋值
-       * - 开关：根据 "1"/"0" 置为选中/未选中
+       * - 拆分为独立的填充函数，便于局部重置
        */
-      const fillForms = (settings = {}) => {
-        // 基本信息
+      const fillSystem = (settings) => {
+        const maintenanceChecked = (settings.maintenance_mode || '0') === '1';
+        $('[name="maintenance_mode"]').prop('checked', maintenanceChecked);
+        $('[name="jwt_secret"]').val(settings.jwt_secret || '');
+        $('[name="encryption_key"]').val(settings.encryption_key || '');
+        $('[name="jwt_refresh"]').val(settings.jwt_refresh || '6');
+        $('[name="jwt_expire"]').val(settings.jwt_expire || '24');
+      };
+
+      const fillCookie = (settings) => {
+        const cookieSecureChecked = (settings.cookie_secure || 'true') === 'true' || settings.cookie_secure === '1';
+        $('[name="cookie_secure"]').prop('checked', cookieSecureChecked);
+        $('[name="cookie_same_site"]').val(settings.cookie_same_site || 'Lax');
+        $('[name="cookie_domain"]').val(settings.cookie_domain || '');
+        $('[name="cookie_max_age"]').val(settings.cookie_max_age || '86400');
+      };
+
+      const fillCleanup = (settings) => {
+        $('[name="login_log_cleanup_days"]').val(settings.login_log_cleanup_days || '30');
+        $('[name="login_log_cleanup_limit"]').val(settings.login_log_cleanup_limit || '10000');
+        $('[name="operation_log_cleanup_days"]').val(settings.operation_log_cleanup_days || '30');
+        $('[name="operation_log_cleanup_limit"]').val(settings.operation_log_cleanup_limit || '10000');
+      };
+
+      const fillBasic = (settings) => {
         $('[name="site_title"]').val(settings.site_title || '');
         $('[name="site_keywords"]').val(settings.site_keywords || '');
         $('[name="site_description"]').val(settings.site_description || '');
         $('[name="site_logo"]').val(settings.site_logo || '');
+      };
 
-        // 系统配置
-        const maintenanceChecked = (settings.maintenance_mode || '0') === '1';
-        $('[name="maintenance_mode"]').prop('checked', maintenanceChecked);
-        $('[name="default_user_role"]').val(settings.default_user_role || '1');
-        $('[name="session_timeout"]').val(settings.session_timeout || '3600');
-
-        // 页脚与备案
+      const fillFooter = (settings) => {
         $('[name="footer_text"]').val(settings.footer_text || '');
         $('[name="icp_record"]').val(settings.icp_record || '');
         $('[name="icp_record_link"]').val(settings.icp_record_link || '');
         $('[name="psb_record"]').val(settings.psb_record || '');
         $('[name="psb_record_link"]').val(settings.psb_record_link || '');
+      };
 
+      const fillForms = (settings = {}) => {
+        fillBasic(settings);
+        fillSystem(settings);
+        fillCookie(settings);
+        fillCleanup(settings);
+        fillFooter(settings);
         // 渲染 layui 组件
         form.render();
       };
@@ -222,64 +363,142 @@
         return {
           ...collectForm('#basicForm'),
           ...collectForm('#systemForm'),
+          ...collectForm('#cookieForm'),
           ...collectForm('#footerForm'),
+          ...collectForm('#logCleanupForm'),
         };
       };
 
       /**
-       * 处理“保存所有设置”点击
-       * - 二次确认后提交
-       * - 显示加载中，防重复提交
-       * - 成功后提示并刷新缓存的 originalSettings
+       * 提交设置到后端
+       * @param {Object} payload - 要保存的设置对象
+       * @param {HTMLElement} btnElem - 触发保存的按钮元素（用于禁用/恢复）
+       * @param {String} successMsg - 成功提示信息
        */
-      const handleSaveAll = () => {
-        const payload = collectAllSettings();
-        layer.confirm('确认保存所有设置？', { icon: 3, title: '提示' }, (idx) => {
-          layer.close(idx);
-          const btn = $('#saveAllBtn');
-          btn.prop('disabled', true).addClass('layui-btn-disabled');
-          const loadIdx = layer.load(2, { content: '正在保存...' });
-
-          fetch('/admin/api/settings/update', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: JSON.stringify(payload)
-          })
-            .then(resp => resp.json())
-            .then(res => {
-              if (res.code === 0) {
-                layer.msg(res.msg || '保存成功', { icon: 1, time: 1000 });
-                originalSettings = { ...payload };
-              } else {
-                layer.msg(res.msg || '保存失败', { icon: 2 });
-              }
-            })
-            .catch(err => {
-              console.error('保存设置失败:', err);
-              layer.msg('网络错误，保存失败', { icon: 2 });
-            })
-            .finally(() => {
-              layer.close(loadIdx);
-              btn.prop('disabled', false).removeClass('layui-btn-disabled');
-            });
+      const submitSettings = (payload, btnElem, successMsg = '保存成功') => {
+        const $btn = $(btnElem);
+        $btn.prop('disabled', true).addClass('layui-btn-disabled');
+        const loadIdx = layer.msg('正在保存...', {
+          icon: 16,
+          time: 0,
+          shade: 0.1
         });
+
+        fetch('/admin/api/settings/update', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify(payload)
+        })
+          .then(resp => resp.json())
+          .then(res => {
+            if (res.code === 0) {
+              layer.msg(res.msg || successMsg, { icon: 1, time: 1000 });
+              // 更新本地缓存，合并新保存的设置
+              originalSettings = { ...originalSettings, ...payload };
+            } else {
+              layer.msg(res.msg || '保存失败', { icon: 2 });
+            }
+          })
+          .catch(err => {
+            console.error('保存设置失败:', err);
+            var msg = '网络错误，保存失败';
+            if (err.response && err.response.data && err.response.data.msg) {
+                msg = err.response.data.msg;
+            } else if (err.message) {
+                msg = err.message;
+            }
+            layer.msg(msg, { icon: 2 });
+          })
+          .finally(() => {
+            layer.close(loadIdx);
+            $btn.prop('disabled', false).removeClass('layui-btn-disabled');
+          });
       };
 
       /**
-       * 处理“重置”点击
-       * - 恢复为上次加载的 originalSettings
+       * 绑定各个分块的保存按钮
        */
-      const handleReset = () => {
-        fillForms(originalSettings);
-        layer.msg('已恢复到上次加载的值', { icon: 1, time: 800 });
+      form.on('submit(save_system)', function(data){
+        submitSettings(collectForm('#systemForm'), data.elem, '安全配置已保存');
+        return false;
+      });
+      form.on('submit(save_cookie)', function(data){
+        submitSettings(collectForm('#cookieForm'), data.elem, 'Cookie设置已保存');
+        return false;
+      });
+      form.on('submit(save_cleanup)', function(data){
+        submitSettings(collectForm('#logCleanupForm'), data.elem, '清理策略已保存');
+        return false;
+      });
+      form.on('submit(save_basic)', function(data){
+        submitSettings(collectForm('#basicForm'), data.elem, '基本信息已保存');
+        return false;
+      });
+      form.on('submit(save_footer)', function(data){
+        submitSettings(collectForm('#footerForm'), data.elem, '页脚备案已保存');
+        return false;
+      });
+
+      /**
+       * 处理各个分块的重置按钮
+       */
+      $(document).on('click', '.reset-btn', function() {
+        const type = $(this).data('type');
+        switch (type) {
+          case 'system':
+            fillSystem(originalSettings);
+            break;
+          case 'cookie':
+            fillCookie(originalSettings);
+            break;
+          case 'cleanup':
+            fillCleanup(originalSettings);
+            break;
+          case 'basic':
+            fillBasic(originalSettings);
+            break;
+          case 'footer':
+            fillFooter(originalSettings);
+            break;
+        }
+        form.render();
+        layer.msg('已恢复该部分默认值', { icon: 1, time: 800 });
+      });
+      
+      /**
+       * 生成安全密钥
+       */
+      const generateKey = async (type) => {
+        try {
+          const loadIdx = layer.load(2);
+          const res = await fetch(`/admin/api/settings/generate_key?type=${type}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+          });
+          const data = await res.json();
+          layer.close(loadIdx);
+          
+          if (data.code === 0) {
+            if (type === 'jwt') {
+              $('[name="jwt_secret"]').val(data.data.key);
+            } else if (type === 'encryption') {
+              $('[name="encryption_key"]').val(data.data.key);
+            }
+            layer.msg('生成成功', { icon: 1 });
+          } else {
+            layer.msg(data.msg || '生成失败', { icon: 2 });
+          }
+        } catch (err) {
+          console.error('生成密钥失败:', err);
+          layer.closeAll('loading');
+          layer.msg('网络错误', { icon: 2 });
+        }
       };
 
-      // 事件绑定
-      $('#saveAllBtn').off('click').on('click', handleSaveAll);
-      $('#resetBtn').off('click').on('click', handleReset);
+      $('#generateJwtBtn').on('click', () => generateKey('jwt'));
+      $('#generateEncBtn').on('click', () => generateKey('encryption'));
 
       // 初始化：加载设置
       loadSettings();

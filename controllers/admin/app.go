@@ -1,12 +1,12 @@
 package admin
 
 import (
+	"NetworkAuth/controllers"
+	"NetworkAuth/models"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"net/http"
-	"networkDev/controllers"
-	"networkDev/models"
 	"strconv"
 	"strings"
 
@@ -247,7 +247,7 @@ func AppResetSecretHandler(c *gin.Context) {
 		return
 	}
 
-	logrus.WithField("app_uuid", app.UUID).Info("Successfully reset app secret")
+	logrus.WithField("app_uuid", app.UUID).Debug("Successfully reset app secret")
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
@@ -295,7 +295,7 @@ func AppCreateHandler(c *gin.Context) {
 		"download_type": req.DownloadType,
 		"download_url":  req.DownloadURL,
 		"force_update":  req.ForceUpdate,
-	}).Info("Received app create request")
+	}).Debug("Received app create request")
 
 	// 创建应用
 	app := models.App{
@@ -344,8 +344,9 @@ func AppCreateHandler(c *gin.Context) {
 		tx.Rollback()
 		logrus.WithError(err).Error("Failed to create app")
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 1,
-			"msg":  "创建应用失败",
+			"code":  1,
+			"msg":   "创建应用失败: " + err.Error(),
+			"error": err.Error(),
 		})
 		return
 	}
@@ -384,7 +385,7 @@ func AppCreateHandler(c *gin.Context) {
 		return
 	}
 
-	logrus.WithField("app_uuid", app.UUID).Info("Successfully created app with default APIs")
+	logrus.WithField("app_uuid", app.UUID).Debug("Successfully created app with default APIs")
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
@@ -460,7 +461,7 @@ func AppUpdateHandler(c *gin.Context) {
 		return
 	}
 
-	logrus.WithField("app_id", app.ID).Info("Successfully updated app")
+	logrus.WithField("app_id", app.ID).Debug("Successfully updated app")
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
@@ -557,7 +558,7 @@ func AppDeleteHandler(c *gin.Context) {
 	logrus.WithFields(logrus.Fields{
 		"app_id":   app.ID,
 		"app_uuid": app.UUID,
-	}).Info("Successfully deleted app and related APIs")
+	}).Debug("Successfully deleted app and related APIs")
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
@@ -629,7 +630,7 @@ func AppUpdateAppDataHandler(c *gin.Context) {
 	logrus.WithFields(logrus.Fields{
 		"app_uuid": req.UUID,
 		"app_name": app.Name,
-	}).Info("App data updated successfully")
+	}).Debug("App data updated successfully")
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
@@ -701,7 +702,7 @@ func AppUpdateAnnouncementHandler(c *gin.Context) {
 	logrus.WithFields(logrus.Fields{
 		"app_uuid": req.UUID,
 		"app_name": app.Name,
-	}).Info("App announcement updated successfully")
+	}).Debug("App announcement updated successfully")
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
@@ -870,7 +871,7 @@ func AppUpdateMultiConfigHandler(c *gin.Context) {
 	logrus.WithFields(logrus.Fields{
 		"app_uuid": req.UUID,
 		"app_name": app.Name,
-	}).Info("App multi config updated successfully")
+	}).Debug("App multi config updated successfully")
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
@@ -1023,7 +1024,7 @@ func AppUpdateBindConfigHandler(c *gin.Context) {
 	logrus.WithFields(logrus.Fields{
 		"app_uuid": req.UUID,
 		"app_name": app.Name,
-	}).Info("App bind config updated successfully")
+	}).Debug("App bind config updated successfully")
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
@@ -1161,7 +1162,7 @@ func AppUpdateRegisterConfigHandler(c *gin.Context) {
 	logrus.WithFields(logrus.Fields{
 		"app_uuid": req.UUID,
 		"app_name": app.Name,
-	}).Info("App register config updated successfully")
+	}).Debug("App register config updated successfully")
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
@@ -1265,7 +1266,7 @@ func AppsBatchDeleteHandler(c *gin.Context) {
 	logrus.WithFields(logrus.Fields{
 		"app_ids":   req.IDs,
 		"app_uuids": appUUIDs,
-	}).Info("Successfully batch deleted apps and related APIs")
+	}).Debug("Successfully batch deleted apps and related APIs")
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,

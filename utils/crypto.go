@@ -11,7 +11,6 @@ import (
 	"io"
 	"sync"
 
-	"github.com/spf13/viper"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -38,28 +37,26 @@ var cryptoManager = &CryptoManager{}
 // 私有函数
 // ============================================================================
 
-// initCrypto 初始化加密管理器
-// 缓存密钥和GCM实例，避免重复创建
-func (cm *CryptoManager) initCrypto() error {
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
+// InitEncryption 初始化加密管理器
+// 必须在应用启动时调用，传入加密密钥
+func InitEncryption(secret string) error {
+	cryptoManager.mutex.Lock()
+	defer cryptoManager.mutex.Unlock()
 
-	if cm.inited {
+	if cryptoManager.inited {
 		return nil
 	}
 
-	// 从配置中获取密钥
-	secret := viper.GetString("encryption_key")
 	if secret == "" {
-		secret = "default-secret"
+		return errors.New("加密密钥不能为空")
 	}
 
 	// 生成AES密钥
 	sum := sha256.Sum256([]byte(secret))
-	cm.key = sum[:]
+	cryptoManager.key = sum[:]
 
 	// 创建AES cipher
-	block, err := aes.NewCipher(cm.key)
+	block, err := aes.NewCipher(cryptoManager.key)
 	if err != nil {
 		return err
 	}
@@ -70,8 +67,19 @@ func (cm *CryptoManager) initCrypto() error {
 		return err
 	}
 
-	cm.gcm = gcm
-	cm.inited = true
+	cryptoManager.gcm = gcm
+	cryptoManager.inited = true
+	return nil
+}
+
+// initCrypto 检查加密管理器是否已初始化
+func (cm *CryptoManager) initCrypto() error {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	if !cm.inited {
+		return errors.New("加密管理器未初始化，请先调用InitEncryption")
+	}
 	return nil
 }
 

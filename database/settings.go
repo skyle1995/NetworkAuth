@@ -1,11 +1,11 @@
 package database
 
 import (
-	"networkDev/models"
-	"networkDev/utils"
+	"NetworkAuth/config"
+	"NetworkAuth/models"
+	"NetworkAuth/utils"
 
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 // ============================================================================
@@ -21,32 +21,89 @@ func SeedDefaultSettings() error {
 		return err
 	}
 
+	// 生成安全的随机密钥
+	jwtSecret, err := config.GenerateSecureJWTSecret()
+	if err != nil {
+		return err
+	}
+	encryptionKey, err := config.GenerateSecureEncryptionKey()
+	if err != nil {
+		return err
+	}
+
+	// 生成默认管理员密码（admin123）的盐值和哈希
+	// 这样可以确保admin_password和admin_password_salt在初始化时就有值
+	adminSalt, err := utils.GenerateRandomSalt()
+	if err != nil {
+		return err
+	}
+	adminPasswordHash, err := utils.HashPasswordWithSalt("admin123", adminSalt)
+	if err != nil {
+		return err
+	}
+
+	// 检查是否已有 admin_password，如果有，说明是旧版本升级，应该把 is_installed 默认设为 1
+	var adminPwdCount int64
+	db.Model(&models.Settings{}).Where("name = ?", "admin_password").Count(&adminPwdCount)
+	isInstalledDefault := "0"
+	if adminPwdCount > 0 {
+		isInstalledDefault = "1"
+	}
+
 	// 定义默认设置项
 	defaultSettings := []models.Settings{
+		// ===== 系统安装状态 =====
 		{
-			Name:        "site_title",
-			Value:       "凌动技术",
-			Description: "网站标题，显示在浏览器标题栏和页面顶部",
+			Name:        "is_installed",
+			Value:       isInstalledDefault,
+			Description: "系统是否已初始化安装，0=未安装，1=已安装",
+		},
+		// ===== 管理员账号相关默认项 =====
+		{
+			Name:        "admin_username",
+			Value:       "admin",
+			Description: "管理员用户名",
 		},
 		{
-			Name:        "site_keywords",
-			Value:       "验证,网络,管理系统,网络验证,卡密管理,账户管理",
-			Description: "网站关键词，用于SEO优化，多个关键词用逗号分隔",
+			Name:        "admin_password",
+			Value:       adminPasswordHash,
+			Description: "管理员密码哈希值",
 		},
 		{
-			Name:        "site_description",
-			Value:       "专业的网络验证管理系统，提供便捷的在线网络验证服务和设备管理功能",
-			Description: "网站描述，用于SEO优化和社交媒体分享",
+			Name:        "admin_password_salt",
+			Value:       adminSalt,
+			Description: "管理员密码加密盐值",
+		},
+		// ===== 系统和安全相关默认项 =====
+		{
+			Name:        "maintenance_mode",
+			Value:       "0",
+			Description: "维护模式，0=关闭维护模式，1=开启维护模式",
 		},
 		{
-			Name:        "site_logo",
-			Value:       "/favicon.ico",
-			Description: "网站Logo图片路径",
+			Name:        "encryption_key",
+			Value:       encryptionKey,
+			Description: "数据加密密钥",
 		},
 		{
-			Name:        "contact_email",
-			Value:       "admin@example.com",
-			Description: "联系邮箱，用于客服和业务咨询",
+			Name:        "jwt_secret",
+			Value:       jwtSecret,
+			Description: "JWT签名密钥",
+		},
+		{
+			Name:        "jwt_refresh",
+			Value:       "6",
+			Description: "JWT令牌刷新阈值（小时）",
+		},
+		{
+			Name:        "jwt_expire",
+			Value:       "24",
+			Description: "JWT令牌有效期（小时）",
+		},
+		{
+			Name:        "session_timeout",
+			Value:       "3600",
+			Description: "会话超时时间（秒），默认1小时",
 		},
 		{
 			Name:        "max_upload_size",
@@ -58,41 +115,83 @@ func SeedDefaultSettings() error {
 			Value:       "1",
 			Description: "新用户默认角色，0=管理员，1=普通用户",
 		},
+		// ===== 日志清理策略默认项 =====
 		{
-			Name:        "session_timeout",
-			Value:       "3600",
-			Description: "会话超时时间（秒），默认1小时",
+			Name:        "login_log_cleanup_days",
+			Value:       "30",
+			Description: "登录日志保留天数（0表示不按天清理）",
 		},
 		{
-			Name:        "maintenance_mode",
-			Value:       "0",
-			Description: "维护模式，0=关闭维护模式，1=开启维护模式",
-		},
-		// ===== 管理员账号相关默认项 =====
-		{
-			Name:        "admin_username",
-			Value:       "admin",
-			Description: "管理员用户名",
+			Name:        "login_log_cleanup_limit",
+			Value:       "10000",
+			Description: "登录日志保留条数（0表示不按数量清理）",
 		},
 		{
-			Name:        "admin_password",
+			Name:        "operation_log_cleanup_days",
+			Value:       "30",
+			Description: "操作日志保留天数（0表示不按天清理）",
+		},
+		{
+			Name:        "operation_log_cleanup_limit",
+			Value:       "10000",
+			Description: "操作日志保留条数（0表示不按数量清理）",
+		},
+		// ===== Cookie相关默认项 =====
+		{
+			Name:        "cookie_secure",
+			Value:       "true",
+			Description: "Cookie Secure属性（是否只在HTTPS下发送）",
+		},
+		{
+			Name:        "cookie_same_site",
+			Value:       "Lax",
+			Description: "Cookie SameSite属性（Strict/Lax/None）",
+		},
+		{
+			Name:        "cookie_domain",
 			Value:       "",
-			Description: "管理员密码哈希值",
+			Description: "Cookie域名",
 		},
 		{
-			Name:        "admin_password_salt",
-			Value:       "",
-			Description: "管理员密码加密盐值",
+			Name:        "cookie_max_age",
+			Value:       "86400",
+			Description: "Cookie最大存活时间（秒）",
+		},
+		// ===== 站点基本信息默认项 =====
+		{
+			Name:        "site_title",
+			Value:       "NetworkAuth",
+			Description: "网站标题，显示在浏览器标题栏和页面顶部",
+		},
+		{
+			Name:        "site_keywords",
+			Value:       "NetworkAuth,鉴权,API管理,GoLang",
+			Description: "网站关键词，用于SEO优化，多个关键词用逗号分隔",
+		},
+		{
+			Name:        "site_description",
+			Value:       "NetworkAuth 网络授权服务，专注于应用鉴权与接口管理",
+			Description: "网站描述，用于SEO优化和社交媒体分享",
+		},
+		{
+			Name:        "site_logo",
+			Value:       "/static/logo.png",
+			Description: "网站Logo图片路径",
+		},
+		{
+			Name:        "contact_email",
+			Value:       "admin@example.com",
+			Description: "联系邮箱，用于客服和业务咨询",
 		},
 		// ===== 页脚与备案相关默认项 =====
 		{
 			Name:        "footer_text",
-			Value:       "Copyright © 2025 凌动技术. All Rights Reserved.",
+			Value:       "Copyright © 2026 NetworkAuth. All Rights Reserved.",
 			Description: "页脚展示的版权或说明信息",
 		},
 		{
 			Name:        "icp_record",
-			Value:       "京ICP备12345678号",
+			Value:       "",
 			Description: "ICP备案号，留空则不显示",
 		},
 		{
@@ -102,12 +201,12 @@ func SeedDefaultSettings() error {
 		},
 		{
 			Name:        "psb_record",
-			Value:       "京公网安备 11000002000001号",
+			Value:       "",
 			Description: "公安备案号，留空则不显示",
 		},
 		{
 			Name:        "psb_record_link",
-			Value:       "https://www.beian.gov.cn/portal/registerSystemInfo?recordcode=11000002000001",
+			Value:       "",
 			Description: "公安备案查询链接，留空则不显示",
 		},
 	}
@@ -128,59 +227,6 @@ func SeedDefaultSettings() error {
 		}
 	}
 
-	// 初始化默认管理员账号（如果密码为空）
-	if err := initDefaultAdmin(db); err != nil {
-		return err
-	}
-
 	logrus.Info("默认系统设置初始化完成")
-	return nil
-}
-
-// ============================================================================
-// 私有函数
-// ============================================================================
-
-// initDefaultAdmin 初始化默认管理员账号
-// 如果admin_password为空，则生成默认密码admin123的哈希值
-func initDefaultAdmin(db *gorm.DB) error {
-	var passwordSetting models.Settings
-	if err := db.Where("name = ?", "admin_password").First(&passwordSetting).Error; err != nil {
-		logrus.WithError(err).Error("获取管理员密码设置失败")
-		return err
-	}
-
-	// 如果密码已设置，跳过初始化
-	if passwordSetting.Value != "" {
-		logrus.Debug("管理员密码已设置，跳过默认密码初始化")
-		return nil
-	}
-
-	// 生成密码盐值
-	salt, err := utils.GenerateRandomSalt()
-	if err != nil {
-		logrus.WithError(err).Error("生成密码盐值失败")
-		return err
-	}
-
-	// 使用盐值生成密码哈希（默认密码：admin123）
-	hash, err := utils.HashPasswordWithSalt("admin123", salt)
-	if err != nil {
-		logrus.WithError(err).Error("生成密码哈希失败")
-		return err
-	}
-
-	// 更新密码和盐值
-	if err := db.Model(&models.Settings{}).Where("name = ?", "admin_password").Update("value", hash).Error; err != nil {
-		logrus.WithError(err).Error("更新管理员密码失败")
-		return err
-	}
-
-	if err := db.Model(&models.Settings{}).Where("name = ?", "admin_password_salt").Update("value", salt).Error; err != nil {
-		logrus.WithError(err).Error("更新管理员密码盐值失败")
-		return err
-	}
-
-	logrus.Info("默认管理员账号初始化完成，用户名: admin, 密码: admin123")
 	return nil
 }

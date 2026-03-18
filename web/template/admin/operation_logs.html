@@ -1,0 +1,165 @@
+{{ define "operation_logs.html" }}
+<section>
+  <h2>日志操作</h2>
+  <div class="layui-panel" style="margin-top:12px">
+    <h3 style="margin: 0; padding: 15px 20px; border-bottom: 1px solid var(--lay-color-border-2); padding-bottom: 10px; margin-bottom: 15px;">筛选</h3>
+    <div style="padding: 20px;">
+      <form class="layui-form layui-form-pane" id="operationLogFilterForm" lay-filter="operationLogFilterForm">
+        <div class="layui-form-item">
+          <div class="layui-inline">
+            <label class="layui-form-label">日期范围</label>
+            <div class="layui-input-inline" style="width: 200px;">
+              <input type="text" class="layui-input" id="operationTimeRange" placeholder=" - " autocomplete="off">
+              <input type="hidden" name="operation_start_time" id="operation_start_time">
+              <input type="hidden" name="operation_end_time" id="operation_end_time">
+            </div>
+          </div>
+          <div class="layui-inline">
+            <label class="layui-form-label">操作方式</label>
+            <div class="layui-input-inline">
+              <input type="text" name="operation_type" placeholder="请输入操作方式" autocomplete="off" class="layui-input">
+            </div>
+          </div>
+          <div class="layui-inline">
+            <label class="layui-form-label">操作账号</label>
+            <div class="layui-input-inline">
+              <input type="text" name="operator" placeholder="请输入操作账号" autocomplete="off" class="layui-input">
+            </div>
+          </div>
+          <div class="layui-inline">
+            <label class="layui-form-label">交易ID</label>
+            <div class="layui-input-inline">
+              <input type="text" name="transaction_id" placeholder="请输入交易ID" autocomplete="off" class="layui-input">
+            </div>
+          </div>
+          <div class="layui-inline">
+            <button type="button" class="layui-btn" id="btnSearchOperationLogs">搜索</button>
+            <button type="button" class="layui-btn layui-btn-primary" id="btnResetOperationLogs">重置</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="layui-panel" style="margin-top:12px">
+    <h3 style="margin: 0; padding: 15px 20px; border-bottom: 1px solid var(--lay-color-border-2); padding-bottom: 10px; margin-bottom: 15px;">日志列表</h3>
+    <div style="padding: 20px;">
+      <script type="text/html" id="operationLogsToolbar">
+        <div class="layui-btn-container">
+          <button class="layui-btn layui-btn-sm layui-btn-danger" lay-event="clearLogs">
+            <i class="layui-icon layui-icon-delete"></i> 清空日志
+          </button>
+        </div>
+      </script>
+      <table id="operationLogsTable" lay-filter="operationLogsTableFilter"></table>
+    </div>
+  </div>
+</section>
+
+<script>
+layui.use(['table', 'form', 'laydate', 'util', 'jquery'], function(){
+  var table = layui.table;
+  var form = layui.form;
+  var laydate = layui.laydate;
+  var util = layui.util;
+  var $ = layui.jquery;
+  
+  // 日期范围选择器
+  laydate.render({
+    elem: '#operationTimeRange',
+    range: true,
+    type: 'datetime',
+    format: 'yyyy-MM-dd HH:mm:ss',
+    done: function(value, date, endDate){
+       if(value) {
+           const dates = value.split(' - ');
+           $('#operation_start_time').val(dates[0]);
+           $('#operation_end_time').val(dates[1]);
+       } else {
+           $('#operation_start_time').val('');
+           $('#operation_end_time').val('');
+       }
+    }
+  });
+
+  // 渲染表格
+  var operationLogsTable = table.render({
+    elem: '#operationLogsTable',
+    url: '/admin/api/logs',
+    toolbar: '#operationLogsToolbar',
+    page: true,
+    limit: 20,
+    limits: [10, 20, 50, 100, 200, 500, 1000],
+    cols: [[
+      {field: 'app_name', title: '应用名称', minWidth: 150},
+      {field: 'product_name', title: '商品名称', minWidth: 150},
+      {field: 'transaction_id', title: '交易ID', width: 280},
+      {field: 'operator', title: '操作账号', minWidth: 150},
+      {field: 'operation_type', title: '操作方式', minWidth: 150},
+      {field: 'details', title: '日志内容', minWidth: 200},
+      {field: 'created_at', title: '创建时间', width: 180, templet: function(d){
+        return util.toDateString(d.created_at);
+      }}
+    ]],
+    response: {
+      statusName: 'code',
+      statusCode: 0,
+      msgName: 'msg',
+      countName: 'count', // 解析数据长度的字段名称
+      dataName: 'data' // 解析数据列表的字段名称
+    },
+    parseData: function(res) { // 将原始数据格式解析成 table 组件所规定的数据格式
+      return {
+        "code": res.code, // 解析接口状态
+        "msg": res.msg, // 解析提示文本
+        "count": res.data ? res.data.total : 0, // 解析数据长度
+        "data": res.data ? res.data.list : [] // 解析数据列表
+      };
+    }
+  });
+  
+  // 搜索按钮
+  $('#btnSearchOperationLogs').on('click', function(){
+    const formData = form.val('operationLogFilterForm');
+    operationLogsTable.reload({
+      where: {
+        operation_type: formData.operation_type,
+        operator: formData.operator,
+        transaction_id: formData.transaction_id,
+        start_time: $('#operation_start_time').val(),
+        end_time: $('#operation_end_time').val()
+      },
+      page: {curr: 1}
+    });
+  });
+
+  // 头工具栏事件
+  table.on('toolbar(operationLogsTableFilter)', function(obj){
+    switch(obj.event){
+      case 'clearLogs':
+        layer.confirm('确定要清空所有日志吗？此操作不可恢复！', {icon: 3, title:'警告'}, function(index){
+          $.post('/admin/api/logs/clear', function(res){
+            if(res.code === 0){
+              layer.msg('日志已清空', {icon: 1});
+              operationLogsTable.reload({page: {curr: 1}});
+            } else {
+              layer.msg(res.msg || '清空失败', {icon: 2});
+            }
+          });
+          layer.close(index);
+        });
+      break;
+    };
+  });
+
+  // 重置按钮
+  $('#btnResetOperationLogs').on('click', function(){
+    $('#operationLogFilterForm')[0].reset();
+    $('#operation_start_time').val('');
+    $('#operation_end_time').val('');
+    $('#operationTimeRange').val('');
+    $('#btnSearchOperationLogs').click();
+  });
+});
+</script>
+{{ end }}

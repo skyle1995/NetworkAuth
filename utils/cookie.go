@@ -3,8 +3,6 @@ package utils
 import (
 	"net/http"
 	"time"
-
-	"github.com/spf13/viper"
 )
 
 // ============================================================================
@@ -15,7 +13,10 @@ import (
 // name: Cookie名称
 // value: Cookie值
 // maxAge: 过期时间（秒），0表示会话Cookie，-1表示立即过期
-func CreateSecureCookie(name, value string, maxAge int) *http.Cookie {
+// domain: Cookie域名
+// secure: 是否只在HTTPS下发送
+// sameSiteStr: SameSite属性（Strict/Lax/None）
+func CreateSecureCookie(name, value string, maxAge int, domain string, secure bool, sameSiteStr string) *http.Cookie {
 	cookie := &http.Cookie{
 		Name:     name,
 		Value:    value,
@@ -24,14 +25,13 @@ func CreateSecureCookie(name, value string, maxAge int) *http.Cookie {
 		MaxAge:   maxAge,
 	}
 
-	// 从配置读取安全设置
-	if viper.GetBool("security.cookie.secure") {
+	// 设置安全属性
+	if secure {
 		cookie.Secure = true
 	}
 
 	// 设置SameSite属性
-	sameSite := viper.GetString("security.cookie.same_site")
-	switch sameSite {
+	switch sameSiteStr {
 	case "Strict":
 		cookie.SameSite = http.SameSiteStrictMode
 	case "Lax":
@@ -44,8 +44,7 @@ func CreateSecureCookie(name, value string, maxAge int) *http.Cookie {
 		cookie.SameSite = http.SameSiteStrictMode
 	}
 
-	// 设置Domain（如果配置了）
-	domain := viper.GetString("security.cookie.domain")
+	// 设置Domain
 	if domain != "" {
 		cookie.Domain = domain
 	}
@@ -62,24 +61,11 @@ func CreateSecureCookie(name, value string, maxAge int) *http.Cookie {
 }
 
 // CreateSessionCookie 创建会话Cookie（浏览器关闭时过期）
-func CreateSessionCookie(name, value string) *http.Cookie {
-	return CreateSecureCookie(name, value, 0)
+func CreateSessionCookie(name, value string, domain string, secure bool, sameSiteStr string) *http.Cookie {
+	return CreateSecureCookie(name, value, 0, domain, secure, sameSiteStr)
 }
 
 // CreateExpiredCookie 创建立即过期的Cookie（用于清理）
-func CreateExpiredCookie(name string) *http.Cookie {
-	return CreateSecureCookie(name, "", -1)
-}
-
-// ============================================================================
-// 配置函数
-// ============================================================================
-
-// GetDefaultCookieMaxAge 获取默认Cookie过期时间
-func GetDefaultCookieMaxAge() int {
-	maxAge := viper.GetInt("security.cookie.max_age")
-	if maxAge <= 0 {
-		return 86400 // 默认24小时
-	}
-	return maxAge
+func CreateExpiredCookie(name string, domain string) *http.Cookie {
+	return CreateSecureCookie(name, "", -1, domain, false, "Lax")
 }

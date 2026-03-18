@@ -3,17 +3,6 @@ wc-include{padding: 15px;display: block;}
 .layui-layout-right .layui-nav-bar {background-color: unset !important;}
 .layui-layout-admin .layui-side {top: 0 !important;z-index: 1001;}
 .layui-layout-admin .layui-logo {position: relative !important;height: 60px !important;top: -2px !important;}
-
-/* Logo文字美化样式 */
-.logo-enhanced {
-  font-family: 'Microsoft YaHei', 'PingFang SC', 'Helvetica Neue', Arial, sans-serif !important;
-  font-size: 18px !important;
-  font-weight: 600 !important;
-  color: #ffffff !important;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.3) !important;
-  letter-spacing: 1px !important;
-}
-
 .layui-side,
 .layui-header,
 .layui-body,

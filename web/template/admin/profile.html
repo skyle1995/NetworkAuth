@@ -1,0 +1,237 @@
+{{ define "profile.html" }}
+<div class="layui-card">
+  <div class="layui-card-header">个人资料</div>
+  <div class="layui-card-body">
+    <form class="layui-form" id="accountForm" lay-filter="accountForm" onsubmit="return false">
+      <!-- 按照要求纵向排序：用户名、旧密码、新密码、确认新密码 -->
+      <div class="layui-form-item">
+        <label class="layui-form-label">用户名</label>
+        <div class="layui-input-block">
+          <input type="text" name="username" placeholder="请输入用户名（不修改可留空或保持不变）" autocomplete="off" class="layui-input" />
+        </div>
+      </div>
+
+      <div class="layui-form-item">
+        <label class="layui-form-label">旧密码</label>
+        <div class="layui-input-block">
+          <!-- 不修改密码时可留空 -->
+          <input type="password" name="old_password" placeholder="不修改可留空" autocomplete="off" class="layui-input">
+        </div>
+      </div>
+
+      <div class="layui-form-item">
+        <label class="layui-form-label">新密码</label>
+        <div class="layui-input-block">
+          <!-- 不修改密码时可留空 -->
+          <input type="password" name="new_password" placeholder="不修改可留空（至少6位）" autocomplete="off" class="layui-input">
+        </div>
+      </div>
+
+      <div class="layui-form-item">
+        <label class="layui-form-label">确认密码</label>
+        <div class="layui-input-block">
+          <!-- 不修改密码时可留空 -->
+          <input type="password" name="confirm_password" placeholder="不修改可留空" autocomplete="off" class="layui-input">
+        </div>
+      </div>
+
+      <div class="layui-form-item">
+        <div class="layui-input-block">
+          <button class="layui-btn" lay-submit lay-filter="submitAccount">保存更改</button>
+          <!-- 将原先 type="reset" 改为自定义按钮，避免浏览器重置成初始空值 -->
+          <button type="button" id="btnReset" class="layui-btn layui-btn-primary">重置</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// 使用自执行函数创建局部作用域，避免与其他页面脚本发生全局命名冲突
+(() => {
+  // 等待layui加载完成
+  function waitForLayui(callback) {
+    if (typeof layui !== 'undefined') {
+      callback();
+    } else {
+      setTimeout(() => waitForLayui(callback), 100);
+    }
+  }
+
+  waitForLayui(() => {
+    layui.use(['form', 'layer'], () => {
+      const form = layui.form
+      const layer = layui.layer
+
+      // 记录初始用户名，用于判断是否需要更新
+      let initialUsername = ''
+      // 缓存最近一次加载到表单中的资料，用于“重置”恢复
+      let lastProfile = null
+
+      // 加载个人资料：填充用户名
+      // 返回：无；副作用：设置 initialUsername、lastProfile 与表单值
+      const loadProfile = async () => {
+        try {
+          const res = await fetch('/admin/api/profile/info', {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+          })
+          const data = await res.json()
+          const ok = (data.success === true) || (data.code === 0)
+          if (!ok) throw new Error(data.message || data.msg || '加载失败')
+          const payload = data.data || {}
+          initialUsername = payload.username || ''
+          
+          const display = { ...payload }
+          lastProfile = display
+          form.val('accountForm', display)
+        } catch (e) {
+          layer.msg(e.message || '加载个人资料失败', { icon: 2 })
+        }
+      }
+
+      // 校验密码表单：当任一密码字段填写时，要求三个字段均填写且有效
+      // 返回：{ ok: boolean, msg?: string }
+      const validatePassword = (fields) => {
+        const oldPwd = (fields.old_password || '').trim()
+        const newPwd = (fields.new_password || '').trim()
+        const confirmPwd = (fields.confirm_password || '').trim()
+        const anyFilled = !!(oldPwd || newPwd || confirmPwd)
+        if (!anyFilled) return { ok: true }
+        if (!oldPwd || !newPwd || !confirmPwd) return { ok: false, msg: '请完整填写旧密码/新密码/确认新密码' }
+        if (newPwd.length < 6) return { ok: false, msg: '新密码长度不能少于6位' }
+        if (newPwd !== confirmPwd) return { ok: false, msg: '两次输入的新密码不一致' }
+        if (oldPwd === newPwd) return { ok: false, msg: '新密码不能与旧密码相同' }
+        return { ok: true }
+      }
+
+      // 更新用户名：传输 username 与 old_password（当仅修改用户名时必须提供当前密码；同时修改密码时沿用同一 old_password）
+      // 返回：Promise<void>
+      const updateUsername = async (username, oldPassword) => {
+        const payload = { username }
+        if (oldPassword) payload.old_password = oldPassword
+        const res = await fetch('/admin/api/profile/update', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify(payload)
+        })
+        const data = await res.json()
+        const ok = (data.success === true) || (data.code === 0)
+        if (!ok) throw new Error(data.message || data.msg || '保存资料失败')
+      }
+
+      // 更新密码：仅传输旧/新/确认三个字段
+      // 返回：Promise<any> 后端响应数据，用于可能的重定向处理
+      const updatePassword = async (fields) => {
+        const payload = {
+          old_password: fields.old_password,
+          new_password: fields.new_password,
+          confirm_password: fields.confirm_password
+        }
+        const res = await fetch('/admin/api/profile/password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify(payload)
+        })
+        const data = await res.json()
+        const ok = (data.success === true) || (data.code === 0)
+        if (!ok) throw new Error(data.message || data.msg || '修改密码失败')
+        return data
+      }
+
+      // 提交综合更新：
+      // 规则：
+      // - 用户名：仅当与 initialUsername 不同且非空时更新
+      // - 密码：当任一密码字段填写时，要求完整校验并更新；若均未填则不更新
+      // - 若两者均无改动，则提示“未修改任何内容”
+      form.on('submit(submitAccount)', async (obj) => {
+        const fields = obj.field
+        const desiredUsername = (fields.username || '').trim()
+        const needUpdateUsername = desiredUsername && desiredUsername !== initialUsername
+
+        // 判定密码相关输入：
+        // - wantChangePassword：输入了新密码或确认密码，视为尝试修改密码（将要求三个字段都填写）
+        // - onlyOldProvided：仅输入了旧密码，用于支持“仅修改用户名需要当前密码”的场景
+        const hasOld = !!(fields.old_password && fields.old_password.trim())
+        const hasNewOrConfirm = !!((fields.new_password && fields.new_password.trim()) || (fields.confirm_password && fields.confirm_password.trim()))
+        const wantChangePassword = hasNewOrConfirm
+        const onlyOldProvided = hasOld && !hasNewOrConfirm
+
+        if (!needUpdateUsername && !wantChangePassword) {
+          layer.msg('未修改任何内容', { icon: 0 })
+          return false
+        }
+
+        // 修改密码场景：需进行严格校验（旧/新/确认均必填）
+        if (wantChangePassword) {
+          const pwdCheck = validatePassword(fields)
+          if (!pwdCheck.ok) {
+            layer.msg(pwdCheck.msg, { icon: 2 })
+            return false
+          }
+        }
+
+        // 仅修改用户名：要求输入当前密码
+        if (needUpdateUsername && !wantChangePassword && !hasOld) {
+          layer.msg('修改用户名需要输入当前密码', { icon: 2 })
+          return false
+        }
+
+        try {
+          // 始终先更新用户名，再更新密码（避免改密后跳转导致无法继续）
+          if (needUpdateUsername) {
+            await updateUsername(desiredUsername, hasOld ? fields.old_password : '')
+            initialUsername = desiredUsername
+          }
+
+          if (wantChangePassword) {
+            await updatePassword(fields)
+            layer.msg('密码修改成功', { icon: 1 })
+            // 清空密码框
+            form.val('accountForm', {
+              old_password: '',
+              new_password: '',
+              confirm_password: ''
+            })
+          } else {
+            // 未修改密码，仅修改资料
+            await loadProfile()
+            layer.msg('保存成功', { icon: 1 })
+          }
+        } catch (e) {
+          layer.msg(e.message || '保存失败', { icon: 2 })
+        }
+        return false
+      })
+
+      // 绑定“重置”按钮：将表单恢复为最近一次加载到表单中的资料
+      // 逻辑：
+      // - 如有 lastProfile，直接回填；
+      // - 回填时同时清空三个密码字段；
+      // - 如暂无缓存（极小概率），则重新请求资料
+      const bindReset = () => {
+        const btn = document.getElementById('btnReset')
+        if (!btn) return
+        btn.addEventListener('click', () => {
+          if (lastProfile) {
+            form.val('accountForm', { ...lastProfile, old_password: '', new_password: '', confirm_password: '' })
+            layer.msg('已恢复为当前资料', { icon: 1 })
+          } else {
+            loadProfile()
+          }
+        })
+      }
+
+      // 初始化加载
+      bindReset()
+      loadProfile()
+    })
+  })
+})()
+</script>
+{{ end }}

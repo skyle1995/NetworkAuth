@@ -1,9 +1,9 @@
 package cmd
 
 import (
+	"NetworkAuth/config"
+	"NetworkAuth/utils/logger"
 	"io"
-	"networkDev/config"
-	"networkDev/utils/logger"
 	"os"
 	"path/filepath"
 
@@ -13,22 +13,14 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// ============================================================================
-// 全局变量
-// ============================================================================
-
 var cfgFile string
-
-// ============================================================================
-// 命令定义
-// ============================================================================
 
 // rootCmd 代表没有调用子命令时的基础命令
 var rootCmd = &cobra.Command{
-	Use:   "networkDev",
-	Short: "一个基于Cobra的网络验证服务器应用",
-	Long: `networkDev是一个使用Cobra CLI框架构建的网络验证服务器应用，
-集成了Viper配置管理、Logrus日志记录和embed静态资源嵌入功能。`,
+	Use:   "NetworkAuth",
+	Short: "网络授权服务命令行工具",
+	Long: `网络授权服务 (NetworkAuth) 是一个专注于应用鉴权、接口管理和动态逻辑分发的后端系统。
+本命令行工具用于启动服务器、管理配置和执行维护任务。`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// 在加载配置前配置logrus用于非HTTP日志
 
@@ -36,10 +28,6 @@ var rootCmd = &cobra.Command{
 
 	},
 }
-
-// ============================================================================
-// 公共函数
-// ============================================================================
 
 // Execute 添加所有子命令到根命令并设置适当的标志
 // 这由main.main()调用。只需要对rootCmd执行一次。
@@ -56,10 +44,6 @@ func init() {
 	// 在这里定义标志和配置设置
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "配置文件路径 (默认为 config.json)")
 }
-
-// ============================================================================
-// 私有函数
-// ============================================================================
 
 // setupLogrusForNonHTTP 配置logrus用于非HTTP日志
 // 在加载配置文件之前进行基本的logrus设置
@@ -78,8 +62,10 @@ func setupLogrusForNonHTTP() {
 	// 设置输出目标（稍后会根据配置文件调整）
 	logrus.SetOutput(os.Stdout)
 	if cfgFile != "" {
+		// 使用命令行指定的配置文件
 		config.Init(cfgFile)
 	} else {
+		// 使用默认配置文件路径
 		config.Init("./config.json")
 	}
 
@@ -90,7 +76,7 @@ func setupLogrusForNonHTTP() {
 	logger.InitLogger()
 
 	// 记录配置加载完成
-	logrus.Info("配置文件加载完成")
+	logrus.WithField("file", viper.ConfigFileUsed()).Info("配置文件加载完成")
 }
 
 // initConfig 读取配置文件和环境变量

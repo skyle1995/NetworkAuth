@@ -7,20 +7,15 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
-	"networkDev/controllers"
-	"networkDev/middleware"
-	"networkDev/utils"
+	"NetworkAuth/middleware"
 
+	"github.com/gin-gonic/gin"
 	"github.com/mojocn/base64Captcha"
 )
 
 // ============================================================================
 // 全局变量
 // ============================================================================
-
-// 创建基础控制器实例
-var captchaBaseController = controllers.NewBaseController()
 
 // 全局验证码存储器
 var store = base64Captcha.DefaultMemStore
@@ -49,7 +44,7 @@ func CaptchaHandler(c *gin.Context) {
 	// 使用crypto/rand生成安全的随机数
 	randomNum, err := secureRandomInt(3)
 	if err != nil {
-		captchaBaseController.HandleInternalError(c, "生成随机数失败", err)
+		c.String(http.StatusInternalServerError, "生成随机数失败")
 		return
 	}
 	captchaLength := 4 + randomNum // 4-6位随机长度
@@ -62,37 +57,31 @@ func CaptchaHandler(c *gin.Context) {
 		ShowLineOptions: 2 | 4,
 		Length:          captchaLength,
 		Source:          "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789", // 混合大小写字母和数字，去除易混淆字符
-		Fonts:           []string{"wqy-microhei.ttc"},
 	}
 
 	// 生成验证码
 	captcha := base64Captcha.NewCaptcha(&driver, store)
 	id, b64s, _, err := captcha.Generate()
 	if err != nil {
-		captchaBaseController.HandleInternalError(c, "生成验证码失败", err)
+		c.String(http.StatusInternalServerError, "生成验证码失败")
 		return
 	}
 
-	// 将验证码ID存储到session中（这里简化处理，实际项目中应该使用更安全的方式）
-	// 设置cookie来存储验证码ID
-	cookie := utils.CreateSecureCookie("captcha_id", id, 300) // 5分钟过期
-	c.SetCookie(cookie.Name, cookie.Value, cookie.MaxAge, cookie.Path, cookie.Domain, cookie.Secure, cookie.HttpOnly)
+	// 将验证码ID存储到Cookie中
+	c.SetCookie("captcha_id", id, 300, "/", "", false, true)
 
-	// 解码base64图片数据并返回
+	// 设置响应头
 	c.Header("Content-Type", "image/png")
 	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
 	c.Header("Pragma", "no-cache")
 	c.Header("Expires", "0")
-
-	// 直接返回base64编码的图片数据，让浏览器解析
-	// 但是我们需要返回实际的图片数据，所以需要解码base64
 
 	// 去掉data:image/png;base64,前缀
 	b64s = strings.TrimPrefix(b64s, "data:image/png;base64,")
 
 	imgData, err := base64.StdEncoding.DecodeString(b64s)
 	if err != nil {
-		captchaBaseController.HandleInternalError(c, "解码验证码图片失败", err)
+		c.String(http.StatusInternalServerError, "解码验证码图片失败")
 		return
 	}
 
@@ -110,11 +99,7 @@ func VerifyCaptcha(c *gin.Context, captchaValue string) bool {
 
 	// 从cookie中获取验证码ID
 	captchaId, err := c.Cookie("captcha_id")
-	if err != nil {
-		return false
-	}
-
-	if captchaId == "" {
+	if err != nil || captchaId == "" {
 		return false
 	}
 
@@ -125,7 +110,7 @@ func VerifyCaptcha(c *gin.Context, captchaValue string) bool {
 		return true
 	}
 
-	// 如果原始值验证失败，尝试小写验证（因为显示的是大小写混合，但允许用户输入小写）
+	// 如果原始值验证失败，尝试小写验证
 	if store.Verify(captchaId, strings.ToLower(captchaValue), false) {
 		// 验证成功后删除验证码
 		store.Verify(captchaId, strings.ToLower(captchaValue), true)
@@ -138,23 +123,4 @@ func VerifyCaptcha(c *gin.Context, captchaValue string) bool {
 	}
 
 	return false
-}
-
-// CaptchaAPIHandler 验证码API接口（可选，用于AJAX验证）
-// POST /admin/api/captcha/verify - 验证验证码
-func CaptchaAPIHandler(c *gin.Context) {
-	var body struct {
-		Captcha string `json:"captcha"`
-	}
-	if !captchaBaseController.BindJSON(c, &body) {
-		return
-	}
-
-	isValid := VerifyCaptcha(c, body.Captcha)
-
-	if isValid {
-		captchaBaseController.HandleSuccess(c, "验证码正确", nil)
-	} else {
-		captchaBaseController.HandleValidationError(c, "验证码错误")
-	}
 }

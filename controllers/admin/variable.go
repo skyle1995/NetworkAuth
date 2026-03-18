@@ -1,9 +1,9 @@
 package admin
 
 import (
+	"NetworkAuth/controllers"
+	"NetworkAuth/models"
 	"net/http"
-	"networkDev/controllers"
-	"networkDev/models"
 	"regexp"
 	"strconv"
 	"strings"
@@ -319,7 +319,7 @@ func VariableDeleteHandler(c *gin.Context) {
 		return
 	}
 
-	logrus.WithField("variable_id", req.ID).Info("Successfully deleted variable")
+	logrus.WithField("variable_id", req.ID).Debug("Successfully deleted variable")
 
 	variableBaseController.HandleSuccess(c, "删除成功", nil)
 }
@@ -351,7 +351,7 @@ func VariablesBatchDeleteHandler(c *gin.Context) {
 		return
 	}
 
-	logrus.WithField("variable_ids", req.IDs).Info("Successfully batch deleted variables")
+	logrus.WithField("variable_ids", req.IDs).Debug("Successfully batch deleted variables")
 
 	variableBaseController.HandleSuccess(c, "批量删除成功", nil)
 }

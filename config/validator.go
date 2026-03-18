@@ -61,11 +61,6 @@ func validateConfig(config *AppConfig) error {
 		return fmt.Errorf("日志配置错误: %w", err)
 	}
 
-	// 验证安全配置
-	if err := validateSecurityConfig(&config.Security); err != nil {
-		return fmt.Errorf("安全配置错误: %w", err)
-	}
-
 	return nil
 }
 
@@ -176,7 +171,6 @@ func validateLogConfig(config *LogConfig) error {
 			}
 		}
 	}
-	// 当日志文件路径为空时，不进行目录检查和创建
 
 	// 验证日志轮转配置
 	if config.MaxSize <= 0 {
@@ -187,32 +181,6 @@ func validateLogConfig(config *LogConfig) error {
 	}
 	if config.MaxAge < 0 {
 		return errors.New("日志文件保留天数不能为负数")
-	}
-
-	return nil
-}
-
-// validateSecurityConfig 验证安全配置
-func validateSecurityConfig(config *SecurityConfig) error {
-	if len(config.JWTSecret) < 16 {
-		return errors.New("JWT密钥长度不能少于16个字符")
-	}
-
-	if len(config.EncryptionKey) < 16 {
-		return errors.New("加密密钥长度不能少于16个字符")
-	}
-
-	if config.JWTRefresh < 1 || config.JWTRefresh > 23 {
-		return errors.New("JWT令牌刷新阈值必须在1-23小时之间")
-	}
-
-	// 检查是否使用默认值（生产环境警告）
-	if strings.Contains(config.JWTSecret, "default") {
-		log.Warn("检测到使用默认JWT密钥，生产环境请更换为安全的密钥")
-	}
-
-	if strings.Contains(config.EncryptionKey, "default") {
-		log.Warn("检测到使用默认加密密钥，生产环境请更换为安全的密钥")
 	}
 
 	return nil

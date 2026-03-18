@@ -1,15 +1,19 @@
 package database
 
 import (
+	"NetworkAuth/utils"
 	"fmt"
-	"networkDev/utils"
+	"log"
+	"os"
 	"sync"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	gLogger "gorm.io/gorm/logger"
 )
 
 // ============================================================================
@@ -33,40 +37,7 @@ var (
 func Init() (*gorm.DB, error) {
 	var initErr error
 	once.Do(func() {
-		dbType := viper.GetString("database.type")
-		switch dbType {
-		case "mysql":
-			initErr = initMySQL()
-		default:
-			initErr = initSQLite()
-		}
-
-		// 如果数据库初始化成功，配置连接池和启动健康检查
-		if initErr == nil && dbInstance != nil {
-			// 加载数据库配置
-			var configPrefix string
-			if dbType == "mysql" {
-				configPrefix = "database.mysql"
-			} else {
-				configPrefix = "database.sqlite"
-			}
-
-			dbConfig := utils.LoadDatabaseConfig(configPrefix)
-
-			// 验证配置
-			if err := utils.ValidateDatabaseConfig(dbConfig); err != nil {
-				logrus.WithError(err).Warn("数据库配置验证失败，使用默认配置")
-				dbConfig = utils.GetDefaultDatabaseConfig()
-			}
-
-			// 配置连接池
-			if err := utils.ConfigureConnectionPool(dbInstance, dbConfig); err != nil {
-				logrus.WithError(err).Error("配置数据库连接池失败")
-			}
-
-			// 启动健康检查
-			utils.StartHealthCheck(dbInstance, dbConfig)
-		}
+		initErr = performInit()
 	})
 	return dbInstance, initErr
 }
@@ -80,6 +51,89 @@ func GetDB() (*gorm.DB, error) {
 	return Init()
 }
 
+// ReInit 重新初始化数据库连接
+// 用于在修改配置后重新连接数据库
+func ReInit() (*gorm.DB, error) {
+	// 如果已有连接，尝试关闭它
+	if dbInstance != nil {
+		if sqlDB, err := dbInstance.DB(); err == nil {
+			sqlDB.Close()
+		}
+	}
+	dbInstance = nil
+
+	// 重新执行初始化逻辑（不经过 once.Do）
+	return dbInstance, performInit()
+}
+
+func performInit() error {
+	// 检查是否已经有配置文件（通过检查文件是否存在）
+	configFile := viper.ConfigFileUsed()
+	// 如果 viper 没有使用配置文件（可能是因为没找到文件而使用了默认配置），
+	// 或者配置文件路径为空，我们应该假设处于未安装状态。
+	// 但 viper.ConfigFileUsed() 在 ReadInConfig 成功后会返回文件名。
+	// 如果 ReadInConfig 失败（因为文件不存在），viper 可能会返回空或者我们在 config.go 中设置的路径。
+
+	// 在 config.go 中，如果文件不存在，我们加载了默认配置但没有写文件。
+	// 此时 viper.ConfigFileUsed() 可能是空的或者我们设置的路径。
+	// 让我们检查该路径对应的文件是否存在。
+
+	if configFile == "" {
+		configFile = "config.json"
+	}
+
+	_, err := os.Stat(configFile)
+	isConfigExists := !os.IsNotExist(err)
+
+	// 如果配置文件不存在，说明还没有经过安装初始化，暂时不连接数据库
+	if !isConfigExists {
+		logrus.Info("尚未初始化配置，跳过数据库连接")
+		return nil
+	}
+
+	var initErr error
+	dbType := viper.GetString("database.type")
+	switch dbType {
+	case "mysql":
+		initErr = initMySQL()
+	default:
+		initErr = initSQLite()
+	}
+
+	// 如果数据库初始化成功，配置连接池和启动健康检查
+	if initErr == nil && dbInstance != nil {
+		// 加载数据库配置
+		var configPrefix string
+		if dbType == "mysql" {
+			configPrefix = "database.mysql"
+		} else {
+			configPrefix = "database.sqlite"
+		}
+
+		dbConfig := utils.LoadDatabaseConfig(configPrefix)
+
+		// 验证配置
+		if err := utils.ValidateDatabaseConfig(dbConfig); err != nil {
+			logrus.WithError(err).Warn("数据库配置验证失败，使用默认配置")
+			dbConfig = utils.GetDefaultDatabaseConfig()
+		}
+
+		// 配置连接池
+		if err := utils.ConfigureConnectionPool(dbInstance, dbConfig); err != nil {
+			logrus.WithError(err).Error("配置数据库连接池失败")
+		}
+
+		// 启动健康检查
+		utils.StartHealthCheck(dbInstance, dbConfig)
+	}
+	return initErr
+}
+
+// SetDB 设置全局 *gorm.DB 实例（用于测试）
+func SetDB(db *gorm.DB) {
+	dbInstance = db
+}
+
 // ============================================================================
 // 私有函数
 // ============================================================================
@@ -89,10 +143,20 @@ func GetDB() (*gorm.DB, error) {
 func initSQLite() error {
 	path := viper.GetString("database.sqlite.path")
 	if path == "" {
-		path = "./database.db"
+		path = "./recharge.db"
 	}
 	dsn := fmt.Sprintf("file:%s?cache=shared&_busy_timeout=5000&_fk=1", path)
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	var logLevel gLogger.LogLevel
+	switch viper.GetString("logger.level") {
+	case "debug":
+		logLevel = gLogger.Info
+	case "error":
+		logLevel = gLogger.Error
+	default:
+		logLevel = gLogger.Warn
+	}
+	gl := gLogger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), gLogger.Config{SlowThreshold: 2 * time.Second, LogLevel: logLevel, IgnoreRecordNotFoundError: true, Colorful: false})
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: gl})
 	if err != nil {
 		logrus.WithError(err).Error("SQLite 初始化失败")
 		return err
@@ -124,7 +188,17 @@ func initMySQL() error {
 	}
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=True&loc=Local", user, pass, host, port, dbname, charset)
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	var logLevel gLogger.LogLevel
+	switch viper.GetString("logger.level") {
+	case "debug":
+		logLevel = gLogger.Info
+	case "error":
+		logLevel = gLogger.Error
+	default:
+		logLevel = gLogger.Warn
+	}
+	gl := gLogger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), gLogger.Config{SlowThreshold: 2 * time.Second, LogLevel: logLevel, IgnoreRecordNotFoundError: true, Colorful: false})
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{Logger: gl})
 	if err != nil {
 		logrus.WithError(err).Error("MySQL 初始化失败")
 		return err

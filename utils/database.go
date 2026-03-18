@@ -101,110 +101,6 @@ func ConfigureConnectionPool(db *gorm.DB, config *DatabaseConfig) error {
 	return nil
 }
 
-// PingDatabase 检查数据库连接健康状态
-// 使用指定的超时时间ping数据库以验证连接是否正常
-func PingDatabase(db *gorm.DB, timeout time.Duration) error {
-	sqlDB, err := db.DB()
-	if err != nil {
-		return fmt.Errorf("获取底层数据库连接失败: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	return sqlDB.PingContext(ctx)
-}
-
-// GetConnectionStats 获取数据库连接池统计信息
-// 返回当前数据库连接池的详细统计数据，包括连接数、等待时间等
-func GetConnectionStats(db *gorm.DB) (*sql.DBStats, error) {
-	sqlDB, err := db.DB()
-	if err != nil {
-		return nil, fmt.Errorf("获取底层数据库连接失败: %w", err)
-	}
-
-	stats := sqlDB.Stats()
-	return &stats, nil
-}
-
-// LogConnectionStats 记录数据库连接池统计信息
-// 获取并记录数据库连接池的统计信息到日志中，用于监控和调试
-func LogConnectionStats(db *gorm.DB) {
-	stats, err := GetConnectionStats(db)
-	if err != nil {
-		LogError("获取数据库连接池统计信息失败", err, nil)
-		return
-	}
-
-	LogInfo("数据库连接池统计", map[string]interface{}{
-		"open_connections":     stats.OpenConnections,
-		"in_use":               stats.InUse,
-		"idle":                 stats.Idle,
-		"wait_count":           stats.WaitCount,
-		"wait_duration":        stats.WaitDuration,
-		"max_idle_closed":      stats.MaxIdleClosed,
-		"max_idle_time_closed": stats.MaxIdleTimeClosed,
-		"max_lifetime_closed":  stats.MaxLifetimeClosed,
-	})
-}
-
-// StartHealthCheck 启动数据库健康检查
-// 启动一个后台goroutine定期检查数据库连接健康状态
-// 只在健康检查失败时输出错误日志，正常情况下不输出日志
-func StartHealthCheck(db *gorm.DB, config *DatabaseConfig) {
-	go func() {
-		ticker := time.NewTicker(config.HealthCheckInterval)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			if err := PingDatabase(db, config.PingTimeout); err != nil {
-				// 只在健康检查失败时输出错误日志
-				LogError("数据库健康检查失败", err, map[string]interface{}{
-					"ping_timeout": config.PingTimeout,
-				})
-			}
-
-			// 记录连接池统计信息（仅在调试模式下）
-			if logrus.GetLevel() == logrus.DebugLevel {
-				LogConnectionStats(db)
-			}
-		}
-	}()
-
-	// LogInfo("数据库健康检查已启动", map[string]interface{}{
-	// 	"check_interval": config.HealthCheckInterval,
-	// 	"ping_timeout":   config.PingTimeout,
-	// })
-}
-
-// ValidateDatabaseConfig 验证数据库配置参数
-// 检查数据库配置参数的有效性，确保所有参数都在合理范围内
-func ValidateDatabaseConfig(config *DatabaseConfig) error {
-	if config.MaxIdleConns < 0 {
-		return fmt.Errorf("最大空闲连接数不能为负数: %d", config.MaxIdleConns)
-	}
-	if config.MaxOpenConns < 0 {
-		return fmt.Errorf("最大打开连接数不能为负数: %d", config.MaxOpenConns)
-	}
-	if config.MaxIdleConns > config.MaxOpenConns && config.MaxOpenConns > 0 {
-		return fmt.Errorf("最大空闲连接数(%d)不能大于最大打开连接数(%d)", config.MaxIdleConns, config.MaxOpenConns)
-	}
-	if config.ConnMaxLifetime < 0 {
-		return fmt.Errorf("连接最大生存时间不能为负数: %v", config.ConnMaxLifetime)
-	}
-	if config.ConnMaxIdleTime < 0 {
-		return fmt.Errorf("连接最大空闲时间不能为负数: %v", config.ConnMaxIdleTime)
-	}
-	if config.PingTimeout <= 0 {
-		return fmt.Errorf("Ping超时时间必须大于0: %v", config.PingTimeout)
-	}
-	if config.HealthCheckInterval <= 0 {
-		return fmt.Errorf("健康检查间隔必须大于0: %v", config.HealthCheckInterval)
-	}
-
-	return nil
-}
-
 // ============================================================================
 // 全局变量
 // ============================================================================
@@ -222,11 +118,24 @@ var (
 // Redis函数
 // ============================================================================
 
+// RedisLogger 自定义Redis日志记录器
+// 仅在Debug级别输出Redis内部日志
+type RedisLogger struct{}
+
+func (l *RedisLogger) Printf(ctx context.Context, format string, v ...interface{}) {
+	if logrus.GetLevel() >= logrus.DebugLevel {
+		logrus.Debugf(format, v...)
+	}
+}
+
 // InitRedis 初始化Redis客户端（仅在配置存在时尝试连接）
-// - 从 viper 读取 security.redis.* 配置
+// - 从 viper 读取 redis.* 配置
 // - 如果连接失败，则标记为不可用，不影响主流程
 func InitRedis() {
 	redisOnce.Do(func() {
+		// 设置自定义日志记录器，避免在Info级别输出大量连接错误日志
+		redis.SetLogger(&RedisLogger{})
+
 		host := viper.GetString("redis.host")
 		port := viper.GetInt("redis.port")
 		if host == "" || port == 0 {
@@ -339,5 +248,109 @@ func RedisDel(ctx context.Context, keys ...string) error {
 		logrus.WithError(err).WithField("keys", keys).Warn("删除Redis键失败")
 		return err
 	}
+	return nil
+}
+
+// PingDatabase 检查数据库连接健康状态
+// 使用指定的超时时间ping数据库以验证连接是否正常
+func PingDatabase(db *gorm.DB, timeout time.Duration) error {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("获取底层数据库连接失败: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	return sqlDB.PingContext(ctx)
+}
+
+// GetConnectionStats 获取数据库连接池统计信息
+// 返回当前数据库连接池的详细统计数据，包括连接数、等待时间等
+func GetConnectionStats(db *gorm.DB) (*sql.DBStats, error) {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("获取底层数据库连接失败: %w", err)
+	}
+
+	stats := sqlDB.Stats()
+	return &stats, nil
+}
+
+// LogConnectionStats 记录数据库连接池统计信息
+// 获取并记录数据库连接池的统计信息到日志中，用于监控和调试
+func LogConnectionStats(db *gorm.DB) {
+	stats, err := GetConnectionStats(db)
+	if err != nil {
+		LogError("获取数据库连接池统计信息失败", err, nil)
+		return
+	}
+
+	LogInfo("数据库连接池统计", map[string]interface{}{
+		"open_connections":     stats.OpenConnections,
+		"in_use":               stats.InUse,
+		"idle":                 stats.Idle,
+		"wait_count":           stats.WaitCount,
+		"wait_duration":        stats.WaitDuration,
+		"max_idle_closed":      stats.MaxIdleClosed,
+		"max_idle_time_closed": stats.MaxIdleTimeClosed,
+		"max_lifetime_closed":  stats.MaxLifetimeClosed,
+	})
+}
+
+// StartHealthCheck 启动数据库健康检查
+// 启动一个后台goroutine定期检查数据库连接健康状态
+// 只在健康检查失败时输出错误日志，正常情况下不输出日志
+func StartHealthCheck(db *gorm.DB, config *DatabaseConfig) {
+	go func() {
+		ticker := time.NewTicker(config.HealthCheckInterval)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			if err := PingDatabase(db, config.PingTimeout); err != nil {
+				// 只在健康检查失败时输出错误日志
+				LogError("数据库健康检查失败", err, map[string]interface{}{
+					"ping_timeout": config.PingTimeout,
+				})
+			}
+
+			// 记录连接池统计信息（仅在调试模式下）
+			if logrus.GetLevel() == logrus.DebugLevel {
+				LogConnectionStats(db)
+			}
+		}
+	}()
+
+	// LogInfo("数据库健康检查已启动", map[string]interface{}{
+	// 	"check_interval": config.HealthCheckInterval,
+	// 	"ping_timeout":   config.PingTimeout,
+	// })
+}
+
+// ValidateDatabaseConfig 验证数据库配置参数
+// 检查数据库配置参数的有效性，确保所有参数都在合理范围内
+func ValidateDatabaseConfig(config *DatabaseConfig) error {
+	if config.MaxIdleConns < 0 {
+		return fmt.Errorf("最大空闲连接数不能为负数: %d", config.MaxIdleConns)
+	}
+	if config.MaxOpenConns < 0 {
+		return fmt.Errorf("最大打开连接数不能为负数: %d", config.MaxOpenConns)
+	}
+	if config.MaxIdleConns > config.MaxOpenConns && config.MaxOpenConns > 0 {
+		return fmt.Errorf("最大空闲连接数(%d)不能大于最大打开连接数(%d)", config.MaxIdleConns, config.MaxOpenConns)
+	}
+	if config.ConnMaxLifetime < 0 {
+		return fmt.Errorf("连接最大生存时间不能为负数: %v", config.ConnMaxLifetime)
+	}
+	if config.ConnMaxIdleTime < 0 {
+		return fmt.Errorf("连接最大空闲时间不能为负数: %v", config.ConnMaxIdleTime)
+	}
+	if config.PingTimeout <= 0 {
+		return fmt.Errorf("Ping超时时间必须大于0: %v", config.PingTimeout)
+	}
+	if config.HealthCheckInterval <= 0 {
+		return fmt.Errorf("健康检查间隔必须大于0: %v", config.HealthCheckInterval)
+	}
+
 	return nil
 }

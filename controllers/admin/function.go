@@ -1,9 +1,9 @@
 package admin
 
 import (
+	"NetworkAuth/controllers"
+	"NetworkAuth/models"
 	"net/http"
-	"networkDev/controllers"
-	"networkDev/models"
 	"regexp"
 	"strconv"
 	"strings"
@@ -299,7 +299,7 @@ func FunctionDeleteHandler(c *gin.Context) {
 		return
 	}
 
-	logrus.WithField("function_id", req.ID).Info("Successfully deleted function")
+	logrus.WithField("function_id", req.ID).Debug("Successfully deleted function")
 
 	functionBaseController.HandleSuccess(c, "删除成功", nil)
 }
@@ -331,7 +331,7 @@ func FunctionsBatchDeleteHandler(c *gin.Context) {
 		return
 	}
 
-	logrus.WithField("function_ids", req.IDs).Info("Successfully batch deleted functions")
+	logrus.WithField("function_ids", req.IDs).Debug("Successfully batch deleted functions")
 
 	functionBaseController.HandleSuccess(c, "批量删除成功", nil)
 }

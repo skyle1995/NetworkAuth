@@ -1,6 +1,6 @@
 # 编译后的二进制文件
-networkDev
-networkDev.exe
+NetworkAuth
+NetworkAuth.exe
 *.exe
 *.exe~
 *.dll

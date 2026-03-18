@@ -3,9 +3,9 @@ package admin
 import (
 	"encoding/hex"
 	"net/http"
-	"networkDev/controllers"
-	"networkDev/models"
-	"networkDev/utils/encrypt"
+	"NetworkAuth/controllers"
+	"NetworkAuth/models"
+	"NetworkAuth/utils/encrypt"
 	"strconv"
 	"strings"
 

@@ -1,14 +1,15 @@
 package admin
 
 import (
+	"NetworkAuth/constants"
+	"NetworkAuth/controllers"
+	"NetworkAuth/middleware"
+	"NetworkAuth/models"
+	"NetworkAuth/services"
+	"NetworkAuth/utils"
+	"NetworkAuth/utils/timeutil"
 	"net/http"
-	"networkDev/constants"
-	"networkDev/controllers"
-	"networkDev/middleware"
-	"networkDev/models"
-	"networkDev/services"
-	"networkDev/utils"
-	"networkDev/utils/timeutil"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -83,11 +84,8 @@ func AdminLayoutHandler(c *gin.Context) {
 	data["CSRFToken"] = token
 
 	// 从数据库读取站点标题，如果失败则使用默认值
-	if db, ok := handlersBaseController.GetDB(c); ok {
-		if siteTitle, err := services.FindSettingByName("site_title", db); err == nil && siteTitle != nil {
-			data["Title"] = siteTitle.Value
-		}
-	}
+	settingsSvc := services.GetSettingsService()
+	data["Title"] = settingsSvc.GetString("site_title", "后台管理")
 
 	// 合并其他数据（如果有的话）
 	extraData := gin.H{}
@@ -191,4 +189,46 @@ func DashboardStatsHandler(c *gin.Context) {
 	}
 
 	handlersBaseController.HandleSuccess(c, "ok", data)
+}
+
+// DashboardLoginLogsHandler 获取管理员最近登录日志
+func DashboardLoginLogsHandler(c *gin.Context) {
+	db, ok := handlersBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+
+	// 获取分页参数
+	pageStr := c.DefaultQuery("page", "1")
+	limitStr := c.DefaultQuery("limit", "10")
+	page, _ := strconv.Atoi(pageStr)
+	limit, _ := strconv.Atoi(limitStr)
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+	offset := (page - 1) * limit
+
+	var total int64
+	// 当前模型的 LoginLog 本身就是专用于 admin 的登录日志模型（没有 type 字段），所以直接查询全部即可
+	query := db.Model(&models.LoginLog{})
+
+	if err := query.Count(&total).Error; err != nil {
+		handlersBaseController.HandleInternalError(c, "获取登录日志总数失败", err)
+		return
+	}
+
+	var logs []models.LoginLog
+	if err := query.Order("created_at desc").Offset(offset).Limit(limit).Find(&logs).Error; err != nil {
+		handlersBaseController.HandleInternalError(c, "获取登录日志列表失败", err)
+		return
+	}
+
+	data := gin.H{
+		"total": total,
+		"list":  logs,
+	}
+	handlersBaseController.HandleSuccess(c, "获取登录日志成功", data)
 }

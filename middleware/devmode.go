@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"networkDev/web"
+	"NetworkAuth/web"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"

@@ -1,11 +1,13 @@
 package middleware
 
 import (
-	"strings"
 	"time"
 
+	"NetworkAuth/utils/logger"
+
 	"github.com/gin-gonic/gin"
-	"networkDev/utils/logger"
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 )
 
 // ============================================================================
@@ -34,74 +36,47 @@ func NewLoggingMiddleware(logger *logger.Logger) *LoggingMiddleware {
 // ============================================================================
 
 // Handler 返回Gin中间件函数，用于记录HTTP请求日志
-// 记录格式遵循Apache Common Log Format
+// 记录格式参考了更灵活的 NetworkAuth 实现，支持配置开关和日志级别检查
 func (lm *LoggingMiddleware) Handler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 记录开始时间
+		// 检查是否启用了访问日志
+		if !viper.GetBool("server.access_log") {
+			c.Next()
+			return
+		}
+
+		// 如果日志级别不是Debug或更高（Trace），则不记录访问日志
+		// 避免在Info级别输出过多的访问日志干扰正常业务日志
+		if lm.logger.Level < logrus.DebugLevel {
+			c.Next()
+			return
+		}
+
 		start := time.Now()
+		path := c.Request.URL.Path
+		raw := c.Request.URL.RawQuery
 
 		// 处理请求
 		c.Next()
 
-		// 计算处理时间
+		// 计算响应时间
 		duration := time.Since(start)
 
-		// 获取客户端IP
-		clientIP := getClientIP(c)
+		if raw != "" {
+			path = path + "?" + raw
+		}
 
-		// 记录日志 - Apache Common Log Format
-		// 使用专门的HTTP日志方法避免User-Agent中的反斜杠被转义
+		// 记录请求日志
 		lm.logger.LogRequestWithHeaders(
 			c.Request.Method,
-			c.Request.RequestURI,
-			clientIP,
+			path,
+			c.ClientIP(), // 使用 Gin 内置的方法获取 IP
 			c.Writer.Status(),
 			duration,
-			"-", // referer (已废弃)
+			c.Errors.ByType(gin.ErrorTypePrivate).String(),
 			c.Request.UserAgent(),
 		)
 	}
-}
-
-// ============================================================================
-// 私有函数
-// ============================================================================
-
-// getClientIP 获取客户端真实IP地址
-// 优先从X-Forwarded-For、X-Real-IP等头部获取，最后使用RemoteAddr
-func getClientIP(c *gin.Context) string {
-	// 检查X-Forwarded-For头部
-	xForwardedFor := c.GetHeader("X-Forwarded-For")
-	if xForwardedFor != "" {
-		// X-Forwarded-For可能包含多个IP，取第一个
-		ips := strings.Split(xForwardedFor, ",")
-		if len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
-		}
-	}
-
-	// 检查X-Real-IP头部
-	xRealIP := c.GetHeader("X-Real-IP")
-	if xRealIP != "" {
-		return xRealIP
-	}
-
-	// 检查X-Forwarded头部
-	xForwarded := c.GetHeader("X-Forwarded")
-	if xForwarded != "" {
-		return xForwarded
-	}
-
-	// 使用RemoteAddr
-	remoteAddr := c.Request.RemoteAddr
-	if strings.Contains(remoteAddr, ":") {
-		// 移除端口号
-		if idx := strings.LastIndex(remoteAddr, ":"); idx != -1 {
-			return remoteAddr[:idx]
-		}
-	}
-
-	return remoteAddr
 }
 
 // ============================================================================
@@ -111,7 +86,7 @@ func getClientIP(c *gin.Context) string {
 // WrapHandler 创建Gin日志中间件
 // 使用全局日志记录器创建日志中间件
 func WrapHandler() gin.HandlerFunc {
-	logger := logger.GetLogger()
-	middleware := NewLoggingMiddleware(logger)
+	log := logger.GetLogger()
+	middleware := NewLoggingMiddleware(log)
 	return middleware.Handler()
 }

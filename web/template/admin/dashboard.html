@@ -43,15 +43,15 @@
       </div>
     </div>
     
-    <!-- 应用统计面板 -->
+    <!-- 系统统计面板 (预留) -->
     <div class="layui-col-md4">
       <div class="layui-panel">
         <div style="padding: 20px;">
-          <h3 style="margin-top: 0; margin-bottom: 15px; font-weight: bold; border-bottom: 1px solid var(--lay-color-border-2); padding-bottom: 10px;">应用统计</h3>
+          <h3 style="margin-top: 0; margin-bottom: 15px; font-weight: bold; border-bottom: 1px solid var(--lay-color-border-2); padding-bottom: 10px;">系统统计</h3>
           <table class="layui-table" lay-skin="nob">
             <tbody>
               <tr>
-                <td style="width: 120px; font-weight: bold;">全部应用</td>
+                <td style="width: 120px; font-weight: bold;">应用总数</td>
                 <td style="height: 20px; vertical-align: middle;">
                   <span id="total-apps" class="layui-badge" style="font-size: 14px; padding: 2px 8px; min-width: 30px; text-align: center; line-height: 1.2;">0</span>
                 </td>
@@ -65,13 +65,13 @@
               <tr>
                 <td style="font-weight: bold;">禁用应用</td>
                 <td style="height: 20px; vertical-align: middle;">
-                  <span id="disabled-apps" class="layui-badge layui-bg-orange" style="font-size: 14px; padding: 2px 8px; min-width: 30px; text-align: center; line-height: 1.2;">0</span>
+                  <span id="disabled-apps" class="layui-badge layui-bg-gray" style="font-size: 14px; padding: 2px 8px; min-width: 30px; text-align: center; line-height: 1.2;">0</span>
                 </td>
               </tr>
               <tr>
-                <td style="font-weight: bold;">变量数量</td>
+                <td style="font-weight: bold;">变量总数</td>
                 <td style="height: 20px; vertical-align: middle;">
-                  <span id="total-variables" class="layui-badge layui-bg-blue" style="font-size: 14px; padding: 2px 8px; min-width: 30px; text-align: center; line-height: 1.2;">0</span>
+                  <span id="total-variables" class="layui-badge layui-bg-orange" style="font-size: 14px; padding: 2px 8px; min-width: 30px; text-align: center; line-height: 1.2;">0</span>
                 </td>
               </tr>
             </tbody>
@@ -80,50 +80,37 @@
       </div>
     </div>
   </div>
+
+  <h2 style="margin-top: 20px;">最近登录日志</h2>
+  <div class="layui-panel" style="margin-top:12px">
+    <div style="padding: 20px;">
+      <table id="loginLogsTable" lay-filter="loginLogsTable"></table>
+    </div>
+  </div>
 </section>
+
 <script>
-  // 仪表盘统计脚本（采用箭头函数与中文注释）
-  layui.use(['layer', 'util'], function () {
-    const layer = layui.layer;
-    const util = layui.util;
+  // 仪表盘脚本
+  layui.use(['jquery', 'table', 'util'], () => {
     const $ = layui.$;
+    const table = layui.table;
+    const util = layui.util;
 
-    // 全局引用：ECharts CDN 地址
-    const echartsCdn = 'https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js';
-
-    // 工具函数：加载 ECharts 库（若已加载则直接回调）
-    // 功能：通过全局的 loadScript 方法按需加载图表库，避免重复加载
-    const ensureECharts = (cb) => {
-      if (window.echarts) { cb && cb(); return; }
-      if (typeof loadScript === 'function') {
-        loadScript(echartsCdn, () => cb && cb());
-      } else {
-        // 兜底：直接插入 <script>
-        const s = document.createElement('script');
-        s.src = echartsCdn;
-        s.onload = () => cb && cb();
-        document.head.appendChild(s);
-      }
-    };
-
-    // 函数：刷新基本信息和运行状态
-    // 说明：请求后台获取最新的系统信息并更新页面显示
+    // 刷新基本信息和运行状态
     const refreshSystemInfo = () => {
       $.get('/admin/api/system/info', (res) => {
         if (res && res.code === 0 && res.data) {
           const data = res.data;
-          // 更新运行时长，保持徽章样式
           if (data.uptime) {
             const uptimeElement = $('#uptime-display');
             uptimeElement.text(data.uptime);
-            // 确保徽章样式保持一致
             if (!uptimeElement.hasClass('layui-badge')) {
               uptimeElement.addClass('layui-badge layui-bg-gray');
               uptimeElement.css({
-              'font-size': '14px',
-              'padding': '2px 8px',
-              'line-height': '1.2'
-            });
+                'font-size': '14px',
+                'padding': '2px 8px',
+                'line-height': '1.2'
+              });
             }
           }
         }
@@ -132,8 +119,7 @@
       });
     };
 
-    // 函数：刷新应用统计数据
-    // 说明：请求后台获取应用统计信息并更新页面显示
+    // 刷新系统统计数据
     const refreshAppStats = () => {
       $.get('/admin/api/dashboard/stats', (res) => {
         if (res && res.code === 0 && res.data) {
@@ -144,7 +130,6 @@
           $('#total-variables').text(data.total_variables || 0);
         }
       }).fail(() => {
-        // 显示默认值
         $('#total-apps').text('0');
         $('#enabled-apps').text('0');
         $('#disabled-apps').text('0');
@@ -152,9 +137,45 @@
       });
     };
 
-    // 立即刷新一次系统信息和应用统计
+    // 立即刷新一次
     refreshSystemInfo();
     refreshAppStats();
+
+    // 渲染登录日志表格
+    table.render({
+      elem: '#loginLogsTable',
+      url: '/admin/api/dashboard/login-logs',
+      page: true,
+      limit: 10,
+      limits: [10, 20, 30, 50],
+      cols: [[
+        {field: 'created_at', title: '登录时间', width: 180, templet: (d) => {
+            return util.toDateString(d.created_at);
+        }},
+        {field: 'username', title: '用户名', width: 150},
+        {field: 'ip', title: '登录IP', width: 150},
+        {field: 'status', title: '状态', width: 100, align: 'center', templet: (d) => {
+            return d.status === 1 ? 
+              '<span class="layui-badge layui-bg-green">成功</span>' : 
+              '<span class="layui-badge layui-bg-red">失败</span>';
+        }},
+        {field: 'message', title: '详情', minWidth: 150},
+        {field: 'user_agent', title: 'User Agent', minWidth: 200, templet: (d) => {
+            return '<div title="'+d.user_agent+'" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">'+d.user_agent+'</div>';
+        }}
+      ]],
+      response: {
+          statusCode: 0
+      },
+      parseData: (res) => {
+          return {
+            "code": res.code,
+            "msg": res.msg,
+            "count": res.data ? res.data.total : 0,
+            "data": res.data ? res.data.list : []
+          };
+      }
+    });
   });
 </script>
 {{ end }}
