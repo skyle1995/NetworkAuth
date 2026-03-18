@@ -3,6 +3,7 @@ package admin
 import (
 	"NetworkAuth/controllers"
 	"NetworkAuth/models"
+	"NetworkAuth/services"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -223,6 +224,20 @@ func VariableCreateHandler(c *gin.Context) {
 		return
 	}
 
+	// 记录操作日志
+	operator := c.GetString("admin_username")
+	if operator == "" {
+		operator = "unknown"
+	}
+	operatorUUID := c.GetString("admin_uuid")
+
+	services.RecordOperationLog(
+		"创建变量",
+		operator,
+		operatorUUID,
+		"创建了变量: "+variable.Alias,
+	)
+
 	variableBaseController.HandleSuccess(c, "创建成功", variable)
 }
 
@@ -312,12 +327,35 @@ func VariableDeleteHandler(c *gin.Context) {
 		return
 	}
 
+	// 查找变量以记录日志
+	var variable models.Variable
+	db.First(&variable, req.ID)
+
 	// 删除变量
 	if err := db.Delete(&models.Variable{}, req.ID).Error; err != nil {
 		logrus.WithError(err).Error("Failed to delete variable")
 		variableBaseController.HandleInternalError(c, "删除变量失败", err)
 		return
 	}
+
+	// 记录操作日志
+	operator := c.GetString("admin_username")
+	if operator == "" {
+		operator = "unknown"
+	}
+	operatorUUID := c.GetString("admin_uuid")
+
+	details := "删除了变量ID: " + strconv.Itoa(int(req.ID))
+	if variable.ID != 0 {
+		details = "删除了变量: " + variable.Alias
+	}
+
+	services.RecordOperationLog(
+		"删除变量",
+		operator,
+		operatorUUID,
+		details,
+	)
 
 	logrus.WithField("variable_id", req.ID).Debug("Successfully deleted variable")
 
@@ -350,6 +388,26 @@ func VariablesBatchDeleteHandler(c *gin.Context) {
 		variableBaseController.HandleInternalError(c, "批量删除失败", err)
 		return
 	}
+
+	// 记录操作日志
+	operator := c.GetString("admin_username")
+	if operator == "" {
+		operator = "unknown"
+	}
+	operatorUUID := c.GetString("admin_uuid")
+
+	var idStrs []string
+	for _, id := range req.IDs {
+		idStrs = append(idStrs, strconv.Itoa(int(id)))
+	}
+	details := "批量删除了变量ID: " + strings.Join(idStrs, ",")
+
+	services.RecordOperationLog(
+		"删除变量",
+		operator,
+		operatorUUID,
+		details,
+	)
 
 	logrus.WithField("variable_ids", req.IDs).Debug("Successfully batch deleted variables")
 

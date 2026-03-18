@@ -3,6 +3,7 @@ package admin
 import (
 	"NetworkAuth/controllers"
 	"NetworkAuth/models"
+	"NetworkAuth/services"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
@@ -385,6 +386,20 @@ func AppCreateHandler(c *gin.Context) {
 		return
 	}
 
+	// 记录操作日志
+	operator := c.GetString("admin_username")
+	if operator == "" {
+		operator = "unknown"
+	}
+	operatorUUID := c.GetString("admin_uuid")
+
+	services.RecordOperationLog(
+		"创建应用",
+		operator,
+		operatorUUID,
+		"创建了应用: "+app.Name,
+	)
+
 	logrus.WithField("app_uuid", app.UUID).Debug("Successfully created app with default APIs")
 
 	c.JSON(http.StatusOK, gin.H{
@@ -554,6 +569,20 @@ func AppDeleteHandler(c *gin.Context) {
 		})
 		return
 	}
+
+	// 记录操作日志
+	operator := c.GetString("admin_username")
+	if operator == "" {
+		operator = "unknown"
+	}
+	operatorUUID := c.GetString("admin_uuid")
+
+	services.RecordOperationLog(
+		"删除应用",
+		operator,
+		operatorUUID,
+		"删除了应用: "+app.Name,
+	)
 
 	logrus.WithFields(logrus.Fields{
 		"app_id":   app.ID,

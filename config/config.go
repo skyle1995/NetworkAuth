@@ -170,20 +170,18 @@ func Init(cfgFilePath string) {
 				},
 			).Fatal("配置文件解析错误")
 		}
-	}
-
-	// 只显示配置文件名，不显示完整路径
-	configFile := viper.ConfigFileUsed()
-	if configFile != "" {
-		// 提取文件名
-		fileName := filepath.Base(configFile)
-		log.WithFields(
-			log.Fields{
-				"file": fileName,
-			},
-		).Info("使用配置文件")
 	} else {
-		log.Info("使用默认配置")
+		// 只显示配置文件名，不显示完整路径
+		configFile := viper.ConfigFileUsed()
+		if configFile != "" {
+			// 统一使用 filepath.Clean 和 filepath.Base 处理路径展示
+			cleanPath := filepath.Clean(configFile)
+			log.WithFields(
+				log.Fields{
+					"file": cleanPath,
+				},
+			).Info("使用配置文件")
+		}
 	}
 
 	// 验证配置

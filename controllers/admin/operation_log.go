@@ -51,7 +51,6 @@ func LogsListHandler(c *gin.Context) {
 	endTimeStr := strings.TrimSpace(c.Query("end_time"))
 	operationType := strings.TrimSpace(c.Query("operation_type"))
 	operator := strings.TrimSpace(c.Query("operator"))
-	transactionID := strings.TrimSpace(c.Query("transaction_id"))
 
 	// 构建查询
 	db, ok := logBaseController.GetDB(c)
@@ -72,10 +71,6 @@ func LogsListHandler(c *gin.Context) {
 		// 支持按 UUID 或 用户名 筛选
 		query = query.Where("operator_uuid = ? OR operator = ?", operator, operator)
 	}
-	if transactionID != "" {
-			// 优化：使用精确匹配提升查询性能
-			query = query.Where("transaction_id = ?", transactionID)
-		}
 	if startTimeStr != "" {
 		if t, err := time.ParseInLocation("2006-01-02", startTimeStr, time.Local); err == nil {
 			query = query.Where("created_at >= ?", t)
@@ -140,9 +135,6 @@ func LogsClearHandler(c *gin.Context) {
 		OperationType: "清空日志",
 		Operator:      operator,
 		OperatorUUID:  "",
-		AppName:       "-",
-		ProductName:   "-",
-		TransactionID: "-",
 		Details:       "管理员清空了所有操作日志",
 		CreatedAt:     time.Now(),
 	}

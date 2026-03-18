@@ -2,6 +2,7 @@ package database
 
 import (
 	"NetworkAuth/utils"
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -23,6 +24,8 @@ import (
 var (
 	// dbInstance 全局 *gorm.DB 实例，使用单例确保全局复用
 	dbInstance *gorm.DB
+	// healthCheckCancel 数据库健康检查取消函数
+	healthCheckCancel context.CancelFunc
 	// once 确保初始化只执行一次
 	once sync.Once
 )
@@ -56,6 +59,10 @@ func GetDB() (*gorm.DB, error) {
 func ReInit() (*gorm.DB, error) {
 	// 如果已有连接，尝试关闭它
 	if dbInstance != nil {
+		if healthCheckCancel != nil {
+			healthCheckCancel()
+			healthCheckCancel = nil
+		}
 		if sqlDB, err := dbInstance.DB(); err == nil {
 			sqlDB.Close()
 		}
@@ -124,7 +131,7 @@ func performInit() error {
 		}
 
 		// 启动健康检查
-		utils.StartHealthCheck(dbInstance, dbConfig)
+		healthCheckCancel = utils.StartHealthCheck(dbInstance, dbConfig)
 	}
 	return initErr
 }

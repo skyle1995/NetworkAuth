@@ -162,9 +162,6 @@ func LoginLogsClearHandler(c *gin.Context) {
 		OperationType: "清空登录日志",
 		Operator:      operator,
 		OperatorUUID:  "", // NetworkAuth 中暂时无法获取 UUID
-		AppName:       "-",
-		ProductName:   "-",
-		TransactionID: "-",
 		Details:       "管理员清空了所有登录日志",
 		CreatedAt:     time.Now(),
 	}

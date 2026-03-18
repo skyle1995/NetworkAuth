@@ -211,9 +211,20 @@ func DashboardLoginLogsHandler(c *gin.Context) {
 	}
 	offset := (page - 1) * limit
 
+	// 获取当前管理员信息（可能是 username 或 admin_username，具体取决于认证中间件设置的 key）
+	username := c.GetString("admin_username")
+	if username == "" {
+		// 尝试获取其他可能的键名
+		username = c.GetString("username")
+	}
+	
 	var total int64
-	// 当前模型的 LoginLog 本身就是专用于 admin 的登录日志模型（没有 type 字段），所以直接查询全部即可
-	query := db.Model(&models.LoginLog{})
+	query := db.Model(&models.LoginLog{}).Where("type = ?", "admin")
+
+	// 如果有用户名，则仅过滤该用户的日志
+	if username != "" {
+		query = query.Where("username = ?", username)
+	}
 
 	if err := query.Count(&total).Error; err != nil {
 		handlersBaseController.HandleInternalError(c, "获取登录日志总数失败", err)
@@ -232,3 +243,4 @@ func DashboardLoginLogsHandler(c *gin.Context) {
 	}
 	handlersBaseController.HandleSuccess(c, "获取登录日志成功", data)
 }
+

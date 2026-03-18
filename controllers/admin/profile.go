@@ -144,6 +144,20 @@ func ProfilePasswordUpdateHandler(c *gin.Context) {
 	cookie := utils.CreateSecureCookie("admin_session", token, maxAge, domain, secure, sameSite)
 	c.SetCookie(cookie.Name, cookie.Value, cookie.MaxAge, cookie.Path, cookie.Domain, cookie.Secure, cookie.HttpOnly)
 
+	// 记录操作日志
+	operator := c.GetString("admin_username")
+	if operator == "" {
+		operator = "unknown"
+	}
+	operatorUUID := c.GetString("admin_uuid")
+
+	services.RecordOperationLog(
+		"修改密码",
+		operator,
+		operatorUUID,
+		"管理员修改了登录密码",
+	)
+
 	authBaseController.HandleSuccess(c, "密码修改成功", nil)
 }
 
@@ -217,6 +231,24 @@ func ProfileUpdateHandler(c *gin.Context) {
 		return
 	}
 
+	// 刷新缓存
+	settingsService.RefreshCache()
+	_ = utils.RedisDel(c.Request.Context(), "setting:admin_username")
+
+	// 记录操作日志
+	operator := c.GetString("admin_username")
+	if operator == "" {
+		operator = "unknown"
+	}
+	operatorUUID := c.GetString("admin_uuid")
+
+	services.RecordOperationLog(
+		"修改账号",
+		operator,
+		operatorUUID,
+		"管理员修改了用户名为: "+username,
+	)
+
 	// 重新签发JWT并写入Cookie
 	token, err := generateJWTTokenForAdmin(username, currentHash)
 	if err != nil {
@@ -227,10 +259,6 @@ func ProfileUpdateHandler(c *gin.Context) {
 	secure, sameSite, domain, maxAge := settingsService.GetCookieConfig()
 	cookie := utils.CreateSecureCookie("admin_session", token, maxAge, domain, secure, sameSite)
 	c.SetCookie(cookie.Name, cookie.Value, cookie.MaxAge, cookie.Path, cookie.Domain, cookie.Secure, cookie.HttpOnly)
-
-	// 刷新缓存
-	settingsService.RefreshCache()
-	_ = utils.RedisDel(c.Request.Context(), "setting:admin_username")
 
 	authBaseController.HandleSuccess(c, "用户名修改成功", map[string]interface{}{
 		"username": username,

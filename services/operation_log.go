@@ -9,7 +9,7 @@ import (
 )
 
 // RecordOperationLog 记录操作日志
-func RecordOperationLog(operationType, operator, operatorUUID, transactionID, appName, productName, details string) {
+func RecordOperationLog(operationType, operator, operatorUUID, details string) {
 	db, err := database.GetDB()
 	if err != nil {
 		logrus.WithError(err).Error("获取数据库连接失败，无法记录操作日志")
@@ -20,9 +20,6 @@ func RecordOperationLog(operationType, operator, operatorUUID, transactionID, ap
 		OperationType: operationType,
 		Operator:      operator,
 		OperatorUUID:  operatorUUID,
-		TransactionID: transactionID,
-		AppName:       appName,
-		ProductName:   productName,
 		Details:       details,
 		CreatedAt:     time.Now(),
 	}

@@ -75,8 +75,14 @@ func setupLogrusForNonHTTP() {
 	// 初始化HTTP日志处理器
 	logger.InitLogger()
 
-	// 记录配置加载完成
-	logrus.WithField("file", viper.ConfigFileUsed()).Info("配置文件加载完成")
+	// 记录配置加载完成，使用相对路径或文件名保持一致性
+	configFile := viper.ConfigFileUsed()
+	if configFile != "" {
+		fileName := filepath.Base(configFile)
+		logrus.WithField("file", fileName).Info("配置文件加载完成")
+	} else {
+		logrus.Info("配置加载完成(内存默认配置)")
+	}
 }
 
 // initConfig 读取配置文件和环境变量

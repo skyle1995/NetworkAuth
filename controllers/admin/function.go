@@ -3,6 +3,7 @@ package admin
 import (
 	"NetworkAuth/controllers"
 	"NetworkAuth/models"
+	"NetworkAuth/services"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -203,6 +204,20 @@ func FunctionCreateHandler(c *gin.Context) {
 		return
 	}
 
+	// 记录操作日志
+	operator := c.GetString("admin_username")
+	if operator == "" {
+		operator = "unknown"
+	}
+	operatorUUID := c.GetString("admin_uuid")
+
+	services.RecordOperationLog(
+		"创建函数",
+		operator,
+		operatorUUID,
+		"创建了函数: "+function.Alias,
+	)
+
 	functionBaseController.HandleSuccess(c, "创建成功", function)
 }
 
@@ -292,12 +307,35 @@ func FunctionDeleteHandler(c *gin.Context) {
 		return
 	}
 
+	// 查找函数以记录日志
+	var function models.Function
+	db.First(&function, req.ID)
+
 	// 删除函数
 	if err := db.Delete(&models.Function{}, req.ID).Error; err != nil {
 		logrus.WithError(err).Error("Failed to delete function")
 		functionBaseController.HandleInternalError(c, "删除函数失败", err)
 		return
 	}
+
+	// 记录操作日志
+	operator := c.GetString("admin_username")
+	if operator == "" {
+		operator = "unknown"
+	}
+	operatorUUID := c.GetString("admin_uuid")
+
+	details := "删除了函数ID: " + strconv.Itoa(int(req.ID))
+	if function.ID != 0 {
+		details = "删除了函数: " + function.Alias
+	}
+
+	services.RecordOperationLog(
+		"删除函数",
+		operator,
+		operatorUUID,
+		details,
+	)
 
 	logrus.WithField("function_id", req.ID).Debug("Successfully deleted function")
 
@@ -330,6 +368,26 @@ func FunctionsBatchDeleteHandler(c *gin.Context) {
 		functionBaseController.HandleInternalError(c, "批量删除失败", err)
 		return
 	}
+
+	// 记录操作日志
+	operator := c.GetString("admin_username")
+	if operator == "" {
+		operator = "unknown"
+	}
+	operatorUUID := c.GetString("admin_uuid")
+
+	var idStrs []string
+	for _, id := range req.IDs {
+		idStrs = append(idStrs, strconv.Itoa(int(id)))
+	}
+	details := "批量删除了函数ID: " + strings.Join(idStrs, ",")
+
+	services.RecordOperationLog(
+		"删除函数",
+		operator,
+		operatorUUID,
+		details,
+	)
 
 	logrus.WithField("function_ids", req.IDs).Debug("Successfully batch deleted functions")
 

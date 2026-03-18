@@ -301,22 +301,29 @@ func LogConnectionStats(db *gorm.DB) {
 // StartHealthCheck 启动数据库健康检查
 // 启动一个后台goroutine定期检查数据库连接健康状态
 // 只在健康检查失败时输出错误日志，正常情况下不输出日志
-func StartHealthCheck(db *gorm.DB, config *DatabaseConfig) {
+// 返回一个 CancelFunc 用于停止健康检查
+func StartHealthCheck(db *gorm.DB, config *DatabaseConfig) context.CancelFunc {
+	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		ticker := time.NewTicker(config.HealthCheckInterval)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			if err := PingDatabase(db, config.PingTimeout); err != nil {
-				// 只在健康检查失败时输出错误日志
-				LogError("数据库健康检查失败", err, map[string]interface{}{
-					"ping_timeout": config.PingTimeout,
-				})
-			}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := PingDatabase(db, config.PingTimeout); err != nil {
+					// 只在健康检查失败时输出错误日志
+					LogError("数据库健康检查失败", err, map[string]interface{}{
+						"ping_timeout": config.PingTimeout,
+					})
+				}
 
-			// 记录连接池统计信息（仅在调试模式下）
-			if logrus.GetLevel() == logrus.DebugLevel {
-				LogConnectionStats(db)
+				// 记录连接池统计信息（仅在调试模式下）
+				if logrus.GetLevel() == logrus.DebugLevel {
+					LogConnectionStats(db)
+				}
 			}
 		}
 	}()
@@ -325,6 +332,8 @@ func StartHealthCheck(db *gorm.DB, config *DatabaseConfig) {
 	// 	"check_interval": config.HealthCheckInterval,
 	// 	"ping_timeout":   config.PingTimeout,
 	// })
+
+	return cancel
 }
 
 // ValidateDatabaseConfig 验证数据库配置参数
