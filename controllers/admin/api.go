@@ -1,11 +1,12 @@
 package admin
 
 import (
-	"encoding/hex"
-	"net/http"
 	"NetworkAuth/controllers"
 	"NetworkAuth/models"
+	"NetworkAuth/services"
 	"NetworkAuth/utils/encrypt"
+	"encoding/hex"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -38,14 +39,7 @@ func APIFragmentHandler(c *gin.Context) {
 // APIListHandler 接口列表API处理器
 func APIListHandler(c *gin.Context) {
 	// 获取分页参数
-	page, _ := strconv.Atoi(c.Query("page"))
-	if page <= 0 {
-		page = 1
-	}
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	if limit <= 0 {
-		limit = 10
-	}
+	page, limit := apiBaseController.GetPaginationParams(c)
 
 	// 获取应用UUID参数（用于按应用筛选接口）
 	appUUID := strings.TrimSpace(c.Query("app_uuid"))
@@ -76,18 +70,9 @@ func APIListHandler(c *gin.Context) {
 		query = query.Where("api_type = ?", apiType)
 	}
 
-	// 获取总数
-	var total int64
-	if err := query.Count(&total).Error; err != nil {
-		logrus.WithError(err).Error("Failed to count APIs")
-		apiBaseController.HandleInternalError(c, "获取接口总数失败", err)
-		return
-	}
-
-	// 获取分页数据
-	var apis []models.API
-	offset := (page - 1) * limit
-	if err := query.Offset(offset).Limit(limit).Order("created_at DESC").Find(&apis).Error; err != nil {
+	// 泛型分页查询
+	apis, total, err := services.Paginate[models.API](query, page, limit, "created_at DESC")
+	if err != nil {
 		logrus.WithError(err).Error("Failed to fetch APIs")
 		apiBaseController.HandleInternalError(c, "获取接口列表失败", err)
 		return

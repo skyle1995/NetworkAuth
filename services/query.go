@@ -107,3 +107,36 @@ func CheckEntityExists(model interface{}, condition string, db *gorm.DB, args ..
 	err := db.Model(model).Where(condition, args...).Count(&count).Error
 	return count > 0, err
 }
+
+// ============================================================================
+// 泛型查询函数
+// ============================================================================
+
+// Paginate 泛型分页查询
+// query: 带条件的数据库查询对象
+// page: 当前页码
+// limit: 每页数量
+// order: 排序规则 (例如 "created_at DESC")
+// 返回: 数据列表, 总数, 错误
+func Paginate[T any](query *gorm.DB, page, limit int, order string) ([]T, int64, error) {
+	var list []T
+	var total int64
+
+	// 获取总数
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 排序
+	if order != "" {
+		query = query.Order(order)
+	}
+
+	// 分页查询
+	offset := (page - 1) * limit
+	if err := query.Offset(offset).Limit(limit).Find(&list).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return list, total, nil
+}

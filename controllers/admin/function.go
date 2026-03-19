@@ -38,18 +38,7 @@ func FunctionFragmentHandler(c *gin.Context) {
 // FunctionListHandler 函数列表API处理器
 func FunctionListHandler(c *gin.Context) {
 	// 获取分页参数
-	page, _ := strconv.Atoi(c.Query("page"))
-	if page <= 0 {
-		page = 1
-	}
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	// 兼容前端使用的page_size参数
-	if limit <= 0 {
-		limit, _ = strconv.Atoi(c.Query("page_size"))
-	}
-	if limit <= 0 {
-		limit = 10
-	}
+	page, limit := functionBaseController.GetPaginationParams(c)
 
 	// 获取搜索关键词参数（支持编号、别名、代码的综合搜索）
 	search := strings.TrimSpace(c.Query("search"))
@@ -83,18 +72,9 @@ func FunctionListHandler(c *gin.Context) {
 		query = query.Where("app_uuid = ?", appUUID)
 	}
 
-	// 获取总数
-	var total int64
-	if err := query.Count(&total).Error; err != nil {
-		logrus.WithError(err).Error("Failed to count functions")
-		functionBaseController.HandleInternalError(c, "查询函数总数失败", err)
-		return
-	}
-
-	// 获取分页数据
-	var functions []models.Function
-	offset := (page - 1) * limit
-	if err := query.Offset(offset).Limit(limit).Order("created_at DESC").Find(&functions).Error; err != nil {
+	// 泛型分页查询
+	functions, total, err := services.Paginate[models.Function](query, page, limit, "created_at DESC")
+	if err != nil {
 		logrus.WithError(err).Error("Failed to fetch functions")
 		functionBaseController.HandleInternalError(c, "查询函数列表失败", err)
 		return
@@ -128,14 +108,13 @@ func FunctionListHandler(c *gin.Context) {
 		})
 	}
 
-	response := gin.H{
+	// 返回结果 (LayUI table format)
+	c.JSON(http.StatusOK, gin.H{
 		"code":  0,
-		"msg":   "success",
+		"msg":   "",
 		"count": total,
 		"data":  responseData,
-	}
-
-	c.JSON(http.StatusOK, response)
+	})
 }
 
 // FunctionCreateHandler 新增函数API处理器

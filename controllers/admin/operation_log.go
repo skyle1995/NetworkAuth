@@ -3,8 +3,8 @@ package admin
 import (
 	"NetworkAuth/controllers"
 	"NetworkAuth/models"
+	"NetworkAuth/services"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -37,29 +37,17 @@ func LogsFragmentHandler(c *gin.Context) {
 // LogsListHandler 日志列表API处理器
 func LogsListHandler(c *gin.Context) {
 	// 获取分页参数
-	page, _ := strconv.Atoi(c.Query("page"))
-	if page <= 0 {
-		page = 1
-	}
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	if limit <= 0 {
-		limit = 10
-	}
+	page, limit := logBaseController.GetPaginationParams(c)
 
 	// 获取搜索参数
-	startTimeStr := strings.TrimSpace(c.Query("start_time"))
-	endTimeStr := strings.TrimSpace(c.Query("end_time"))
 	operationType := strings.TrimSpace(c.Query("operation_type"))
 	operator := strings.TrimSpace(c.Query("operator"))
 
-	// 构建查询
+	// 获取数据库连接
 	db, ok := logBaseController.GetDB(c)
 	if !ok {
 		return
 	}
-
-	var logs []models.OperationLog
-	var total int64
 
 	query := db.Model(&models.OperationLog{})
 
@@ -71,39 +59,13 @@ func LogsListHandler(c *gin.Context) {
 		// 支持按 UUID 或 用户名 筛选
 		query = query.Where("operator_uuid = ? OR operator = ?", operator, operator)
 	}
-	if startTimeStr != "" {
-		if t, err := time.ParseInLocation("2006-01-02", startTimeStr, time.Local); err == nil {
-			query = query.Where("created_at >= ?", t)
-		} else if t, err := time.ParseInLocation("2006-01-02 15:04:05", startTimeStr, time.Local); err == nil {
-			query = query.Where("created_at >= ?", t)
-		} else {
-			query = query.Where("created_at >= ?", startTimeStr)
-		}
-	}
-	if endTimeStr != "" {
-		if t, err := time.ParseInLocation("2006-01-02", endTimeStr, time.Local); err == nil {
-			t = t.Add(24*time.Hour - time.Nanosecond)
-			query = query.Where("created_at <= ?", t)
-		} else if t, err := time.ParseInLocation("2006-01-02 15:04:05", endTimeStr, time.Local); err == nil {
-			query = query.Where("created_at <= ?", t)
-		} else {
-			if len(endTimeStr) == 10 { // yyyy-MM-dd
-				endTimeStr += " 23:59:59"
-			}
-			query = query.Where("created_at <= ?", endTimeStr)
-		}
-	}
 
-	// 获取总数
-	if err := query.Count(&total).Error; err != nil {
-		logrus.WithError(err).Error("获取日志总数失败")
-		logBaseController.HandleInternalError(c, "获取日志总数失败", err)
-		return
-	}
+	// 筛选条件：时间范围
+	query = logBaseController.ApplyTimeRangeQuery(c, query, "created_at")
 
-	// 分页查询（时间倒序，从新到旧）
-	offset := (page - 1) * limit
-	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&logs).Error; err != nil {
+	// 泛型分页查询
+	logs, total, err := services.Paginate[models.OperationLog](query, page, limit, "created_at DESC")
+	if err != nil {
 		logrus.WithError(err).Error("查询日志列表失败")
 		logBaseController.HandleInternalError(c, "查询日志列表失败", err)
 		return

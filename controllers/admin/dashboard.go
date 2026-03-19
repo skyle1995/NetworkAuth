@@ -9,7 +9,6 @@ import (
 	"NetworkAuth/utils"
 	"NetworkAuth/utils/timeutil"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -199,17 +198,7 @@ func DashboardLoginLogsHandler(c *gin.Context) {
 	}
 
 	// 获取分页参数
-	pageStr := c.DefaultQuery("page", "1")
-	limitStr := c.DefaultQuery("limit", "10")
-	page, _ := strconv.Atoi(pageStr)
-	limit, _ := strconv.Atoi(limitStr)
-	if page < 1 {
-		page = 1
-	}
-	if limit < 1 || limit > 100 {
-		limit = 10
-	}
-	offset := (page - 1) * limit
+	page, limit := handlersBaseController.GetPaginationParams(c)
 
 	// 获取当前管理员信息（可能是 username 或 admin_username，具体取决于认证中间件设置的 key）
 	username := c.GetString("admin_username")
@@ -217,7 +206,7 @@ func DashboardLoginLogsHandler(c *gin.Context) {
 		// 尝试获取其他可能的键名
 		username = c.GetString("username")
 	}
-	
+
 	var total int64
 	query := db.Model(&models.LoginLog{}).Where("type = ?", "admin")
 
@@ -226,14 +215,9 @@ func DashboardLoginLogsHandler(c *gin.Context) {
 		query = query.Where("username = ?", username)
 	}
 
-	if err := query.Count(&total).Error; err != nil {
-		handlersBaseController.HandleInternalError(c, "获取登录日志总数失败", err)
-		return
-	}
-
-	var logs []models.LoginLog
-	if err := query.Order("created_at desc").Offset(offset).Limit(limit).Find(&logs).Error; err != nil {
-		handlersBaseController.HandleInternalError(c, "获取登录日志列表失败", err)
+	logs, total, err := services.Paginate[models.LoginLog](query, page, limit, "created_at desc")
+	if err != nil {
+		handlersBaseController.HandleInternalError(c, "获取登录日志失败", err)
 		return
 	}
 
@@ -243,4 +227,3 @@ func DashboardLoginLogsHandler(c *gin.Context) {
 	}
 	handlersBaseController.HandleSuccess(c, "获取登录日志成功", data)
 }
-

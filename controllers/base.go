@@ -3,6 +3,8 @@ package controllers
 import (
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"NetworkAuth/database"
 
@@ -128,7 +130,7 @@ func (bc *BaseController) ValidateRequired(c *gin.Context, fields map[string]int
 // GetPaginationParams 获取分页参数
 func (bc *BaseController) GetPaginationParams(c *gin.Context) (int, int) {
 	page := 1
-	pageSize := 10
+	limit := 10
 
 	if p := c.Query("page"); p != "" {
 		if pageInt, err := strconv.Atoi(p); err == nil && pageInt > 0 {
@@ -136,18 +138,70 @@ func (bc *BaseController) GetPaginationParams(c *gin.Context) (int, int) {
 		}
 	}
 
-	if ps := c.Query("page_size"); ps != "" {
-		if pageSizeInt, err := strconv.Atoi(ps); err == nil && pageSizeInt > 0 && pageSizeInt <= 100 {
-			pageSize = pageSizeInt
+	// 兼容 layui 的 limit 和 其他的 page_size
+	if l := c.Query("limit"); l != "" {
+		if limitInt, err := strconv.Atoi(l); err == nil && limitInt > 0 {
+			limit = limitInt
+		}
+	} else if ps := c.Query("page_size"); ps != "" {
+		if pageSizeInt, err := strconv.Atoi(ps); err == nil && pageSizeInt > 0 {
+			limit = pageSizeInt
 		}
 	}
 
-	return page, pageSize
+	return page, limit
 }
 
 // CalculateOffset 计算数据库查询偏移量
 func (bc *BaseController) CalculateOffset(page, pageSize int) int {
 	return (page - 1) * pageSize
+}
+
+// ApplyTimeRangeQuery 应用通用时间范围查询
+func (bc *BaseController) ApplyTimeRangeQuery(c *gin.Context, query *gorm.DB, field string) *gorm.DB {
+	// 获取可能的时间参数名
+	startTimes := []string{"start_time", "login_start_time", "operation_start_time"}
+	endTimes := []string{"end_time", "login_end_time", "operation_end_time"}
+
+	var startTimeStr, endTimeStr string
+	for _, k := range startTimes {
+		if v := strings.TrimSpace(c.Query(k)); v != "" {
+			startTimeStr = v
+			break
+		}
+	}
+	for _, k := range endTimes {
+		if v := strings.TrimSpace(c.Query(k)); v != "" {
+			endTimeStr = v
+			break
+		}
+	}
+
+	if startTimeStr != "" {
+		if t, err := time.ParseInLocation("2006-01-02", startTimeStr, time.Local); err == nil {
+			query = query.Where(field+" >= ?", t)
+		} else if t, err := time.ParseInLocation("2006-01-02 15:04:05", startTimeStr, time.Local); err == nil {
+			query = query.Where(field+" >= ?", t)
+		} else {
+			query = query.Where(field+" >= ?", startTimeStr)
+		}
+	}
+
+	if endTimeStr != "" {
+		if t, err := time.ParseInLocation("2006-01-02", endTimeStr, time.Local); err == nil {
+			t = t.Add(24*time.Hour - time.Nanosecond)
+			query = query.Where(field+" <= ?", t)
+		} else if t, err := time.ParseInLocation("2006-01-02 15:04:05", endTimeStr, time.Local); err == nil {
+			query = query.Where(field+" <= ?", t)
+		} else {
+			if len(endTimeStr) == 10 { // yyyy-MM-dd
+				endTimeStr += " 23:59:59"
+			}
+			query = query.Where(field+" <= ?", endTimeStr)
+		}
+	}
+
+	return query
 }
 
 // BindJSON 绑定JSON数据并处理错误

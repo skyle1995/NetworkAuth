@@ -3,6 +3,7 @@ package admin
 import (
 	"NetworkAuth/controllers"
 	"NetworkAuth/models"
+	"NetworkAuth/services"
 	"net/http"
 	"strconv"
 	"strings"
@@ -58,23 +59,13 @@ func LoginLogsFragmentHandler(c *gin.Context) {
 // LoginLogsListHandler 登录日志列表API处理器
 func LoginLogsListHandler(c *gin.Context) {
 	// 获取分页参数
-	page, _ := strconv.Atoi(c.Query("page"))
-	if page <= 0 {
-		page = 1
-	}
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	if limit <= 0 {
-		limit = 10
-	}
+	page, limit := loginLogBaseController.GetPaginationParams(c)
 
 	// 构建查询
 	db, ok := loginLogBaseController.GetDB(c)
 	if !ok {
 		return
 	}
-
-	var logs []models.LoginLog
-	var total int64
 
 	// 兼容旧数据（Type为空）和新数据（Type=admin）
 	query := db.Model(&models.LoginLog{}).Where("type = ? OR type = ? OR type IS NULL", "admin", "")
@@ -97,21 +88,11 @@ func LoginLogsListHandler(c *gin.Context) {
 	}
 
 	// 筛选条件：时间范围
-	startTime := strings.TrimSpace(c.Query("start_time"))
-	endTime := strings.TrimSpace(c.Query("end_time"))
-	if startTime != "" && endTime != "" {
-		query = query.Where("created_at BETWEEN ? AND ?", startTime, endTime)
-	}
+	query = loginLogBaseController.ApplyTimeRangeQuery(c, query, "created_at")
 
-	// 统计总数
-	if err := query.Count(&total).Error; err != nil {
-		loginLogBaseController.HandleInternalError(c, "获取日志总数失败", err)
-		return
-	}
-
-	// 查询数据（时间倒序，从新到旧）
-	offset := (page - 1) * limit
-	if err := query.Order("created_at DESC").Limit(limit).Offset(offset).Find(&logs).Error; err != nil {
+	// 泛型分页查询
+	logs, total, err := services.Paginate[models.LoginLog](query, page, limit, "created_at DESC")
+	if err != nil {
 		loginLogBaseController.HandleInternalError(c, "获取日志列表失败", err)
 		return
 	}

@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -40,14 +39,7 @@ func AppsFragmentHandler(c *gin.Context) {
 // AppsListHandler 应用列表API处理器
 func AppsListHandler(c *gin.Context) {
 	// 获取分页参数
-	page, _ := strconv.Atoi(c.Query("page"))
-	if page <= 0 {
-		page = 1
-	}
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	if limit <= 0 {
-		limit = 10
-	}
+	page, limit := appBaseController.GetPaginationParams(c)
 
 	// 获取搜索参数
 	search := strings.TrimSpace(c.Query("search"))
@@ -58,9 +50,6 @@ func AppsListHandler(c *gin.Context) {
 		return
 	}
 
-	var apps []models.App
-	var total int64
-
 	query := db.Model(&models.App{})
 
 	// 如果有搜索条件
@@ -69,16 +58,9 @@ func AppsListHandler(c *gin.Context) {
 		query = query.Where("name = ? OR uuid = ?", search, search)
 	}
 
-	// 获取总数
-	if err := query.Count(&total).Error; err != nil {
-		logrus.WithError(err).Error("Failed to count apps")
-		appBaseController.HandleInternalError(c, "获取应用总数失败", err)
-		return
-	}
-
-	// 分页查询
-	offset := (page - 1) * limit
-	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&apps).Error; err != nil {
+	// 泛型分页查询
+	apps, total, err := services.Paginate[models.App](query, page, limit, "created_at DESC")
+	if err != nil {
 		logrus.WithError(err).Error("Failed to query apps")
 		appBaseController.HandleInternalError(c, "查询应用列表失败", err)
 		return
