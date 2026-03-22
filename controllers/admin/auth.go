@@ -58,7 +58,11 @@ func LoginPageHandler(c *gin.Context) {
 
 	// 准备模板数据
 	data := authBaseController.GetDefaultTemplateData()
-	data["Title"] = "管理员登录"
+	if sysName, ok := data["SystemName"].(string); ok && sysName != "" {
+		data["Title"] = sysName + " - 管理员登录"
+	} else {
+		data["Title"] = "管理员登录"
+	}
 	data["CSRFToken"] = token
 
 	c.HTML(http.StatusOK, "login.html", data)

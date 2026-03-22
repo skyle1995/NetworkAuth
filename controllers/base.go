@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"NetworkAuth/database"
+	"NetworkAuth/services"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -234,13 +235,14 @@ func (bc *BaseController) BindURI(c *gin.Context, obj interface{}) bool {
 // GetDefaultTemplateData 获取默认模板数据
 // 返回包含系统基础信息的数据映射，包括站点标题、页脚文本、备案信息等
 func (bc *BaseController) GetDefaultTemplateData() gin.H {
+	settings := services.GetSettingsService()
 	return gin.H{
-		"Title":         "NetworkAuth",
-		"SystemName":    "NetworkAuth",
-		"FooterText":    "© 2026 NetworkAuth 保留所有权利",
-		"ICPRecord":     "",
-		"ICPRecordLink": "https://beian.miit.gov.cn",
-		"PSBRecord":     "",
-		"PSBRecordLink": "https://www.beian.gov.cn",
+		"Title":         settings.GetString("site_title", "NetworkAuth"),
+		"SystemName":    settings.GetString("site_title", "NetworkAuth"),
+		"FooterText":    settings.GetString("footer_text", "Copyright © 2026 NetworkAuth. All Rights Reserved."),
+		"ICPRecord":     settings.GetString("icp_record", ""),
+		"ICPRecordLink": settings.GetString("icp_record_link", "https://beian.miit.gov.cn"),
+		"PSBRecord":     settings.GetString("psb_record", ""),
+		"PSBRecordLink": settings.GetString("psb_record_link", "https://www.beian.gov.cn"),
 	}
 }
