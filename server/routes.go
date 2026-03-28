@@ -5,9 +5,13 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 )
 
 // RegisterRoutes 聚合注册所有路由
@@ -24,18 +28,74 @@ func RegisterRoutes(r *gin.Engine) {
 
 // registerFrontendRoutes 注册前端静态资源及兜底路由
 func registerFrontendRoutes(r *gin.Engine) {
-	// 提取嵌入的 dist 目录
+	distConfig := viper.GetString("server.dist")
+	var fileServer http.Handler
+
+	// 判断是否配置了外部 dist (支持 http 反向代理或本地目录)
+	if distConfig != "" {
+		if strings.HasPrefix(distConfig, "http://") || strings.HasPrefix(distConfig, "https://") {
+			// 反向代理到前端开发服务器
+			r.Use(func(c *gin.Context) {
+				if !strings.HasPrefix(c.Request.URL.Path, "/api") {
+					proxy := httputil.NewSingleHostReverseProxy(&url.URL{
+						Scheme: strings.Split(distConfig, "://")[0],
+						Host:   strings.TrimPrefix(distConfig, strings.Split(distConfig, "://")[0]+"://"),
+					})
+					proxy.ServeHTTP(c.Writer, c.Request)
+					c.Abort()
+				}
+			})
+			return // 反向代理接管了所有非 API 路由，直接返回
+		} else {
+			// 使用本地外部目录
+			fileServer = http.FileServer(http.Dir(distConfig))
+
+			// 拦截并处理静态资源请求
+			r.Use(func(c *gin.Context) {
+				path := c.Request.URL.Path
+				if strings.HasPrefix(path, "/api") {
+					c.Next()
+					return
+				}
+
+				cleanPath := strings.TrimPrefix(path, "/")
+				if cleanPath == "" {
+					cleanPath = "index.html"
+				}
+
+				fullPath := distConfig + "/" + cleanPath
+				if stat, err := os.Stat(fullPath); err == nil && !stat.IsDir() {
+					if strings.HasPrefix(path, "/static/") || strings.HasPrefix(path, "/assets/") {
+						c.Header("Cache-Control", "public, max-age=31536000")
+					}
+					fileServer.ServeHTTP(c.Writer, c.Request)
+					c.Abort()
+					return
+				}
+				c.Next()
+			})
+
+			// SPA 前端路由兜底
+			r.NoRoute(func(c *gin.Context) {
+				if strings.HasPrefix(c.Request.URL.Path, "/api") {
+					c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "API Not Found"})
+					return
+				}
+				c.Header("Content-Type", "text/html; charset=utf-8")
+				c.File(distConfig + "/index.html")
+			})
+			return
+		}
+	}
+
+	// 提取嵌入的 dist 目录 (默认方式)
 	distFS, err := fs.Sub(public.Public, "dist")
 	if err != nil {
 		panic("Failed to initialize embedded static files: " + err.Error())
 	}
 
-	// 挂载静态资源目录 (如 assets)
-	// 根据 Vue 构建产物，通常有 /assets 或 /static 目录，这里我们直接把整个 distFS 映射到根路由
-	// 但为了避免与 /api 冲突，我们可以使用中间件和 NoRoute 来处理兜底
-
 	// 提供静态文件服务器
-	fileServer := http.FileServer(http.FS(distFS))
+	fileServer = http.FileServer(http.FS(distFS))
 
 	// 拦截并处理静态资源请求
 	r.Use(func(c *gin.Context) {
