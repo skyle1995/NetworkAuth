@@ -1,107 +1,38 @@
 # 编译后的二进制文件
 NetworkAuth
 NetworkAuth.exe
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-
-# Go 相关
-*.test
-*.out
-go.work
-go.work.sum
 
 # 数据库文件
-/database.db
-/recharge.db
 *.db
-*.sqlite
-*.sqlite3
+*.db-shm
+*.db-wal
 
 # 配置文件 (包含敏感信息)
 config.json
-config.yaml
-config.yml
-.env
-.env.local
-.env.production
 
 # 日志文件
 logs/
 *.log
-log/
 
-# 临时文件
-*.tmp
-*.temp
-*.swp
-*.swo
-*~
-node.txt
-frontend
+# 前端工程源码 (独立维护)
+frontend/
+
+# 升级/迁移临时缓存目录
+更新内容/
 
 # IDE 和编辑器
-.vscode/settings.json
-.vscode/tasks.json
-.vscode/extensions.json
-# .vscode/launch.json  # 保留调试配置
+.vscode/
+!.vscode/launch.json
 .idea/
-*.iml
-*.ipr
-*.iws
-.project
-.classpath
-.settings/
-*.sublime-project
-*.sublime-workspace
 
 # 操作系统
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-Desktop.ini
 
 # 依赖和包管理
 vendor/
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
-# 测试覆盖率
-coverage.txt
-coverage.out
-*.cover
-*.coverprofile
-
-# 文档生成
-docs/_build/
-site/
-
-# 备份文件
-*.bak
-*.backup
-*.orig
-
-# 压缩文件
-*.zip
-*.tar.gz
-*.rar
-*.7z
-
-# 证书和密钥文件
-*.pem
-*.key
-*.crt
-*.p12
-*.pfx
-
-# 运行时文件
-*.pid
-*.sock
+# 允许提交 Go embed 依赖的静态资源
+# 屏蔽构建的前端产物
+public/dist/
+public/dist/**
