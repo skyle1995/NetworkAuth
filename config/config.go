@@ -3,13 +3,14 @@ package config
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
-	"io/fs"
+	"os"
 	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
+
+var currentConfigFilePath string
 
 // ============================================================================
 // 结构体定义
@@ -127,62 +128,66 @@ func GetDefaultAppConfig() *AppConfig {
 
 // Init 初始化配置文件
 func Init(cfgFilePath string) {
+	currentConfigFilePath = cfgFilePath
 	viper.SetConfigFile(cfgFilePath)
 	viper.SetConfigType("json")
 	viper.AddConfigPath(".")
 
-	if err := viper.ReadInConfig(); err != nil {
-		var pathError *fs.PathError
-		if errors.As(err, &pathError) {
-			log.Warn("未找到配置文件，使用默认配置在内存中运行（需通过安装页面初始化）")
+	// 检查配置文件是否存在，如果不存在则使用内存默认配置，并创建默认配置文件
+	if _, err := os.Stat(cfgFilePath); os.IsNotExist(err) {
+		log.WithField("file", cfgFilePath).Info("配置文件不存在，将在本地生成默认配置")
+		defaultConfig := GetDefaultAppConfig()
 
-			// 使用默认配置
-			defaultConfig := GetDefaultAppConfig()
-
-			// 将配置结构体转换为JSON
-			configBytes, marshalErr := json.MarshalIndent(defaultConfig, "", "  ")
-			if marshalErr != nil {
-				log.WithFields(
-					log.Fields{
-						"err": marshalErr,
-					},
-				).Fatal("序列化默认配置失败")
-				return
-			}
-
-			// 将配置加载到viper中，但不写入文件
-			err = viper.ReadConfig(bytes.NewBuffer(configBytes))
-			if err != nil {
-				log.WithFields(
-					log.Fields{
-						"err": err,
-					},
-				).Error("读取默认配置失败")
-			} else {
-				log.Info("已成功在内存中加载默认配置")
-			}
-
-			// 不在这里写入文件了，安装完成后通过 UpdateConfig 写入
-		} else {
+		configBytes, err := json.MarshalIndent(defaultConfig, "", "  ")
+		if err != nil {
 			log.WithFields(
 				log.Fields{
 					"err": err,
 				},
-			).Fatal("配置文件解析错误")
+			).Fatal("默认配置序列化错误")
 		}
-	} else {
-		// 只显示配置文件名，不显示完整路径
-		configFile := viper.ConfigFileUsed()
-		if configFile != "" {
-			// 统一使用 filepath.Clean 和 filepath.Base 处理路径展示
-			cleanPath := filepath.Clean(configFile)
+
+		// 创建默认配置文件
+		if err := os.WriteFile(cfgFilePath, configBytes, 0644); err != nil {
 			log.WithFields(
 				log.Fields{
-					"file": cleanPath,
+					"err": err,
 				},
-			).Info("使用配置文件")
+			).Fatal("创建默认配置文件失败")
 		}
+
+		// 将配置加载到viper中
+		err = viper.ReadConfig(bytes.NewBuffer(configBytes))
+		if err != nil {
+			log.WithFields(
+				log.Fields{
+					"err": err,
+				},
+			).Error("读取默认配置失败")
+		} else {
+			log.Info("已成功在内存中加载默认配置")
+		}
+
+		// 明确设置当前配置路径为待保存的路径，以便后续安装时保存
+		currentConfigFilePath = cfgFilePath
+		return
 	}
+
+	if err := viper.ReadInConfig(); err != nil {
+		log.WithFields(
+			log.Fields{
+				"err": err,
+			},
+		).Fatal("配置文件解析错误")
+	}
+
+	// 统一使用 filepath.Clean 和 filepath.Base 处理路径展示
+	cleanPath := filepath.Clean(cfgFilePath)
+	log.WithFields(
+		log.Fields{
+			"file": cleanPath,
+		},
+	).Info("使用配置文件")
 
 	// 验证配置
 	if _, err := ValidateConfig(); err != nil {
@@ -192,6 +197,32 @@ func Init(cfgFilePath string) {
 			},
 		).Fatal("配置内容验证失败")
 	}
+}
+
+func SaveConfig(appConfig *AppConfig) error {
+	if err := ValidateConfigValue(appConfig); err != nil {
+		return err
+	}
+	if currentConfigFilePath == "" {
+		currentConfigFilePath = "./config.json"
+	}
+	if err := os.MkdirAll(filepath.Dir(currentConfigFilePath), 0755); err != nil {
+		return err
+	}
+	configBytes, err := json.MarshalIndent(appConfig, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(currentConfigFilePath, configBytes, 0644); err != nil {
+		return err
+	}
+	viper.SetConfigFile(currentConfigFilePath)
+	viper.SetConfigType("json")
+	if err := viper.ReadInConfig(); err != nil {
+		return err
+	}
+	syncViperConfig(appConfig)
+	return nil
 }
 
 // UpdateConfig 更新配置文件
@@ -206,18 +237,16 @@ func UpdateConfig(updateFn func(*AppConfig)) error {
 	// 2. 执行更新回调
 	updateFn(&currentConfig)
 
-	// 3. 将更新后的配置写回 Viper
-	// 注意：这里需要手动设置回 viper，否则 viper.WriteConfig() 写入的还是旧配置
-	// 也可以直接序列化 currentConfig 写入文件
+	return SaveConfig(&currentConfig)
+}
 
-	// 更新 Server 配置
+func syncViperConfig(currentConfig *AppConfig) {
 	viper.Set("server.host", currentConfig.Server.Host)
 	viper.Set("server.port", currentConfig.Server.Port)
 	viper.Set("server.dist", currentConfig.Server.Dist)
 	viper.Set("server.dev_mode", currentConfig.Server.DevMode)
 	viper.Set("server.access_log", currentConfig.Server.AccessLog)
 
-	// 更新 Database 配置
 	viper.Set("database.type", currentConfig.Database.Type)
 	viper.Set("database.mysql.host", currentConfig.Database.MySQL.Host)
 	viper.Set("database.mysql.port", currentConfig.Database.MySQL.Port)
@@ -229,27 +258,14 @@ func UpdateConfig(updateFn func(*AppConfig)) error {
 	viper.Set("database.mysql.max_open_conns", currentConfig.Database.MySQL.MaxOpenConns)
 	viper.Set("database.sqlite.path", currentConfig.Database.SQLite.Path)
 
-	// 更新 Redis 配置
 	viper.Set("redis.host", currentConfig.Redis.Host)
 	viper.Set("redis.port", currentConfig.Redis.Port)
 	viper.Set("redis.password", currentConfig.Redis.Password)
 	viper.Set("redis.db", currentConfig.Redis.DB)
 
-	// 更新 Log 配置
 	viper.Set("log.level", currentConfig.Log.Level)
 	viper.Set("log.file", currentConfig.Log.File)
 	viper.Set("log.max_size", currentConfig.Log.MaxSize)
 	viper.Set("log.max_backups", currentConfig.Log.MaxBackups)
 	viper.Set("log.max_age", currentConfig.Log.MaxAge)
-
-	// 4. 保存到文件
-	if err := viper.WriteConfig(); err != nil {
-		// 如果配置文件不存在（比如只用了默认配置没写文件），则尝试 SafeWriteConfig
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			return viper.SafeWriteConfig()
-		}
-		return err
-	}
-
-	return nil
 }

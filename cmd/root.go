@@ -61,11 +61,12 @@ func setupLogrusForNonHTTP() {
 
 	// 设置输出目标（稍后会根据配置文件调整）
 	logrus.SetOutput(os.Stdout)
+
+	// 初始化配置（优先使用命令行参数，否则默认 config.json）
+	// 注意：如果文件不存在，配置系统将在内存中生成默认配置
 	if cfgFile != "" {
-		// 使用命令行指定的配置文件
 		config.Init(cfgFile)
 	} else {
-		// 使用默认配置文件路径
 		config.Init("./config.json")
 	}
 

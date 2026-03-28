@@ -7,10 +7,9 @@ import (
 )
 
 // RegisterInstallRoutes 注册安装相关的路由
-func RegisterInstallRoutes(r *gin.Engine) {
-	// 安装向导页面
-	r.GET("/install", install.InstallPageHandler)
+func RegisterInstallRoutes(rg *gin.RouterGroup) {
+	installGroup := rg.Group("/install")
 
 	// 提交安装表单
-	r.POST("/api/install", install.InstallSubmitHandler)
+	installGroup.POST("", install.InstallSubmitHandler)
 }

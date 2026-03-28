@@ -3,9 +3,10 @@ package middleware
 import (
 	"NetworkAuth/services"
 	"net/http"
-	"strings"
+	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 )
 
 // InstallCheckMiddleware 检查系统是否已安装
@@ -13,38 +14,52 @@ func InstallCheckMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 
-		// 放行静态资源和favicon
-		if strings.HasPrefix(path, "/static/") || strings.HasPrefix(path, "/assets/") || path == "/favicon.ico" {
-			c.Next()
-			return
-		}
-
-		// 检查是否为安装相关的路由
-		isInstallRoute := path == "/install" || path == "/api/install"
+		isInstallRoute := path == "/api/install" || path == "/api/install/"
 
 		// 获取系统的安装状态
-		// 在没有数据库的时候，GetSettingsService().GetString 会返回默认值 "0"
-		isInstalled := services.GetSettingsService().GetString("is_installed", "0") == "1"
+		isInstalledStr := services.GetSettingsService().GetString("is_installed", "0")
+		isInstalled := isInstalledStr == "1"
 
-		// 如果未安装且当前不是访问安装页面，则重定向到安装页面
-		if !isInstalled && !isInstallRoute {
-			// 对于 API 请求，返回 JSON 提示
-			if strings.HasPrefix(path, "/api/") || strings.Contains(path, "/api/") {
-				c.JSON(http.StatusForbidden, gin.H{
-					"code": 403,
-					"msg":  "系统未初始化，请先完成安装",
-				})
-				c.Abort()
-				return
+		// 如果设置服务没获取到（因为未连接数据库），再结合文件判断
+		if !isInstalled {
+			// 检查数据库文件是否存在（如果是 sqlite）
+			dbType := viper.GetString("database.type")
+			switch dbType {
+			case "sqlite":
+				dbPath := viper.GetString("database.sqlite.path")
+				if dbPath == "" {
+					dbPath = "./database.db"
+				}
+				if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+					isInstalled = false
+				} else {
+					isInstalled = true
+				}
+			case "mysql":
+				// 如果是 mysql 且配置了 database，我们认为是已安装
+				dbName := viper.GetString("database.mysql.database")
+				if dbName != "" {
+					isInstalled = true
+				}
 			}
-			c.Redirect(http.StatusTemporaryRedirect, "/install")
+		}
+
+		// 如果未安装且不是访问安装接口，则返回 403 JSON
+		if !isInstalled && !isInstallRoute {
+			c.JSON(http.StatusForbidden, gin.H{
+				"code": 403,
+				"msg":  "系统未初始化，请先完成安装",
+			})
 			c.Abort()
 			return
 		}
 
-		// 如果已安装但尝试访问安装页面，则重定向到首页或后台
+		// 如果已安装但尝试访问安装接口，则返回 403 JSON
 		if isInstalled && isInstallRoute {
-			c.Redirect(http.StatusTemporaryRedirect, "/admin")
+			c.JSON(http.StatusForbidden, gin.H{
+				"code": 403,
+				"msg":  "系统已安装，请勿重复初始化",
+			})
 			c.Abort()
 			return
 		}

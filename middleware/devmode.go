@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"NetworkAuth/web"
-
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
 )
@@ -13,8 +11,6 @@ import (
 
 // DevModeConfig 开发模式配置
 type DevModeConfig struct {
-	// 是否启用模板热重载
-	EnableTemplateReload bool
 	// 是否跳过验证码验证
 	SkipCaptcha bool
 	// 是否显示详细错误信息
@@ -29,19 +25,13 @@ type DevModeConfig struct {
 
 // DevModeMiddleware 开发模式中间件
 // 统一管理所有开发模式相关的功能
-func DevModeMiddleware(engine *gin.Engine) gin.HandlerFunc {
+func DevModeMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 检查是否为开发模式
 		if IsDevMode() {
 			// 设置开发模式标识到上下文
 			c.Set("dev_mode", true)
 			c.Set("dev_config", GetDevModeConfig())
-
-			// 如果启用了模板热重载，则重新加载模板
-			config := GetDevModeConfig()
-			if config.EnableTemplateReload {
-				reloadTemplates(engine)
-			}
 
 			// 设置开发模式相关的响应头
 			c.Header("X-Dev-Mode", "true")
@@ -69,10 +59,9 @@ func GetDevModeConfig() DevModeConfig {
 	}
 
 	return DevModeConfig{
-		EnableTemplateReload: true, // 开发模式下默认启用模板热重载
-		SkipCaptcha:          true, // 开发模式下默认跳过验证码
-		ShowDetailedErrors:   true, // 开发模式下显示详细错误
-		EnableDebugLog:       true, // 开发模式下启用调试日志
+		SkipCaptcha:        true, // 开发模式下默认跳过验证码
+		ShowDetailedErrors: true, // 开发模式下显示详细错误
+		EnableDebugLog:     true, // 开发模式下启用调试日志
 	}
 }
 
@@ -107,10 +96,3 @@ func ShouldSkipCaptcha(c *gin.Context) bool {
 // ============================================================================
 // 私有函数
 // ============================================================================
-
-// reloadTemplates 重新加载模板（内部函数）
-func reloadTemplates(engine *gin.Engine) {
-	if tmpl, err := web.ParseTemplates(); err == nil {
-		engine.SetHTMLTemplate(tmpl)
-	}
-}

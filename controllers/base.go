@@ -237,8 +237,7 @@ func (bc *BaseController) BindURI(c *gin.Context, obj interface{}) bool {
 func (bc *BaseController) GetDefaultTemplateData() gin.H {
 	settings := services.GetSettingsService()
 	return gin.H{
-		"Title":         settings.GetString("site_title", "NetworkAuth"),
-		"SystemName":    settings.GetString("site_title", "NetworkAuth"),
+		"Title":         settings.GetString("site_title", "NetworkAuth 系统"),
 		"FooterText":    settings.GetString("footer_text", "Copyright © 2026 NetworkAuth. All Rights Reserved."),
 		"ICPRecord":     settings.GetString("icp_record", ""),
 		"ICPRecordLink": settings.GetString("icp_record_link", "https://beian.miit.gov.cn"),

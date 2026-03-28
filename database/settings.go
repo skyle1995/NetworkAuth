@@ -3,7 +3,6 @@ package database
 import (
 	"NetworkAuth/config"
 	"NetworkAuth/models"
-	"NetworkAuth/utils"
 
 	"github.com/sirupsen/logrus"
 )
@@ -31,50 +30,22 @@ func SeedDefaultSettings() error {
 		return err
 	}
 
-	// 生成默认管理员密码（admin123）的盐值和哈希
-	// 这样可以确保admin_password和admin_password_salt在初始化时就有值
-	adminSalt, err := utils.GenerateRandomSalt()
-	if err != nil {
-		return err
-	}
-	adminPasswordHash, err := utils.HashPasswordWithSalt("admin123", adminSalt)
-	if err != nil {
-		return err
-	}
-
-	// 检查是否已有 admin_password，如果有，说明是旧版本升级，应该把 is_installed 默认设为 1
-	var adminPwdCount int64
-	db.Model(&models.Settings{}).Where("name = ?", "admin_password").Count(&adminPwdCount)
 	isInstalledDefault := "0"
-	if adminPwdCount > 0 {
-		isInstalledDefault = "1"
-	}
 
 	// 定义默认设置项
-	defaultSettings := []models.Settings{
-		// ===== 系统安装状态 =====
+	var defaultSettings []models.Settings
+
+	// ===== 系统安装状态 =====
+	defaultSettings = append(defaultSettings, []models.Settings{
 		{
 			Name:        "is_installed",
 			Value:       isInstalledDefault,
 			Description: "系统是否已初始化安装，0=未安装，1=已安装",
 		},
-		// ===== 管理员账号相关默认项 =====
-		{
-			Name:        "admin_username",
-			Value:       "admin",
-			Description: "管理员用户名",
-		},
-		{
-			Name:        "admin_password",
-			Value:       adminPasswordHash,
-			Description: "管理员密码哈希值",
-		},
-		{
-			Name:        "admin_password_salt",
-			Value:       adminSalt,
-			Description: "管理员密码加密盐值",
-		},
-		// ===== 系统和安全相关默认项 =====
+	}...)
+
+	// ===== 系统和安全相关默认项 =====
+	defaultSettings = append(defaultSettings, []models.Settings{
 		{
 			Name:        "maintenance_mode",
 			Value:       "0",
@@ -107,15 +78,18 @@ func SeedDefaultSettings() error {
 		},
 		{
 			Name:        "max_upload_size",
-			Value:       "10485760",
-			Description: "文件上传最大尺寸（字节），默认10MB",
+			Value:       "10",
+			Description: "文件上传最大尺寸",
 		},
 		{
-			Name:        "default_user_role",
-			Value:       "1",
-			Description: "新用户默认角色，0=管理员，1=普通用户",
+			Name:        "max_upload_size_unit",
+			Value:       "MB",
+			Description: "文件上传大小单位（B/KB/MB/GB）",
 		},
-		// ===== 日志清理策略默认项 =====
+	}...)
+
+	// ===== 日志清理策略默认项 =====
+	defaultSettings = append(defaultSettings, []models.Settings{
 		{
 			Name:        "login_log_cleanup_days",
 			Value:       "30",
@@ -136,7 +110,10 @@ func SeedDefaultSettings() error {
 			Value:       "10000",
 			Description: "操作日志保留条数（0表示不按数量清理）",
 		},
-		// ===== Cookie相关默认项 =====
+	}...)
+
+	// ===== Cookie相关默认项 =====
+	defaultSettings = append(defaultSettings, []models.Settings{
 		{
 			Name:        "cookie_secure",
 			Value:       "true",
@@ -157,7 +134,10 @@ func SeedDefaultSettings() error {
 			Value:       "86400",
 			Description: "Cookie最大存活时间（秒）",
 		},
-		// ===== 站点基本信息默认项 =====
+	}...)
+
+	// ===== 站点基本信息默认项 =====
+	defaultSettings = append(defaultSettings, []models.Settings{
 		{
 			Name:        "site_title",
 			Value:       "NetworkAuth",
@@ -165,17 +145,17 @@ func SeedDefaultSettings() error {
 		},
 		{
 			Name:        "site_keywords",
-			Value:       "NetworkAuth,鉴权,API管理,GoLang",
+			Value:       "NetworkAuth,网络授权服务,GoLang,Web服务",
 			Description: "网站关键词，用于SEO优化，多个关键词用逗号分隔",
 		},
 		{
 			Name:        "site_description",
-			Value:       "NetworkAuth 网络授权服务，专注于应用鉴权与接口管理",
+			Value:       "网络授权服务 (NetworkAuth) 是一个专注于应用鉴权、接口管理和动态逻辑分发的后端系统",
 			Description: "网站描述，用于SEO优化和社交媒体分享",
 		},
 		{
 			Name:        "site_logo",
-			Value:       "/static/logo.png",
+			Value:       "/logo.svg",
 			Description: "网站Logo图片路径",
 		},
 		{
@@ -183,7 +163,10 @@ func SeedDefaultSettings() error {
 			Value:       "admin@example.com",
 			Description: "联系邮箱，用于客服和业务咨询",
 		},
-		// ===== 页脚与备案相关默认项 =====
+	}...)
+
+	// ===== 页脚与备案相关默认项 =====
+	defaultSettings = append(defaultSettings, []models.Settings{
 		{
 			Name:        "footer_text",
 			Value:       "Copyright © 2026 NetworkAuth. All Rights Reserved.",
@@ -209,7 +192,121 @@ func SeedDefaultSettings() error {
 			Value:       "",
 			Description: "公安备案查询链接，留空则不显示",
 		},
-	}
+	}...)
+
+	// ===== 前端平台配置相关默认项 =====
+	defaultSettings = append(defaultSettings, []models.Settings{
+		{
+			Name:        "platform_fixed_header",
+			Value:       "1",
+			Description: "是否固定页头 (0 = 关闭，1 = 开启)",
+		},
+		{
+			Name:        "platform_hidden_side_bar",
+			Value:       "0",
+			Description: "是否隐藏侧边栏 (0 = 关闭，1 = 开启)",
+		},
+		{
+			Name:        "platform_multi_tags_cache",
+			Value:       "0",
+			Description: "是否开启多标签页缓存 (0 = 关闭，1 = 开启)",
+		},
+		{
+			Name:        "platform_keep_alive",
+			Value:       "1",
+			Description: "是否开启组件缓存 (0 = 关闭，1 = 开启)",
+		},
+		{
+			Name:        "platform_layout",
+			Value:       "vertical",
+			Description: "布局模式 (vertical/horizontal/mix/comprehensive)",
+		},
+		{
+			Name:        "platform_theme",
+			Value:       "light",
+			Description: "主题配色 (light/dark)",
+		},
+		{
+			Name:        "platform_dark_mode",
+			Value:       "0",
+			Description: "是否开启暗黑模式 (0 = 关闭，1 = 开启)",
+		},
+		{
+			Name:        "platform_overall_style",
+			Value:       "light",
+			Description: "整体风格",
+		},
+		{
+			Name:        "platform_grey",
+			Value:       "0",
+			Description: "是否开启灰色模式 (0 = 关闭，1 = 开启)",
+		},
+		{
+			Name:        "platform_weak",
+			Value:       "0",
+			Description: "是否开启色弱模式 (0 = 关闭，1 = 开启)",
+		},
+		{
+			Name:        "platform_hide_tabs",
+			Value:       "0",
+			Description: "是否隐藏标签页 (0 = 关闭，1 = 开启)",
+		},
+		{
+			Name:        "platform_hide_footer",
+			Value:       "0",
+			Description: "是否隐藏页脚 (0 = 关闭，1 = 开启)",
+		},
+		{
+			Name:        "platform_stretch",
+			Value:       "0",
+			Description: "是否开启页面宽度拉伸 (0 = 关闭，1 = 开启)",
+		},
+		{
+			Name:        "platform_sidebar_status",
+			Value:       "1",
+			Description: "侧边栏状态 (0 = 折叠，1 = 展开)",
+		},
+		{
+			Name:        "platform_ep_theme_color",
+			Value:       "#409EFF",
+			Description: "Element Plus 主题色",
+		},
+		{
+			Name:        "platform_show_logo",
+			Value:       "1",
+			Description: "是否显示Logo (0 = 关闭，1 = 开启)",
+		},
+		{
+			Name:        "platform_show_model",
+			Value:       "smart",
+			Description: "显示模式 (smart等)",
+		},
+		{
+			Name:        "platform_menu_arrow_icon_no_transition",
+			Value:       "0",
+			Description: "菜单箭头图标是否取消过渡动画 (0 = 关闭，1 = 开启)",
+		},
+		{
+			Name:        "platform_caching_async_routes",
+			Value:       "0",
+			Description: "是否缓存异步路由 (0 = 关闭，1 = 开启)",
+		},
+		{
+			Name:        "platform_tooltip_effect",
+			Value:       "light",
+			Description: "提示框效果 (light/dark)",
+		},
+		{
+			Name:        "platform_responsive_storage_name_space",
+			Value:       "responsive-",
+			Description: "响应式存储命名空间",
+		},
+		{
+			Name:        "platform_menu_search_history",
+			Value:       "6",
+			Description: "菜单搜索历史最大记录数",
+		},
+	}...)
 
 	// 逐个检查并创建不存在的设置项
 	for _, setting := range defaultSettings {
@@ -220,13 +317,13 @@ func SeedDefaultSettings() error {
 
 		if count == 0 {
 			if err := db.Create(&setting).Error; err != nil {
-				logrus.WithError(err).WithField("name", setting.Name).Error("创建默认设置失败")
+				logrus.WithError(err).WithField("name", setting.Name).Error("创建系统设置失败")
 				return err
 			}
-			logrus.WithField("name", setting.Name).WithField("value", setting.Value).Debug("创建默认设置项")
+			logrus.WithField("name", setting.Name).WithField("value", setting.Value).Debug("创建系统设置项")
 		}
 	}
 
-	logrus.Info("默认系统设置初始化完成")
+	logrus.Info("系统设置初始化完成")
 	return nil
 }

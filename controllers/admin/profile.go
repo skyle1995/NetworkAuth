@@ -5,38 +5,41 @@ import (
 	"NetworkAuth/models"
 	"NetworkAuth/services"
 	"NetworkAuth/utils"
-	"net/http"
+	"fmt"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-// ProfileFragmentHandler 个人资料片段渲染
-// - 渲染个人资料与修改密码表单
-func ProfileFragmentHandler(c *gin.Context) {
-	c.HTML(http.StatusOK, "profile.html", map[string]interface{}{})
-}
-
-// ProfileInfoHandler 查询当前登录管理员的基本信息
-// - 返回 username 字段
-func ProfileInfoHandler(c *gin.Context) {
-	_, _, err := GetCurrentAdminUserWithRefresh(c)
+// ProfileQueryHandler 获取当前登录管理员的用户名和昵称等信息
+// - 返回 JSON: {username, nickname, avatar}
+// - 从数据库获取最新信息
+func ProfileQueryHandler(c *gin.Context) {
+	claims, _, err := GetCurrentAdminUserWithRefresh(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"code": 1,
-			"msg":  "未登录或会话已过期",
-			"data": nil,
-		})
+		authBaseController.HandleValidationError(c, "未登录或会话已过期")
 		return
 	}
 
 	// 获取最新设置
-	settingsService := services.GetSettingsService()
-	username := settingsService.GetString("admin_username", "admin")
+	db, ok := authBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+	var adminUser models.User
+	if err := db.Where("uuid = ?", claims.UUID).First(&adminUser).Error; err != nil {
+		authBaseController.HandleInternalError(c, "获取管理员信息失败", err)
+		return
+	}
+	username := adminUser.Username
+	nickname := adminUser.Nickname
+	avatar := adminUser.Avatar
 
-	authBaseController.HandleSuccess(c, "ok", map[string]interface{}{
+	authBaseController.HandleSuccess(c, "ok", gin.H{
 		"username": username,
+		"nickname": nickname,
+		"avatar":   avatar,
 	})
 }
 
@@ -44,31 +47,34 @@ func ProfileInfoHandler(c *gin.Context) {
 // - 接收 JSON: {old_password, new_password, confirm_password}
 // - 校验旧密码正确性、新密码与确认一致性
 // - 成功后更新密码哈希
+// - 自动刷新接近过期的JWT令牌
 func ProfilePasswordUpdateHandler(c *gin.Context) {
-	_, _, err := GetCurrentAdminUserWithRefresh(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"code": 1,
-			"msg":  "未登录或会话已过期",
-			"data": nil,
-		})
-		return
-	}
-
 	var body struct {
 		OldPassword     string `json:"old_password"`
 		NewPassword     string `json:"new_password"`
 		ConfirmPassword string `json:"confirm_password"`
 	}
+
 	if !authBaseController.BindJSON(c, &body) {
 		return
 	}
 
-	// 基础校验
-	if body.OldPassword == "" || body.NewPassword == "" || body.ConfirmPassword == "" {
-		authBaseController.HandleValidationError(c, "旧密码/新密码/确认密码均不能为空")
+	// 获取当前用户信息用于日志记录
+	claims, _, err := GetCurrentAdminUserWithRefresh(c)
+	if err != nil {
+		authBaseController.HandleValidationError(c, "未登录或会话已过期")
 		return
 	}
+
+	// 基础校验
+	if !authBaseController.ValidateRequired(c, map[string]interface{}{
+		"旧密码":  body.OldPassword,
+		"新密码":  body.NewPassword,
+		"确认密码": body.ConfirmPassword,
+	}) {
+		return
+	}
+
 	if len(body.NewPassword) < 6 {
 		authBaseController.HandleValidationError(c, "新密码长度不能少于6位")
 		return
@@ -82,10 +88,29 @@ func ProfilePasswordUpdateHandler(c *gin.Context) {
 		return
 	}
 
-	// 获取当前密码设置
-	settingsService := services.GetSettingsService()
-	currentHash := settingsService.GetString("admin_password", "")
-	currentSalt := settingsService.GetString("admin_password_salt", "")
+	// 注释：由于使用了AdminAuthRequired中间件，已确保是管理员用户
+
+	// 获取数据库连接
+	db, ok := authBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+
+	// 从数据库获取当前管理员信息
+	var adminUser models.User
+	if err := db.Where("uuid = ?", claims.UUID).First(&adminUser).Error; err != nil {
+		authBaseController.HandleInternalError(c, "获取管理员信息失败", err)
+		return
+	}
+
+	currentHash := adminUser.Password
+	currentSalt := adminUser.PasswordSalt
+
+	// 检查必要的设置是否存在
+	if currentHash == "" || currentSalt == "" {
+		authBaseController.HandleInternalError(c, "管理员密码设置不完整", nil)
+		return
+	}
 
 	// 校验旧密码
 	if !utils.VerifyPasswordWithSalt(body.OldPassword, currentSalt, currentHash) {
@@ -93,91 +118,58 @@ func ProfilePasswordUpdateHandler(c *gin.Context) {
 		return
 	}
 
-	// 生成新盐值和哈希
+	// 生成新的密码盐值
 	newSalt, err := utils.GenerateRandomSalt()
 	if err != nil {
-		authBaseController.HandleInternalError(c, "生成盐值失败", err)
+		authBaseController.HandleInternalError(c, "生成密码盐失败", err)
 		return
 	}
 
+	// 生成新密码哈希
 	newHash, err := utils.HashPasswordWithSalt(body.NewPassword, newSalt)
 	if err != nil {
 		authBaseController.HandleInternalError(c, "生成密码哈希失败", err)
 		return
 	}
 
-	// 更新数据库
-	db, ok := authBaseController.GetDB(c)
-	if !ok {
-		return
-	}
+	// 更新到数据库
+	err = db.Transaction(func(tx *gorm.DB) error {
+		// 更新密码和盐值
+		return tx.Model(&models.User{}).Where("uuid = ?", claims.UUID).Updates(map[string]interface{}{
+			"password":      newHash,
+			"password_salt": newSalt,
+		}).Error
+	})
 
-	// 更新 admin_password
-	if err := updateSetting(db, "admin_password", newHash); err != nil {
+	if err != nil {
 		authBaseController.HandleInternalError(c, "更新密码失败", err)
 		return
 	}
 
-	// 更新 admin_password_salt
-	if err := updateSetting(db, "admin_password_salt", newSalt); err != nil {
-		authBaseController.HandleInternalError(c, "更新盐值失败", err)
-		return
-	}
-
-	// 刷新缓存
-	settingsService.RefreshCache()
-
-	// 清除相关缓存键
-	_ = utils.RedisDel(c.Request.Context(), "setting:admin_password", "setting:admin_password_salt")
-
-	// 获取当前用户名
-	currentUsername := settingsService.GetString("admin_username", "admin")
-
-	// 重新签发JWT并写入Cookie
-	token, err := generateJWTTokenForAdmin(currentUsername, newHash)
-	if err != nil {
-		authBaseController.HandleInternalError(c, "生成新令牌失败", err)
-		return
-	}
-
-	secure, sameSite, domain, maxAge := settingsService.GetCookieConfig()
-	cookie := utils.CreateSecureCookie("admin_session", token, maxAge, domain, secure, sameSite)
-	c.SetCookie(cookie.Name, cookie.Value, cookie.MaxAge, cookie.Path, cookie.Domain, cookie.Secure, cookie.HttpOnly)
-
 	// 记录操作日志
-	operator := c.GetString("admin_username")
-	if operator == "" {
-		operator = "unknown"
-	}
-	operatorUUID := c.GetString("admin_uuid")
+	services.RecordOperationLog("修改密码", claims.Username, claims.UUID, "管理员修改了登录密码")
 
-	services.RecordOperationLog(
-		"修改密码",
-		operator,
-		operatorUUID,
-		"管理员修改了登录密码",
-	)
-
-	authBaseController.HandleSuccess(c, "密码修改成功", nil)
+	authBaseController.HandleSuccess(c, "密码修改成功，请重新登录", gin.H{
+		"redirect": "/admin/login",
+	})
 }
 
-// ProfileUpdateHandler 修改当前登录管理员的用户名
-// - 接收 JSON: {username}
-// - 校验用户名非空、长度
+// ProfileUpdateHandler 修改当前登录管理员的资料（用户名、昵称、头像）
+// - 接收 JSON: {username, nickname, avatar, old_password}
+// - 校验旧密码正确性
 // - 更新数据库后重新签发JWT并写入 Cookie，保持前端展示的一致性
+// - 自动刷新接近过期的JWT令牌
 func ProfileUpdateHandler(c *gin.Context) {
-	_, _, err := GetCurrentAdminUserWithRefresh(c)
+	claims, _, err := GetCurrentAdminUserWithRefresh(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"code": 1,
-			"msg":  "未登录或会话已过期",
-			"data": nil,
-		})
+		authBaseController.HandleValidationError(c, "未登录或会话已过期")
 		return
 	}
 
 	var body struct {
 		Username    string `json:"username"`
+		Nickname    string `json:"nickname"`
+		Avatar      string `json:"avatar"`
 		OldPassword string `json:"old_password"`
 	}
 	if !authBaseController.BindJSON(c, &body) {
@@ -185,6 +177,9 @@ func ProfileUpdateHandler(c *gin.Context) {
 	}
 
 	username := strings.TrimSpace(body.Username)
+	nickname := strings.TrimSpace(body.Nickname)
+	avatar := strings.TrimSpace(body.Avatar)
+
 	if username == "" {
 		authBaseController.HandleValidationError(c, "用户名不能为空")
 		return
@@ -193,75 +188,86 @@ func ProfileUpdateHandler(c *gin.Context) {
 		authBaseController.HandleValidationError(c, "用户名长度不能超过64字符")
 		return
 	}
-
-	settingsService := services.GetSettingsService()
-	currentUsername := settingsService.GetString("admin_username", "admin")
-
-	// 如果未变化则直接返回成功
-	if strings.EqualFold(username, currentUsername) {
-		authBaseController.HandleSuccess(c, "保存成功", map[string]interface{}{
-			"username": username,
-		})
+	if len(nickname) > 64 {
+		authBaseController.HandleValidationError(c, "昵称长度不能超过64字符")
+		return
+	}
+	if len(avatar) > 255 {
+		authBaseController.HandleValidationError(c, "头像URL长度不能超过255字符")
 		return
 	}
 
-	// 修改用户名需要进行当前密码校验
-	if strings.TrimSpace(body.OldPassword) == "" {
-		authBaseController.HandleValidationError(c, "修改用户名需要提供当前密码")
-		return
-	}
-
-	currentHash := settingsService.GetString("admin_password", "")
-	currentSalt := settingsService.GetString("admin_password_salt", "")
-
-	// 校验旧密码
-	if !utils.VerifyPasswordWithSalt(body.OldPassword, currentSalt, currentHash) {
-		authBaseController.HandleValidationError(c, "当前密码不正确")
-		return
-	}
-
-	// 更新数据库
 	db, ok := authBaseController.GetDB(c)
 	if !ok {
 		return
 	}
 
-	if err := updateSetting(db, "admin_username", username); err != nil {
-		authBaseController.HandleInternalError(c, "更新用户名失败", err)
+	// 注释：由于使用了AdminAuthRequired中间件，已确保是管理员用户
+
+	// 从数据库获取当前管理员信息
+	var adminUser models.User
+	if err := db.Where("uuid = ?", claims.UUID).First(&adminUser).Error; err != nil {
+		authBaseController.HandleInternalError(c, "获取管理员信息失败", err)
 		return
 	}
 
-	// 刷新缓存
-	settingsService.RefreshCache()
-	_ = utils.RedisDel(c.Request.Context(), "setting:admin_username")
+	adminUsername := adminUser.Username
+	adminNickname := adminUser.Nickname
+	adminAvatar := adminUser.Avatar
+	adminPassword := adminUser.Password
+	adminPasswordSalt := adminUser.PasswordSalt
+
+	// 检查必要的设置是否存在
+	if adminUsername == "" || adminPassword == "" || adminPasswordSalt == "" {
+		authBaseController.HandleInternalError(c, "管理员设置不完整", nil)
+		return
+	}
+
+	// 如果用户名、昵称和头像都未变化则直接返回成功（无需校验旧密码）
+	if strings.EqualFold(username, adminUsername) && nickname == adminNickname && avatar == adminAvatar {
+		authBaseController.HandleSuccess(c, "保存成功", gin.H{
+			"username": username,
+			"nickname": nickname,
+			"avatar":   avatar,
+		})
+		return
+	}
+
+	// 如果只修改昵称或头像，不需要验证密码
+	if !strings.EqualFold(username, adminUsername) {
+		// 修改用户名需要进行当前密码校验
+		if strings.TrimSpace(body.OldPassword) == "" {
+			authBaseController.HandleValidationError(c, "修改账号需要提供当前密码")
+			return
+		}
+
+		// 使用盐值验证当前密码
+		if !utils.VerifyPasswordWithSalt(body.OldPassword, adminPasswordSalt, adminPassword) {
+			authBaseController.HandleValidationError(c, "当前密码不正确")
+			return
+		}
+	}
+
+	// 更新管理员资料
+	if dbErr := db.Model(&models.User{}).Where("uuid = ?", claims.UUID).Updates(map[string]interface{}{
+		"username": username,
+		"nickname": nickname,
+		"avatar":   avatar,
+	}).Error; dbErr != nil {
+		authBaseController.HandleInternalError(c, "更新管理员资料失败", dbErr)
+		return
+	}
+
+	// 获取当前管理员并刷新Token（这会生成包含新用户名的Token并更新Cookie）
+	_, _, _ = GetCurrentAdminUserWithRefresh(c)
 
 	// 记录操作日志
-	operator := c.GetString("admin_username")
-	if operator == "" {
-		operator = "unknown"
-	}
-	operatorUUID := c.GetString("admin_uuid")
+	services.RecordOperationLog("修改资料", claims.Username, claims.UUID, fmt.Sprintf("管理员修改资料为 用户名: %s, 昵称: %s, 头像: %s", username, nickname, avatar))
 
-	services.RecordOperationLog(
-		"修改账号",
-		operator,
-		operatorUUID,
-		"管理员修改了用户名为: "+username,
-	)
-
-	// 重新签发JWT并写入Cookie
-	token, err := generateJWTTokenForAdmin(username, currentHash)
-	if err != nil {
-		authBaseController.HandleInternalError(c, "生成新令牌失败", err)
-		return
-	}
-
-	secure, sameSite, domain, maxAge := settingsService.GetCookieConfig()
-	cookie := utils.CreateSecureCookie("admin_session", token, maxAge, domain, secure, sameSite)
-	c.SetCookie(cookie.Name, cookie.Value, cookie.MaxAge, cookie.Path, cookie.Domain, cookie.Secure, cookie.HttpOnly)
-
-	authBaseController.HandleSuccess(c, "用户名修改成功", map[string]interface{}{
+	authBaseController.HandleSuccess(c, "保存成功", gin.H{
 		"username": username,
+		"nickname": nickname,
+		"avatar":   avatar,
 	})
 }
 

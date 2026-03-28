@@ -22,17 +22,6 @@ import (
 var apiBaseController = controllers.NewBaseController()
 
 // ============================================================================
-// 页面处理器
-// ============================================================================
-
-// APIFragmentHandler 接口列表页面片段处理器
-func APIFragmentHandler(c *gin.Context) {
-	c.HTML(http.StatusOK, "apis.html", gin.H{
-		"Title": "接口设置",
-	})
-}
-
-// ============================================================================
 // API处理器
 // ============================================================================
 
@@ -122,18 +111,12 @@ func APIListHandler(c *gin.Context) {
 		responseAPIs = append(responseAPIs, responseAPI)
 	}
 
-	// 计算分页信息
-	totalPages := (total + int64(limit) - 1) / int64(limit)
-
+	// 返回结果
 	response := gin.H{
-		"success": true,
-		"data": gin.H{
-			"apis":        responseAPIs,
-			"total":       total,
-			"page":        page,
-			"limit":       limit,
-			"total_pages": totalPages,
-		},
+		"code":  0,
+		"msg":   "success",
+		"count": total,
+		"data":  responseAPIs,
 	}
 
 	c.JSON(http.StatusOK, response)

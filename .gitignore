@@ -40,7 +40,7 @@ log/
 *.swo
 *~
 node.txt
-模板
+frontend
 
 # IDE 和编辑器
 .vscode/settings.json

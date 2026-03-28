@@ -15,7 +15,6 @@ import (
 	"NetworkAuth/services"
 	"NetworkAuth/utils"
 	"NetworkAuth/utils/logger"
-	"NetworkAuth/web"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -26,8 +25,8 @@ import (
 // serverCmd 代表服务器命令
 var serverCmd = &cobra.Command{
 	Use:   "server",
-	Short: "启动网络授权服务",
-	Long:  `启动 NetworkAuth HTTP 服务器，监听配置文件中指定的端口，提供 Web 管理界面和 API 服务。`,
+	Short: "启动 NetworkAuth 系统服务器",
+	Long:  `启动 NetworkAuth 系统 HTTP 服务器，监听配置文件中指定的端口，提供 Web 管理界面和 API 服务。`,
 	Run:   runServer,
 }
 
@@ -65,10 +64,10 @@ func runServer(cmd *cobra.Command, args []string) {
 	utils.InitRedis()
 
 	// 初始化数据库（根据 viper 配置选择 SQLite 或 MySQL）
-	// 如果初始化失败则回退并退出
+	// 如果初始化失败（例如 MySQL 连不上），则打印错误并退出
 	db, err := database.Init()
 	if err != nil {
-		logrus.WithError(err).Fatal("数据库初始化失败")
+		logrus.WithError(err).Fatal("数据库初始化失败，请检查配置或确认是否已安装")
 	}
 
 	if db != nil {
@@ -125,6 +124,9 @@ func createHTTPServer(addr string) *http.Server {
 	// 使用默认的 Recovery 中间件
 	r.Use(gin.Recovery())
 
+	// 启用 CORS 中间件，支持前后端分离
+	r.Use(middleware.CorsMiddleware())
+
 	// 添加日志中间件
 	// 默认为 true，只有显式设置为 false 才关闭
 	enableAccessLog := true
@@ -135,21 +137,14 @@ func createHTTPServer(addr string) *http.Server {
 		r.Use(middleware.WrapHandler())
 	}
 
+	// 添加开发模式中间件（统一管理开发模式功能）
+	r.Use(middleware.DevModeMiddleware())
+
 	// 添加安装检查中间件
 	r.Use(middleware.InstallCheckMiddleware())
 
 	// 添加维护模式中间件
 	r.Use(middleware.MaintenanceMiddleware())
-
-	// 添加开发模式中间件（统一管理开发模式功能：模板热重载等）
-	r.Use(middleware.DevModeMiddleware(r))
-
-	// 加载并设置 HTML 模板
-	if tmpl, err := web.ParseTemplates(); err == nil {
-		r.SetHTMLTemplate(tmpl)
-	} else {
-		logrus.WithError(err).Error("HTML模板加载失败")
-	}
 
 	// 注册路由
 	registerRoutes(r)

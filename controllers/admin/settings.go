@@ -13,12 +13,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// SettingsFragmentHandler 设置片段渲染
-// - 渲染设置表单（通过前端JS调用API加载/保存）
-func SettingsFragmentHandler(c *gin.Context) {
-	c.HTML(http.StatusOK, "settings.html", map[string]interface{}{})
-}
-
 // SubAccountSimpleListHandler 子账号简单列表API处理器 (Mock)
 func SubAccountSimpleListHandler(c *gin.Context) {
 	// Mock implementation for NetworkAuth which has no subaccounts
@@ -67,6 +61,11 @@ func SettingsUpdateHandler(c *gin.Context) {
 		return
 	}
 
+	var categoryStr string
+	if category, ok := directBody["category"].(string); ok {
+		categoryStr = category
+	}
+
 	// 提取设置数据
 	var settingsData map[string]string
 
@@ -87,6 +86,9 @@ func SettingsUpdateHandler(c *gin.Context) {
 		// 直接字段格式
 		settingsData = make(map[string]string)
 		for k, v := range directBody {
+			if k == "category" {
+				continue // 忽略 category 字段，不保存到设置表
+			}
 			if str, ok := v.(string); ok {
 				settingsData[k] = str
 			} else if v != nil {
@@ -119,59 +121,6 @@ func SettingsUpdateHandler(c *gin.Context) {
 
 	// 批量处理设置项
 	for k, v := range settingsData {
-		// 特殊处理 admin_password
-		if k == "admin_password" {
-			// 如果密码为空，跳过更新（保留原密码）
-			if v == "" {
-				continue
-			}
-
-			// 记录操作日志
-			// 由于 NetworkAuth 中没有 SystemAdminUser 全局变量，这里暂时使用 "admin"
-			// operator := "admin"
-			// 尝试从上下文获取用户名（如果中间件设置了的话）
-			// if user, exists := c.Get("username"); exists {
-			// 	operator = user.(string)
-			// }
-
-			// 生成随机盐值
-			salt, err := utils.GenerateRandomSalt()
-			if err != nil {
-				authBaseController.HandleInternalError(c, "生成盐值失败", err)
-				return
-			}
-
-			// 使用盐值哈希密码
-			hash, err := utils.HashPasswordWithSalt(v, salt)
-			if err != nil {
-				authBaseController.HandleInternalError(c, "密码哈希失败", err)
-				return
-			}
-
-			// 更新 salt 设置项（如果不存在则创建）
-			var saltSetting models.Settings
-			if err := db.Where("name = ?", "admin_password_salt").First(&saltSetting).Error; err != nil {
-				saltSetting = models.Settings{Name: "admin_password_salt", Value: salt}
-				if err := db.Create(&saltSetting).Error; err != nil {
-					logrus.WithError(err).Error("创建admin_password_salt失败")
-					authBaseController.HandleInternalError(c, "保存盐值失败", err)
-					return
-				}
-			} else {
-				if err := db.Model(&saltSetting).Update("value", salt).Error; err != nil {
-					logrus.WithError(err).Error("更新admin_password_salt失败")
-					authBaseController.HandleInternalError(c, "更新盐值失败", err)
-					return
-				}
-			}
-
-			// 将盐值相关的缓存键加入清理列表
-			keysToDel = append(keysToDel, "setting:admin_password_salt")
-
-			// 将当前处理的值替换为哈希后的密码
-			v = hash
-		}
-
 		var s models.Settings
 		if err := db.Where("name = ?", k).First(&s).Error; err != nil {
 			// 不存在则创建
@@ -200,6 +149,23 @@ func SettingsUpdateHandler(c *gin.Context) {
 
 	// 刷新内存中的设置缓存，保证后续读取一致
 	services.GetSettingsService().RefreshCache()
+
+	// 获取当前操作人信息
+	claims, _, err := GetCurrentAdminUserWithRefresh(c)
+	var operator, operatorUUID string
+	if err == nil && claims != nil {
+		operator = claims.Username
+		operatorUUID = claims.UUID
+	} else {
+		operator = "system"
+	}
+
+	// 记录操作日志
+	logType := "系统设置"
+	if categoryStr != "" {
+		logType = fmt.Sprintf("系统设置-%s", categoryStr)
+	}
+	services.RecordOperationLog(logType, operator, operatorUUID, fmt.Sprintf("管理员更新了系统设置，包含 %d 个配置项", len(settingsData)))
 
 	authBaseController.HandleSuccess(c, "保存成功", nil)
 }
@@ -252,4 +218,25 @@ func SettingsGenerateKeyHandler(c *gin.Context) {
 	}
 
 	authBaseController.HandleSuccess(c, "生成成功", map[string]string{"key": key})
+}
+
+// SettingsPublicHandler 公开设置查询API
+// - 仅返回允许公开的设置项以及所有前端平台配置
+func SettingsPublicHandler(c *gin.Context) {
+	db, ok := authBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+
+	var list []models.Settings
+	// 查询公开的基本信息、维护模式和所有前端平台配置
+	if err := db.Where("name IN ? OR name LIKE ?", []string{"site_title", "site_description", "site_keywords", "site_logo", "contact_email", "maintenance_mode"}, "platform_%").Find(&list).Error; err != nil {
+		authBaseController.HandleInternalError(c, "查询失败", err)
+		return
+	}
+	res := map[string]string{}
+	for _, s := range list {
+		res[s.Name] = s.Value
+	}
+	authBaseController.HandleSuccess(c, "ok", res)
 }

@@ -1,10 +1,10 @@
 package services
 
 import (
-	"NetworkAuth/models"
-	"NetworkAuth/utils"
 	"context"
 	"fmt"
+	"NetworkAuth/models"
+	"NetworkAuth/utils"
 	"time"
 
 	"gorm.io/gorm"
@@ -104,7 +104,11 @@ func FindEntitiesByCondition(model interface{}, result interface{}, condition st
 // 返回: 是否存在和错误
 func CheckEntityExists(model interface{}, condition string, db *gorm.DB, args ...interface{}) (bool, error) {
 	var count int64
-	err := db.Model(model).Where(condition, args...).Count(&count).Error
+	query := db.Model(model)
+	if condition != "" {
+		query = query.Where(condition, args...)
+	}
+	err := query.Count(&count).Error
 	return count > 0, err
 }
 

@@ -7,5 +7,5 @@ package constants
 // 应用程序版本信息
 const (
 	// AppVersion 应用程序版本号
-	AppVersion = "1.0.3"
+	AppVersion = "2.0.1"
 )

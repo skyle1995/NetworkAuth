@@ -42,6 +42,14 @@ func GetSettingsService() *SettingsService {
 	return settingsService
 }
 
+// ResetSettingsService 充置设置服务单例，主要用于重新加载设置（比如安装后）
+func ResetSettingsService() {
+	settingsService = &SettingsService{
+		cache: make(map[string]string),
+	}
+	settingsService.loadAllSettings()
+}
+
 // ============================================================================
 // 私有函数
 // ============================================================================
@@ -55,6 +63,12 @@ func (s *SettingsService) loadAllSettings() {
 	}
 	// 如果数据库未初始化，直接返回，保持缓存为空
 	if db == nil {
+		return
+	}
+
+	// 检查 settings 表是否存在，如果不存在则不查询
+	if !db.Migrator().HasTable(&models.Settings{}) {
+		logrus.Info("settings 表不存在，跳过加载设置")
 		return
 	}
 

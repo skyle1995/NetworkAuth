@@ -22,17 +22,6 @@ import (
 var appBaseController = controllers.NewBaseController()
 
 // ============================================================================
-// 页面处理器
-// ============================================================================
-
-// AppsFragmentHandler 应用列表页面片段处理器
-func AppsFragmentHandler(c *gin.Context) {
-	c.HTML(http.StatusOK, "apps.html", gin.H{
-		"Title": "应用程序",
-	})
-}
-
-// ============================================================================
 // API处理器
 // ============================================================================
 
@@ -359,6 +348,7 @@ func AppCreateHandler(c *gin.Context) {
 	}
 
 	// 提交事务
+
 	if err := tx.Commit().Error; err != nil {
 		logrus.WithError(err).Error("Failed to commit transaction")
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -531,6 +521,28 @@ func AppDeleteHandler(c *gin.Context) {
 		return
 	}
 
+	// 删除相关的变量记录
+	if err := tx.Where("app_uuid = ?", app.UUID).Delete(&models.Variable{}).Error; err != nil {
+		tx.Rollback()
+		logrus.WithError(err).Error("Failed to delete related variables")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": 1,
+			"msg":  "删除相关变量失败",
+		})
+		return
+	}
+
+	// 删除相关的函数记录
+	if err := tx.Where("app_uuid = ?", app.UUID).Delete(&models.Function{}).Error; err != nil {
+		tx.Rollback()
+		logrus.WithError(err).Error("Failed to delete related functions")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": 1,
+			"msg":  "删除相关函数失败",
+		})
+		return
+	}
+
 	// 删除应用
 	if err := tx.Delete(&app).Error; err != nil {
 		tx.Rollback()
@@ -569,7 +581,7 @@ func AppDeleteHandler(c *gin.Context) {
 	logrus.WithFields(logrus.Fields{
 		"app_id":   app.ID,
 		"app_uuid": app.UUID,
-	}).Debug("Successfully deleted app and related APIs")
+	}).Debug("Successfully deleted app and related APIs, Variables and Functions")
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,

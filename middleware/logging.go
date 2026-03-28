@@ -36,7 +36,7 @@ func NewLoggingMiddleware(logger *logger.Logger) *LoggingMiddleware {
 // ============================================================================
 
 // Handler 返回Gin中间件函数，用于记录HTTP请求日志
-// 记录格式参考了更灵活的 NetworkAuth 实现，支持配置开关和日志级别检查
+// 记录格式参考了更灵活的NetworkAuth实现，支持配置开关和日志级别检查
 func (lm *LoggingMiddleware) Handler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 检查是否启用了访问日志

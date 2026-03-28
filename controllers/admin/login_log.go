@@ -4,7 +4,6 @@ import (
 	"NetworkAuth/controllers"
 	"NetworkAuth/models"
 	"NetworkAuth/services"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -45,13 +44,6 @@ func RecordLoginLog(c *gin.Context, username string, status int, message string)
 	}
 }
 
-// LoginLogsFragmentHandler 登录日志页面片段处理器
-func LoginLogsFragmentHandler(c *gin.Context) {
-	c.HTML(http.StatusOK, "login_logs.html", gin.H{
-		"Title": "登录日志",
-	})
-}
-
 // ============================================================================
 // API处理器
 // ============================================================================
@@ -61,7 +53,7 @@ func LoginLogsListHandler(c *gin.Context) {
 	// 获取分页参数
 	page, limit := loginLogBaseController.GetPaginationParams(c)
 
-	// 构建查询
+	// 获取数据库连接
 	db, ok := loginLogBaseController.GetDB(c)
 	if !ok {
 		return
@@ -132,17 +124,19 @@ func LoginLogsClearHandler(c *gin.Context) {
 	}
 
 	// 记录操作日志
-	// 由于 NetworkAuth 中没有 SystemAdminUser 全局变量，这里暂时使用 "admin"
-	operator := "admin"
-	// 尝试从上下文获取用户名（如果中间件设置了的话）
-	// if user, exists := c.Get("username"); exists {
-	// 	operator = user.(string)
-	// }
+	var operator, operatorUUID string
+	if claims, _, err := GetCurrentAdminUserWithRefresh(c); err == nil && claims != nil {
+		operator = claims.Username
+		operatorUUID = claims.UUID
+	} else {
+		operator = "admin"
+		operatorUUID = "00000000-0000-0000-0000-000000000000"
+	}
 
 	log := models.OperationLog{
 		OperationType: "清空登录日志",
 		Operator:      operator,
-		OperatorUUID:  "", // NetworkAuth 中暂时无法获取 UUID
+		OperatorUUID:  operatorUUID,
 		Details:       "管理员清空了所有登录日志",
 		CreatedAt:     time.Now(),
 	}

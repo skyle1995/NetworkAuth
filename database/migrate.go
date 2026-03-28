@@ -18,11 +18,11 @@ func AutoMigrate() error {
 		&models.Settings{},
 		&models.OperationLog{},
 		&models.LoginLog{},
+		&models.User{},
 		&models.App{},
 		&models.API{},
-		&models.Function{},
 		&models.Variable{},
-		&models.User{},
+		&models.Function{},
 	); err != nil {
 		logrus.WithError(err).Error("AutoMigrate 执行失败")
 		return err

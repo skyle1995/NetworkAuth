@@ -9,7 +9,7 @@ type OperationLog struct {
 	ID uint `gorm:"primarykey" json:"id"`
 
 	// 操作信息
-	OperationType string `gorm:"type:varchar(50);index;comment:操作方式" json:"operation_type"`
+	OperationType string `gorm:"type:varchar(50);index;comment:操作方式" json:"operation_type"` // 如：入库成功、凭证分配等
 
 	// 操作人信息
 	Operator     string `gorm:"type:varchar(100);index;comment:操作账号" json:"operator"`

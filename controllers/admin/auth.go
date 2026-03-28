@@ -24,53 +24,29 @@ import (
 var authBaseController = controllers.NewBaseController()
 
 // ============================================================================
-// 页面处理器
+// API处理器
 // ============================================================================
 
-// LoginPageHandler 管理员登录页渲染处理器
-// - 如果已登录则重定向到 /admin
-// - 否则渲染 web/template/admin/login.html 模板
-// - 自动清理失效的JWT Cookie，避免刷新时的问题
-func LoginPageHandler(c *gin.Context) {
-	// 使用带清理功能的JWT校验，避免失效Cookie在登录页面造成问题
-	if IsAdminAuthenticatedWithCleanup(c) {
-		c.Redirect(http.StatusFound, "/admin")
-		return
-	}
-
-	// 获取或生成CSRF令牌
-	var token string
+// CSRFTokenHandler 获取CSRF令牌接口
+func CSRFTokenHandler(c *gin.Context) {
 	// 尝试从Cookie获取
+	var token string
 	if cookie, err := c.Cookie(CSRFCookieName); err == nil && cookie != "" {
 		token = cookie
 	} else {
-		// 生成新的CSRF令牌并设置到Cookie
 		newToken, err := utils.GenerateCSRFToken()
 		if err != nil {
-			c.HTML(http.StatusInternalServerError, "error.html", gin.H{
-				"Error": "生成CSRF令牌失败",
-			})
+			authBaseController.HandleInternalError(c, "生成CSRF令牌失败", err)
 			return
 		}
 		token = newToken
 		setCSRFToken(c, token)
 	}
 
-	// 准备模板数据
-	data := authBaseController.GetDefaultTemplateData()
-	if sysName, ok := data["SystemName"].(string); ok && sysName != "" {
-		data["Title"] = sysName + " - 管理员登录"
-	} else {
-		data["Title"] = "管理员登录"
-	}
-	data["CSRFToken"] = token
-
-	c.HTML(http.StatusOK, "login.html", data)
+	authBaseController.HandleSuccess(c, "success", gin.H{
+		"csrf_token": token,
+	})
 }
-
-// ============================================================================
-// API处理器
-// ============================================================================
 
 // LoginHandler 管理员登录接口
 // - 接收JSON: {username, password, captcha, csrf_token}
@@ -112,35 +88,30 @@ func LoginHandler(c *gin.Context) {
 		return
 	}
 
-	// 获取系统设置服务
-	settingsService := services.GetSettingsService()
-	adminUsername := settingsService.GetString("admin_username", "admin")
-	adminPasswordHash := settingsService.GetString("admin_password", "")
-	adminPasswordSalt := settingsService.GetString("admin_password_salt", "")
-
-	// 验证密码为空的情况（首次登录需要初始化）
-	if adminPasswordHash == "" || adminPasswordSalt == "" {
-		recordLoginLog(c, body.Username, 0, "管理员账号未初始化")
-		authBaseController.HandleInternalError(c, "管理员账号未初始化，请联系系统管理员", nil)
+	// 从数据库中查找对应的用户
+	db, err := database.GetDB()
+	if err != nil {
+		recordLoginLog(c, body.Username, 0, "数据库连接失败")
+		authBaseController.HandleInternalError(c, "数据库连接失败", err)
 		return
 	}
 
-	// 验证用户名
-	if body.Username != adminUsername {
-		recordLoginLog(c, body.Username, 0, "用户名错误")
+	var user models.User
+	if err := db.Where("username = ? AND role = ?", body.Username, 0).First(&user).Error; err != nil {
+		recordLoginLog(c, body.Username, 0, "用户不存在或非管理员")
 		authBaseController.HandleValidationError(c, "用户不存在或密码错误")
 		return
 	}
 
 	// 验证密码（使用盐值校验）
-	if !utils.VerifyPasswordWithSalt(body.Password, adminPasswordSalt, adminPasswordHash) {
+	if !utils.VerifyPasswordWithSalt(body.Password, user.PasswordSalt, user.Password) {
 		recordLoginLog(c, body.Username, 0, "密码错误")
 		authBaseController.HandleValidationError(c, "用户不存在或密码错误")
 		return
 	}
 
 	// 生成JWT令牌
-	token, err := generateJWTTokenForAdmin(body.Username, adminPasswordHash)
+	token, err := generateJWTTokenForAdmin(user.Username, user.Password, user.UUID)
 	if err != nil {
 		recordLoginLog(c, body.Username, 0, "生成令牌失败")
 		authBaseController.HandleInternalError(c, "生成令牌失败", err)
@@ -149,6 +120,7 @@ func LoginHandler(c *gin.Context) {
 
 	// 设置JWT Cookie（HttpOnly，安全）
 	// 使用系统配置的Cookie参数
+	settingsService := services.GetSettingsService()
 	secure, sameSite, domain, maxAge := settingsService.GetCookieConfig()
 	cookie := utils.CreateSecureCookie("admin_session", token, maxAge, domain, secure, sameSite)
 	c.SetCookie(cookie.Name, cookie.Value, cookie.MaxAge, cookie.Path, cookie.Domain, cookie.Secure, cookie.HttpOnly)
@@ -156,6 +128,9 @@ func LoginHandler(c *gin.Context) {
 	recordLoginLog(c, body.Username, 1, "登录成功")
 	authBaseController.HandleSuccess(c, "登录成功", gin.H{
 		"redirect": "/admin",
+		"avatar":   user.Avatar,
+		"nickname": user.Nickname,
+		"username": user.Username,
 	})
 }
 
@@ -282,7 +257,7 @@ type JWTClaims struct {
 // - 包含管理员用户名信息和密码哈希
 // - 设置过期时间
 // - 使用HMAC-SHA256签名
-func generateJWTTokenForAdmin(username, passwordHash string) (string, error) {
+func generateJWTTokenForAdmin(username, passwordHash string, adminUUID string) (string, error) {
 	// 生成密码哈希摘要（使用SHA256）
 	// 注意：传入的 passwordHash 已经是数据库存的 Hash，这里我们再次 Hash 还是直接用？
 	// atomicLibrary 的实现是: utils.GenerateSHA256Hash(adminUser.Password)
@@ -291,9 +266,6 @@ func generateJWTTokenForAdmin(username, passwordHash string) (string, error) {
 	// validateAdminPasswordHash: currentPasswordHash := utils.GenerateSHA256Hash(adminPassword.Value)
 	// 所以这里也应该对数据库里的值进行 Hash。
 	passwordHashDigest := utils.GenerateSHA256Hash(passwordHash)
-
-	// 获取虚拟管理员UUID (NetworkAuth 项目默认为 admin-uuid-001)
-	adminUUID := services.GetSettingsService().GetString("admin_uuid", "admin-uuid-001")
 
 	claims := JWTClaims{
 		Username:     username,
@@ -352,16 +324,16 @@ func validateAdminPasswordHash(claims *JWTClaims, c *gin.Context) bool {
 		return false
 	}
 
-	// 获取当前数据库中的管理员密码
-	var adminPassword models.Settings
-	if err := db.Where("name = ?", "admin_password").First(&adminPassword).Error; err != nil {
-		fmt.Printf("[SECURITY WARNING] Admin password not found in database - Username=%s, IP=%s\n",
+	// 获取当前数据库中的管理员用户
+	var adminUser models.User
+	if err := db.Where("username = ? AND role = ?", claims.Username, 0).First(&adminUser).Error; err != nil {
+		fmt.Printf("[SECURITY WARNING] Admin user not found in database - Username=%s, IP=%s\n",
 			claims.Username, c.ClientIP())
 		return false
 	}
 
 	// 生成当前数据库密码的哈希摘要
-	currentPasswordHash := utils.GenerateSHA256Hash(adminPassword.Value)
+	currentPasswordHash := utils.GenerateSHA256Hash(adminUser.Password)
 
 	// 验证JWT中的密码哈希是否与当前数据库中的密码哈希一致
 	if claims.PasswordHash != currentPasswordHash {
@@ -417,12 +389,13 @@ func IsAdminAuthenticatedHttp(r *http.Request) bool {
 		return false
 	}
 
-	var adminPassword models.Settings
-	if err := db.Where("name = ?", "admin_password").First(&adminPassword).Error; err != nil {
+	var adminUser models.User
+	if err := db.Where("username = ? AND role = ?", claims.Username, 0).First(&adminUser).Error; err != nil {
 		return false
 	}
 
-	currentPasswordHash := utils.GenerateSHA256Hash(adminPassword.Value)
+	// 验证密码哈希
+	currentPasswordHash := utils.GenerateSHA256Hash(adminUser.Password)
 	if claims.PasswordHash != currentPasswordHash {
 		return false
 	}
@@ -518,11 +491,11 @@ func GetCurrentAdminUserWithRefresh(c *gin.Context) (*JWTClaims, bool, error) {
 	if time.Until(claims.ExpiresAt.Time) < refreshThreshold {
 		// 获取当前的 PasswordHash
 		db, _ := database.GetDB()
-		var adminPassword models.Settings
-		db.Where("name = ?", "admin_password").First(&adminPassword)
+		var adminUser models.User
+		db.Where("username = ? AND role = ?", claims.Username, 0).First(&adminUser)
 
 		// 使用新的有效期生成令牌
-		newToken, err := generateJWTTokenForAdmin(claims.Username, adminPassword.Value)
+		newToken, err := generateJWTTokenForAdmin(claims.Username, adminUser.Password, claims.UUID)
 		if err == nil {
 			tokenToSet = newToken
 			refreshed = true
@@ -553,19 +526,12 @@ func AdminAuthRequired() gin.HandlerFunc {
 			// 自动清理失效的JWT Cookie，提升安全性和用户体验
 			clearInvalidJWTCookie(c)
 
-			// 中文注释：区分普通页面请求与AJAX/JSON请求
-			accept := c.GetHeader("Accept")
-			xrw := strings.ToLower(strings.TrimSpace(c.GetHeader("X-Requested-With")))
-			if strings.Contains(accept, "application/json") || xrw == "xmlhttprequest" {
-				c.JSON(http.StatusUnauthorized, gin.H{
-					"success": false,
-					"message": "未登录或会话已过期",
-					"data":    nil,
-				})
-				c.Abort()
-				return
-			}
-			c.Redirect(http.StatusFound, "/admin/login")
+			// API 请求直接返回 401 JSON
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "未登录或会话已过期",
+				"data":    nil,
+			})
 			c.Abort()
 			return
 		}

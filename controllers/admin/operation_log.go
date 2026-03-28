@@ -4,7 +4,6 @@ import (
 	"NetworkAuth/controllers"
 	"NetworkAuth/models"
 	"NetworkAuth/services"
-	"net/http"
 	"strings"
 	"time"
 
@@ -18,17 +17,6 @@ import (
 // ============================================================================
 
 var logBaseController = controllers.NewBaseController()
-
-// ============================================================================
-// 页面处理器
-// ============================================================================
-
-// LogsFragmentHandler 日志操作页面片段处理器
-func LogsFragmentHandler(c *gin.Context) {
-	c.HTML(http.StatusOK, "operation_logs.html", gin.H{
-		"Title": "操作日志",
-	})
-}
 
 // ============================================================================
 // API处理器
@@ -92,11 +80,19 @@ func LogsClearHandler(c *gin.Context) {
 	}
 
 	// 记录操作日志 (因为刚刚清空了，这条将是第一条)
-	operator := "admin"
+	var operator, operatorUUID string
+	if claims, _, err := GetCurrentAdminUserWithRefresh(c); err == nil && claims != nil {
+		operator = claims.Username
+		operatorUUID = claims.UUID
+	} else {
+		operator = "admin"
+		operatorUUID = "00000000-0000-0000-0000-000000000000"
+	}
+
 	log := models.OperationLog{
 		OperationType: "清空日志",
 		Operator:      operator,
-		OperatorUUID:  "",
+		OperatorUUID:  operatorUUID,
 		Details:       "管理员清空了所有操作日志",
 		CreatedAt:     time.Now(),
 	}

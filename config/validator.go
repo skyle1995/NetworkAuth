@@ -27,7 +27,7 @@ func ValidateConfig() (*AppConfig, error) {
 	}
 
 	// 验证配置
-	if err := validateConfig(&config); err != nil {
+	if err := ValidateConfigValue(&config); err != nil {
 		return nil, fmt.Errorf("配置验证失败: %w", err)
 	}
 
@@ -35,12 +35,8 @@ func ValidateConfig() (*AppConfig, error) {
 	return &config, nil
 }
 
-// ============================================================================
-// 私有函数
-// ============================================================================
-
-// validateConfig 验证配置
-func validateConfig(config *AppConfig) error {
+// ValidateConfigValue 验证配置
+func ValidateConfigValue(config *AppConfig) error {
 	// 验证服务器配置
 	if err := validateServerConfig(&config.Server); err != nil {
 		return fmt.Errorf("服务器配置错误: %w", err)
