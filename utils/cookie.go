@@ -2,12 +2,27 @@ package utils
 
 import (
 	"net/http"
+	"strings"
 	"time"
 )
 
 // ============================================================================
 // Cookie创建函数
 // ============================================================================
+
+// FormatCookies formats a slice of cookies into a string suitable for HTTP headers
+func FormatCookies(cookies []*http.Cookie) string {
+	var b strings.Builder
+	for i, c := range cookies {
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		b.WriteString(c.Name)
+		b.WriteRune('=')
+		b.WriteString(c.Value)
+	}
+	return b.String()
+}
 
 // CreateSecureCookie 创建安全的Cookie
 // name: Cookie名称

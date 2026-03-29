@@ -104,7 +104,6 @@ func VerifyCaptcha(c *gin.Context, captchaValue string) bool {
 		logrus.WithError(err).Warn("验证码验证失败：无法从Cookie获取captcha_id")
 		return false
 	}
-	logrus.Infof("VerifyCaptcha: received captchaId=%s, captchaValue=%s", captchaId, captchaValue)
 
 	// 先尝试原始值验证
 	if store.Verify(captchaId, captchaValue, false) {
