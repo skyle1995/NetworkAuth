@@ -71,24 +71,30 @@ func runServer(cmd *cobra.Command, args []string) {
 	}
 
 	if db != nil {
-		// 执行自动迁移（确保表结构存在）
-		if err := database.AutoMigrate(); err != nil {
-			logrus.WithError(err).Fatal("数据库自动迁移失败")
-		}
-		// 初始化默认系统设置
-		if err := database.SeedDefaultSettings(); err != nil {
-			logrus.WithError(err).Fatal("默认系统设置初始化失败")
-		}
+		// 检查系统是否已安装
+		isInstalled := services.GetSettingsService().GetString("is_installed", "0")
+		if isInstalled == "1" {
+			// 执行自动迁移（确保表结构存在）
+			if err := database.AutoMigrate(); err != nil {
+				logrus.WithError(err).Fatal("数据库自动迁移失败")
+			}
+			// 初始化默认系统设置
+			if err := database.SeedDefaultSettings(); err != nil {
+				logrus.WithError(err).Fatal("默认系统设置初始化失败")
+			}
 
-		// 初始化加密管理器
-		// 从数据库设置中获取加密密钥
-		encryptionKey := services.GetSettingsService().GetEncryptionKey()
-		if err := utils.InitEncryption(encryptionKey); err != nil {
-			logrus.WithError(err).Fatal("加密管理器初始化失败")
-		}
+			// 初始化加密管理器
+			// 从数据库设置中获取加密密钥
+			encryptionKey := services.GetSettingsService().GetEncryptionKey()
+			if err := utils.InitEncryption(encryptionKey); err != nil {
+				logrus.WithError(err).Fatal("加密管理器初始化失败")
+			}
 
-		// 启动日志清理定时任务
-		services.StartLogCleanupTask()
+			// 启动日志清理定时任务
+			services.StartLogCleanupTask()
+		} else {
+			logrus.Info("系统尚未安装 (is_installed=0)，跳过核心组件初始化")
+		}
 	} else {
 		logrus.Info("系统处于未初始化状态，跳过数据库自动迁移和设置加载")
 	}

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -164,6 +165,16 @@ func InstallSubmitHandler(c *gin.Context) {
 
 	// 5. 更新内存缓存
 	services.ResetSettingsService()
+
+	// 6. 动态初始化核心组件
+	// 在系统安装完成后，执行本来在 server.go 中需要已安装才能执行的初始化逻辑
+	encryptionKey := services.GetSettingsService().GetEncryptionKey()
+	if err := utils.InitEncryption(encryptionKey); err != nil {
+		logrus.WithError(err).Error("安装完成后加密管理器初始化失败")
+	}
+
+	// 启动日志清理定时任务
+	services.StartLogCleanupTask()
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "msg": "安装成功"})
 }

@@ -116,8 +116,8 @@ func SeedDefaultSettings() error {
 	defaultSettings = append(defaultSettings, []models.Settings{
 		{
 			Name:        "cookie_secure",
-			Value:       "true",
-			Description: "Cookie Secure属性（是否只在HTTPS下发送）",
+			Value:       "false",
+			Description: "是否启用安全Cookie（仅HTTPS），开启后HTTP访问可能导致登录失败",
 		},
 		{
 			Name:        "cookie_same_site",

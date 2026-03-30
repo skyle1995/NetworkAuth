@@ -131,6 +131,7 @@ func LoginHandler(c *gin.Context) {
 		"avatar":   user.Avatar,
 		"nickname": user.Nickname,
 		"username": user.Username,
+		"token":    token,
 	})
 }
 
@@ -308,9 +309,21 @@ func parseJWTToken(tokenString string) (*JWTClaims, error) {
 	return nil, fmt.Errorf("invalid token")
 }
 
-// getJWTCookie 获取JWT cookie的通用函数
+// getJWTCookie 获取JWT cookie的通用函数，支持从Cookie或Authorization Header中获取
 func getJWTCookie(c *gin.Context) (string, error) {
-	return c.Cookie("admin_session")
+	cookie, err := c.Cookie("admin_session")
+	if err == nil && cookie != "" {
+		return cookie, nil
+	}
+
+	// 如果Cookie中没有，尝试从Authorization Header中获取 (兼容前端在非HTTPS环境下无法设置Secure Cookie的情况)
+	authHeader := c.GetHeader("Authorization")
+	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		return token, nil
+	}
+
+	return "", fmt.Errorf("未找到会话信息")
 }
 
 // validateAdminPasswordHash 验证管理员密码哈希的通用函数
@@ -367,13 +380,23 @@ func IsAdminAuthenticated(c *gin.Context) bool {
 // IsAdminAuthenticatedHttp 判断管理员是否已认证（HTTP兼容版本）
 // 保留此方法以兼容未迁移的 Handler
 func IsAdminAuthenticatedHttp(r *http.Request) bool {
+	token := ""
 	cookie, err := r.Cookie("admin_session")
-	if err != nil || cookie.Value == "" {
+	if err == nil && cookie.Value != "" {
+		token = cookie.Value
+	} else {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+			token = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+	}
+
+	if token == "" {
 		return false
 	}
 
 	// 解析并验证JWT令牌
-	claims, err := parseJWTToken(cookie.Value)
+	claims, err := parseJWTToken(token)
 	if err != nil {
 		return false
 	}
@@ -431,12 +454,22 @@ func IsAdminAuthenticatedWithCleanup(c *gin.Context) bool {
 
 // GetCurrentAdminUser 获取当前登录的管理员用户信息 (HTTP 兼容版)
 func GetCurrentAdminUser(r *http.Request) (*JWTClaims, error) {
+	token := ""
 	cookie, err := r.Cookie("admin_session")
-	if err != nil {
+	if err == nil && cookie.Value != "" {
+		token = cookie.Value
+	} else {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+			token = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+	}
+
+	if token == "" {
 		return nil, fmt.Errorf("未找到会话信息")
 	}
 
-	claims, err := parseJWTToken(cookie.Value)
+	claims, err := parseJWTToken(token)
 	if err != nil {
 		return nil, fmt.Errorf("无效的会话信息")
 	}
