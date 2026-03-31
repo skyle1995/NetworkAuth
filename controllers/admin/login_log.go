@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 // ============================================================================
@@ -117,7 +118,7 @@ func LoginLogsClearHandler(c *gin.Context) {
 	}
 
 	// 物理删除所有登录日志
-	if err := db.Where("type = ?", "admin").Delete(&models.LoginLog{}).Error; err != nil {
+	if err := db.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Where("type = ? OR type = ? OR type IS NULL", "admin", "").Delete(&models.LoginLog{}).Error; err != nil {
 		logrus.WithError(err).Error("Failed to clear login logs")
 		loginLogBaseController.HandleInternalError(c, "清空登录日志失败", err)
 		return
