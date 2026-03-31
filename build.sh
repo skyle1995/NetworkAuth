@@ -99,8 +99,8 @@ show_menu() {
     echo -e "${GREEN}    ApiServe 项目构建脚本菜单        ${NC}"
     echo -e "${BLUE}=====================================${NC}"
     echo -e "1. 🌐 仅编译前端并拷贝"
-    echo -e "2. 🚀 一键全部构建 (前端 + 所有架构后端)"
-    echo -e "3. 📦 仅编译所有后端架构"
+    echo -e "2. 📦 仅编译所有后端架构"
+    echo -e "3. 🚀 一键全部构建 (前端 + 所有架构后端)"
     echo -e "-------------------------------------"
     echo -e "4. 🪟  编译后端: Windows 64位"
     echo -e "5. 🐧 编译后端: Linux ARM64"
@@ -126,11 +126,11 @@ while true; do
             pause_and_return
             ;;
         2)
-            build_frontend
             build_all_backend
             pause_and_return
             ;;
         3)
+            build_frontend
             build_all_backend
             pause_and_return
             ;;

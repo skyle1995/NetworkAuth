@@ -31,6 +31,7 @@ frontend/
 # 依赖和包管理
 vendor/
 node_modules/
+.pnpm-store
 
 # 允许提交 Go embed 依赖的静态资源
 # 屏蔽构建的前端产物
