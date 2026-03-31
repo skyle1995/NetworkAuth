@@ -160,10 +160,24 @@ func SettingsUpdateHandler(c *gin.Context) {
 		operator = "system"
 	}
 
+	// 解析详细的子分类日志名称
+	categoryNameMap := map[string]string{
+		"basic":    "基本信息",
+		"security": "系统和安全",
+		"log":      "日志清理",
+		"cookie":   "Cookie 设置",
+		"footer":   "页脚与备案",
+		"style":    "模板样式",
+	}
+
 	// 记录操作日志
 	logType := "系统设置"
 	if categoryStr != "" {
-		logType = fmt.Sprintf("系统设置-%s", categoryStr)
+		if mappedName, exists := categoryNameMap[categoryStr]; exists {
+			logType = fmt.Sprintf("系统设置-%s", mappedName)
+		} else {
+			logType = fmt.Sprintf("系统设置-%s", categoryStr)
+		}
 	}
 	services.RecordOperationLog(logType, operator, operatorUUID, fmt.Sprintf("管理员更新了系统设置，包含 %d 个配置项", len(settingsData)))
 
