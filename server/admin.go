@@ -41,12 +41,12 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 		authorized.POST("/settings/generate-key", adminctl.SettingsGenerateKeyHandler)
 
 		// 操作日志API
-		authorized.GET("/logs", adminctl.LogsListHandler)
-		authorized.POST("/logs/clear", adminctl.LogsClearHandler)
+		authorized.GET("/logs", adminctl.LogsListHandler) // 获取操作日志列表
+		authorized.POST("/logs/clear", adminctl.LogsClearHandler) // 清空操作日志
 
 		// 登录日志API
-		authorized.GET("/login_logs", adminctl.LoginLogsListHandler)
-		authorized.POST("/login_logs/clear", adminctl.LoginLogsClearHandler)
+		authorized.GET("/login_logs", adminctl.LoginLogsListHandler) // 获取登录日志列表
+		authorized.POST("/login_logs/clear", adminctl.LoginLogsClearHandler) // 清空登录日志
 
 		// 子账号相关API (Mock)
 		authorized.GET("/subaccounts/simple", adminctl.SubAccountSimpleListHandler)

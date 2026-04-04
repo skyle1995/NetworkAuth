@@ -5,7 +5,6 @@ import (
 	"NetworkAuth/controllers"
 	"NetworkAuth/middleware"
 	"NetworkAuth/models"
-	"NetworkAuth/services"
 	"NetworkAuth/utils/timeutil"
 
 	"github.com/gin-gonic/gin"
@@ -43,8 +42,6 @@ func formatDBType(dbType string) string {
 // ============================================================================
 // API处理器
 // ============================================================================
-
-// SystemInfoHandler 系统信息API接口
 // 返回系统运行状态的JSON数据，用于前端定时刷新
 func SystemInfoHandler(c *gin.Context) {
 	version := constants.AppVersion
@@ -106,42 +103,4 @@ func DashboardStatsHandler(c *gin.Context) {
 	}
 
 	handlersBaseController.HandleSuccess(c, "ok", data)
-}
-
-// DashboardLoginLogsHandler 获取管理员最近登录日志
-func DashboardLoginLogsHandler(c *gin.Context) {
-	db, ok := handlersBaseController.GetDB(c)
-	if !ok {
-		return
-	}
-
-	// 获取分页参数
-	page, limit := handlersBaseController.GetPaginationParams(c)
-
-	// 获取当前管理员信息（可能是 username 或 admin_username，具体取决于认证中间件设置的 key）
-	username := c.GetString("admin_username")
-	if username == "" {
-		// 尝试获取其他可能的键名
-		username = c.GetString("username")
-	}
-
-	var total int64
-	query := db.Model(&models.LoginLog{}).Where("type = ?", "admin")
-
-	// 如果有用户名，则仅过滤该用户的日志
-	if username != "" {
-		query = query.Where("username = ?", username)
-	}
-
-	logs, total, err := services.Paginate[models.LoginLog](query, page, limit, "created_at desc")
-	if err != nil {
-		handlersBaseController.HandleInternalError(c, "获取登录日志失败", err)
-		return
-	}
-
-	data := gin.H{
-		"total": total,
-		"list":  logs,
-	}
-	handlersBaseController.HandleSuccess(c, "获取登录日志成功", data)
 }

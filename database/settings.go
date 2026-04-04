@@ -52,6 +52,11 @@ func SeedDefaultSettings() error {
 			Description: "维护模式，0=关闭维护模式，1=开启维护模式",
 		},
 		{
+			Name:        "hide_login_entrance",
+			Value:       "0",
+			Description: "隐藏登录入口，0=显示，1=隐藏（门户中不显示管理员或子账号登录入口）",
+		},
+		{
 			Name:        "encryption_key",
 			Value:       encryptionKey,
 			Description: "数据加密密钥",

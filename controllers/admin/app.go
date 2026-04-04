@@ -521,24 +521,42 @@ func AppDeleteHandler(c *gin.Context) {
 		return
 	}
 
-	// 删除相关的变量记录
-	if err := tx.Where("app_uuid = ?", app.UUID).Delete(&models.Variable{}).Error; err != nil {
+	// 检查是否有关联的变量
+	var varCount int64
+	if err := tx.Model(&models.Variable{}).Where("app_uuid = ?", app.UUID).Count(&varCount).Error; err != nil {
 		tx.Rollback()
-		logrus.WithError(err).Error("Failed to delete related variables")
+		logrus.WithError(err).Error("Failed to count related variables")
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 1,
-			"msg":  "删除相关变量失败",
+			"msg":  "检查关联变量失败",
+		})
+		return
+	}
+	if varCount > 0 {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 1,
+			"msg":  "该应用下存在关联变量，禁止删除",
 		})
 		return
 	}
 
-	// 删除相关的函数记录
-	if err := tx.Where("app_uuid = ?", app.UUID).Delete(&models.Function{}).Error; err != nil {
+	// 检查是否有关联的函数
+	var funcCount int64
+	if err := tx.Model(&models.Function{}).Where("app_uuid = ?", app.UUID).Count(&funcCount).Error; err != nil {
 		tx.Rollback()
-		logrus.WithError(err).Error("Failed to delete related functions")
+		logrus.WithError(err).Error("Failed to count related functions")
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 1,
-			"msg":  "删除相关函数失败",
+			"msg":  "检查关联函数失败",
+		})
+		return
+	}
+	if funcCount > 0 {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 1,
+			"msg":  "该应用下存在关联函数，禁止删除",
 		})
 		return
 	}
@@ -581,7 +599,7 @@ func AppDeleteHandler(c *gin.Context) {
 	logrus.WithFields(logrus.Fields{
 		"app_id":   app.ID,
 		"app_uuid": app.UUID,
-	}).Debug("Successfully deleted app and related APIs, Variables and Functions")
+	}).Debug("Successfully deleted app and related APIs")
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
@@ -1254,6 +1272,46 @@ func AppsBatchDeleteHandler(c *gin.Context) {
 
 	// 删除这些应用的所有相关接口
 	if len(appUUIDs) > 0 {
+		// 检查是否有关联的变量
+		var varCount int64
+		if err := tx.Model(&models.Variable{}).Where("app_uuid IN ?", appUUIDs).Count(&varCount).Error; err != nil {
+			tx.Rollback()
+			logrus.WithError(err).Error("Failed to count related variables")
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code": 1,
+				"msg":  "检查关联变量失败",
+			})
+			return
+		}
+		if varCount > 0 {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{
+				"code": 1,
+				"msg":  "所选应用中存在关联变量，禁止删除",
+			})
+			return
+		}
+
+		// 检查是否有关联的函数
+		var funcCount int64
+		if err := tx.Model(&models.Function{}).Where("app_uuid IN ?", appUUIDs).Count(&funcCount).Error; err != nil {
+			tx.Rollback()
+			logrus.WithError(err).Error("Failed to count related functions")
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code": 1,
+				"msg":  "检查关联函数失败",
+			})
+			return
+		}
+		if funcCount > 0 {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{
+				"code": 1,
+				"msg":  "所选应用中存在关联函数，禁止删除",
+			})
+			return
+		}
+
 		if err := tx.Where("app_uuid IN ?", appUUIDs).Delete(&models.API{}).Error; err != nil {
 			tx.Rollback()
 			logrus.WithError(err).Error("Failed to delete related APIs")

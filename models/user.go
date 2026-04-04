@@ -22,7 +22,7 @@ type User struct {
 	Password     string    `gorm:"size:255;not null;comment:密码哈希值"`
 	PasswordSalt string    `gorm:"size:64;not null;comment:密码加密盐值"`
 	Status       int       `gorm:"not null;default:1;comment:状态：0禁用，1启用" json:"status"`
-	Role         int       `gorm:"not null;default:2;comment:角色类型：0超级管理员，1代理成员，2普通成员" json:"role"`
+	Role         int       `gorm:"not null;default:2;comment:角色类型：0超级管理员，1管理员，2子账号" json:"role"`
 	Permissions  string    `gorm:"size:255;comment:权限列表，逗号分隔" json:"permissions"`
 	Nickname     string    `gorm:"size:64;comment:用户昵称" json:"nickname"`
 	Remark       string    `gorm:"size:255;comment:备注信息" json:"remark"`

@@ -2,6 +2,8 @@ package server
 
 import (
 	defaultctrl "NetworkAuth/controllers/default"
+	"NetworkAuth/middleware"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -11,6 +13,6 @@ import (
 func RegisterDefaultRoutes(rg *gin.RouterGroup) {
 	homeGroup := rg.Group("/home")
 
-	// 根路径
-	homeGroup.GET("", defaultctrl.RootHandler)
+	// 根路径 (限制：每分钟最多 60 次请求，防止 CC)
+	homeGroup.GET("", middleware.RateLimit(60, time.Minute), defaultctrl.RootHandler)
 }

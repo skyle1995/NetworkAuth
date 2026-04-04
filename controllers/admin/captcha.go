@@ -1,67 +1,33 @@
 package admin
 
 import (
-	"crypto/rand"
 	"encoding/base64"
-	"math/big"
 	"net/http"
 	"strings"
 
 	"NetworkAuth/middleware"
+	"NetworkAuth/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mojocn/base64Captcha"
 	"github.com/sirupsen/logrus"
 )
 
-// ============================================================================
-// 全局变量
-// ============================================================================
-
-// 全局验证码存储器
-var store = base64Captcha.DefaultMemStore
-
-// ============================================================================
-// 辅助函数
-// ============================================================================
-
-// secureRandomInt 生成安全的随机整数，范围 [0, max)
-func secureRandomInt(max int) (int, error) {
-	n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
-	if err != nil {
-		return 0, err
-	}
-	return int(n.Int64()), nil
-}
-
-// ============================================================================
-// API处理器
-// ============================================================================
-
 // CaptchaHandler 生成验证码图片
 // GET /admin/captcha - 返回验证码图片
 func CaptchaHandler(c *gin.Context) {
-	// 随机生成4-6位长度
-	// 使用crypto/rand生成安全的随机数
-	randomNum, err := secureRandomInt(3)
-	if err != nil {
-		c.String(http.StatusInternalServerError, "生成随机数失败")
-		return
-	}
-	captchaLength := 4 + randomNum // 4-6位随机长度
-
-	// 配置验证码参数 - 使用字母数字混合
+	// 配置与 User 端一致，采用较弱的验证码强度以提升正常用户体验
 	driver := base64Captcha.DriverString{
 		Height:          60,
 		Width:           200,
-		NoiseCount:      0,
-		ShowLineOptions: 2 | 4,
-		Length:          captchaLength,
-		Source:          "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789", // 混合大小写字母和数字，去除易混淆字符
+		Length:          4,
+		NoiseCount:      20,    // 加点背景噪点干扰
+		ShowLineOptions: 2 | 4, // 加点干扰线
+		Source:          "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789",
 	}
 
-	// 生成验证码
-	captcha := base64Captcha.NewCaptcha(&driver, store)
+	// 生成验证码，使用共享的 CaptchaStore
+	captcha := base64Captcha.NewCaptcha(&driver, utils.CaptchaStore)
 	id, b64s, _, err := captcha.Generate()
 	if err != nil {
 		c.String(http.StatusInternalServerError, "生成验证码失败")
@@ -105,24 +71,6 @@ func VerifyCaptcha(c *gin.Context, captchaValue string) bool {
 		return false
 	}
 
-	// 先尝试原始值验证
-	if store.Verify(captchaId, captchaValue, false) {
-		// 验证成功后删除验证码
-		store.Verify(captchaId, captchaValue, true)
-		return true
-	}
-
-	// 如果原始值验证失败，尝试小写验证
-	if store.Verify(captchaId, strings.ToLower(captchaValue), false) {
-		// 验证成功后删除验证码
-		store.Verify(captchaId, strings.ToLower(captchaValue), true)
-		return true
-	}
-
-	// 最后尝试大写验证
-	if store.Verify(captchaId, strings.ToUpper(captchaValue), true) {
-		return true
-	}
-
-	return false
+	// 调用共享的 VerifyCaptcha
+	return utils.VerifyCaptcha(captchaId, captchaValue)
 }

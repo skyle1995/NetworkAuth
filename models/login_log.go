@@ -8,6 +8,7 @@ import (
 type LoginLog struct {
 	ID        uint      `gorm:"primarykey" json:"id"`
 	Type      string    `gorm:"type:varchar(20);index;comment:日志类型(admin/user)" json:"type"`
+	UUID      string    `gorm:"type:char(36);index;comment:用户UUID" json:"uuid"`
 	Username  string    `gorm:"type:varchar(100);index;comment:登录用户名" json:"username"`
 	IP        string    `gorm:"type:varchar(50);comment:登录IP" json:"ip"`
 	Status    int       `gorm:"type:tinyint;comment:登录状态 1:成功 0:失败" json:"status"`

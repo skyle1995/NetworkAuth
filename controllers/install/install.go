@@ -18,6 +18,13 @@ import (
 
 // InstallSubmitHandler 处理安装表单提交
 func InstallSubmitHandler(c *gin.Context) {
+	// 二次安全校验：检查系统是否已经安装
+	isInstalledStr := services.GetSettingsService().GetString("is_installed", "0")
+	if isInstalledStr == "1" {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "msg": "系统已安装，禁止重复初始化"})
+		return
+	}
+
 	var req struct {
 		// 数据库配置
 		DbType string `json:"db_type" binding:"required,oneof=sqlite mysql"`
@@ -109,14 +116,13 @@ func InstallSubmitHandler(c *gin.Context) {
 
 	// 更新或创建超级管理员账号
 	var adminUser models.User
-	if err := tx.Where("uuid = ?", "00000000-0000-0000-0000-000000000000").First(&adminUser).Error; err != nil {
+	if err := tx.Where("role = ?", 0).First(&adminUser).Error; err != nil {
 		// 如果不存在则创建
 		adminUser = models.User{
-			UUID:         "00000000-0000-0000-0000-000000000000",
 			Username:     strings.TrimSpace(req.AdminUsername),
 			Password:     adminPasswordHash,
 			PasswordSalt: adminSalt,
-			Nickname:     "管理员",
+			Nickname:     "超级管理员",
 			Avatar:       "",
 			Role:         0,
 			Status:       1,
@@ -133,7 +139,7 @@ func InstallSubmitHandler(c *gin.Context) {
 		adminUser.Username = strings.TrimSpace(req.AdminUsername)
 		adminUser.Password = adminPasswordHash
 		adminUser.PasswordSalt = adminSalt
-		adminUser.Nickname = "管理员"
+		adminUser.Nickname = "超级管理员"
 		adminUser.Role = 0
 		if err := tx.Save(&adminUser).Error; err != nil {
 			tx.Rollback()

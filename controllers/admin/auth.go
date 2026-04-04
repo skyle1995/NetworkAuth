@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
@@ -83,37 +84,51 @@ func LoginHandler(c *gin.Context) {
 
 	// 验证验证码
 	if !VerifyCaptcha(c, body.Captcha) {
-		recordLoginLog(c, body.Username, 0, "验证码错误")
-		authBaseController.HandleValidationError(c, "验证码错误")
+		recordLoginLog(c, "", body.Username, 0, "验证码错误或已过期")
+		authBaseController.HandleValidationError(c, "验证码错误或已过期")
 		return
 	}
 
 	// 从数据库中查找对应的用户
 	db, err := database.GetDB()
 	if err != nil {
-		recordLoginLog(c, body.Username, 0, "数据库连接失败")
+		recordLoginLog(c, "", body.Username, 0, "数据库连接失败")
 		authBaseController.HandleInternalError(c, "数据库连接失败", err)
 		return
 	}
 
 	var user models.User
-	if err := db.Where("username = ? AND role = ?", body.Username, 0).First(&user).Error; err != nil {
-		recordLoginLog(c, body.Username, 0, "用户不存在或非管理员")
+	if err := db.Where("username = ?", body.Username).First(&user).Error; err != nil {
+		recordLoginLog(c, user.UUID, body.Username, 0, "用户不存在")
 		authBaseController.HandleValidationError(c, "用户不存在或密码错误")
+		return
+	}
+
+	// 检查账号状态 (Status=1 表示启用，否则禁止登录)
+	if user.Status != 1 {
+		recordLoginLog(c, user.UUID, body.Username, 0, "账号已被禁用")
+		authBaseController.HandleValidationError(c, "该账号已被禁用，请联系超级管理员")
+		return
+	}
+
+	// 检查是否允许登录 (role=0 或 role=1 允许登录，role=2 不允许)
+	if user.Role > 1 {
+		recordLoginLog(c, user.UUID, body.Username, 0, "权限不足")
+		authBaseController.HandleValidationError(c, "权限不足，禁止登录")
 		return
 	}
 
 	// 验证密码（使用盐值校验）
 	if !utils.VerifyPasswordWithSalt(body.Password, user.PasswordSalt, user.Password) {
-		recordLoginLog(c, body.Username, 0, "密码错误")
+		recordLoginLog(c, user.UUID, body.Username, 0, "密码错误")
 		authBaseController.HandleValidationError(c, "用户不存在或密码错误")
 		return
 	}
 
 	// 生成JWT令牌
-	token, err := generateJWTTokenForAdmin(user.Username, user.Password, user.UUID)
+	token, err := generateJWTTokenForAdmin(user.Username, user.Password, user.UUID, user.Role)
 	if err != nil {
-		recordLoginLog(c, body.Username, 0, "生成令牌失败")
+		recordLoginLog(c, user.UUID, body.Username, 0, "生成令牌失败")
 		authBaseController.HandleInternalError(c, "生成令牌失败", err)
 		return
 	}
@@ -125,19 +140,20 @@ func LoginHandler(c *gin.Context) {
 	cookie := utils.CreateSecureCookie("admin_session", token, maxAge, domain, secure, sameSite)
 	c.SetCookie(cookie.Name, cookie.Value, cookie.MaxAge, cookie.Path, cookie.Domain, cookie.Secure, cookie.HttpOnly)
 
-	recordLoginLog(c, body.Username, 1, "登录成功")
+	recordLoginLog(c, user.UUID, body.Username, 1, "登录成功")
 	authBaseController.HandleSuccess(c, "登录成功", gin.H{
 		"redirect": "/admin",
 		"avatar":   user.Avatar,
 		"nickname": user.Nickname,
 		"username": user.Username,
+		"role":     user.Role,
 		"token":    token,
 	})
 }
 
 // recordLoginLog 记录登录日志
 // status: 1-成功, 0-失败
-func recordLoginLog(c *gin.Context, username string, status int, message string) {
+func recordLoginLog(c *gin.Context, uuid string, username string, status int, message string) {
 	db, err := database.GetDB()
 	if err != nil {
 		// 记录日志失败不应影响主流程，但可以记录到系统日志
@@ -147,10 +163,11 @@ func recordLoginLog(c *gin.Context, username string, status int, message string)
 
 	log := models.LoginLog{
 		Type:      "admin",
+		UUID:      uuid,
 		Username:  username,
 		IP:        c.ClientIP(),
 		Status:    status,
-		Message:   message,
+		Message:   "登录管理 - " + message,
 		UserAgent: c.Request.UserAgent(),
 		CreatedAt: time.Now(),
 	}
@@ -237,8 +254,9 @@ func getJWTSecret() []byte {
 		return []byte(secret)
 	}
 
-	// 3. 使用默认不安全密钥（仅开发环境）
-	return []byte("default-insecure-jwt-secret")
+	// 3. 如果仍未获取到，则记录严重错误并抛出 panic，拒绝使用硬编码的不安全密钥
+	logrus.Fatal("致命安全错误: 无法获取有效的 JWT 密钥，请检查数据库设置或重新安装系统。系统拒绝以不安全模式运行。")
+	return nil
 }
 
 // ============================================================================
@@ -248,8 +266,8 @@ func getJWTSecret() []byte {
 // JWTClaims JWT载荷结构体
 type JWTClaims struct {
 	Username     string `json:"username"`
-	UUID         string `json:"uuid"`          // 添加虚拟角色UUID
-	Role         int    `json:"role"`          // 添加虚拟角色
+	UUID         string `json:"uuid"`          // 用户UUID
+	Role         int    `json:"role"`          // 用户角色
 	PasswordHash string `json:"password_hash"` // 密码哈希摘要，用于验证密码是否被修改
 	jwt.RegisteredClaims
 }
@@ -258,7 +276,7 @@ type JWTClaims struct {
 // - 包含管理员用户名信息和密码哈希
 // - 设置过期时间
 // - 使用HMAC-SHA256签名
-func generateJWTTokenForAdmin(username, passwordHash string, adminUUID string) (string, error) {
+func generateJWTTokenForAdmin(username, passwordHash string, adminUUID string, role int) (string, error) {
 	// 生成密码哈希摘要（使用SHA256）
 	// 注意：传入的 passwordHash 已经是数据库存的 Hash，这里我们再次 Hash 还是直接用？
 	// atomicLibrary 的实现是: utils.GenerateSHA256Hash(adminUser.Password)
@@ -271,7 +289,7 @@ func generateJWTTokenForAdmin(username, passwordHash string, adminUUID string) (
 	claims := JWTClaims{
 		Username:     username,
 		UUID:         adminUUID,
-		Role:         0,                  // 0表示超级管理员
+		Role:         role,               // 用户真实角色
 		PasswordHash: passwordHashDigest, // 包含密码哈希摘要
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(services.GetSettingsService().GetJWTExpire()) * time.Hour)),
@@ -339,9 +357,23 @@ func validateAdminPasswordHash(claims *JWTClaims, c *gin.Context) bool {
 
 	// 获取当前数据库中的管理员用户
 	var adminUser models.User
-	if err := db.Where("username = ? AND role = ?", claims.Username, 0).First(&adminUser).Error; err != nil {
-		fmt.Printf("[SECURITY WARNING] Admin user not found in database - Username=%s, IP=%s\n",
-			claims.Username, c.ClientIP())
+	if err := db.Where("uuid = ?", claims.UUID).First(&adminUser).Error; err != nil {
+		fmt.Printf("[SECURITY WARNING] Admin user not found in database - UUID=%s, IP=%s\n",
+			claims.UUID, c.ClientIP())
+		return false
+	}
+
+	// 检查账号状态 (Status=1 表示启用，否则强制下线)
+	if adminUser.Status != 1 {
+		fmt.Printf("[SECURITY WARNING] Admin user is disabled - UUID=%s, IP=%s\n",
+			claims.UUID, c.ClientIP())
+		return false
+	}
+
+	// 检查是否允许登录 (role=0 或 role=1 允许，role=2不允许访问admin后台)
+	if adminUser.Role > 1 {
+		fmt.Printf("[SECURITY WARNING] Admin user role > 1 - UUID=%s, IP=%s\n",
+			claims.UUID, c.ClientIP())
 		return false
 	}
 
@@ -413,7 +445,17 @@ func IsAdminAuthenticatedHttp(r *http.Request) bool {
 	}
 
 	var adminUser models.User
-	if err := db.Where("username = ? AND role = ?", claims.Username, 0).First(&adminUser).Error; err != nil {
+	if err := db.Where("uuid = ?", claims.UUID).First(&adminUser).Error; err != nil {
+		return false
+	}
+
+	// 检查账号状态 (Status=1 表示启用，否则强制下线)
+	if adminUser.Status != 1 {
+		return false
+	}
+
+	// 检查是否允许登录 (role=0 或 role=1 允许，role=2不允许访问admin后台)
+	if adminUser.Role > 1 {
 		return false
 	}
 
@@ -525,10 +567,10 @@ func GetCurrentAdminUserWithRefresh(c *gin.Context) (*JWTClaims, bool, error) {
 		// 获取当前的 PasswordHash
 		db, _ := database.GetDB()
 		var adminUser models.User
-		db.Where("username = ? AND role = ?", claims.Username, 0).First(&adminUser)
+		db.Where("uuid = ? AND role = ?", claims.UUID, claims.Role).First(&adminUser)
 
 		// 使用新的有效期生成令牌
-		newToken, err := generateJWTTokenForAdmin(claims.Username, adminUser.Password, claims.UUID)
+		newToken, err := generateJWTTokenForAdmin(claims.Username, adminUser.Password, claims.UUID, adminUser.Role)
 		if err == nil {
 			tokenToSet = newToken
 			refreshed = true
