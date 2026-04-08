@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"NetworkAuth/utils"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
@@ -107,7 +109,7 @@ func GetDefaultAppConfig() *AppConfig {
 				MaxOpenConns: 100,
 			},
 			SQLite: SQLiteConfig{
-				Path: "./database.db",
+				Path: "database.db",
 			},
 		},
 		Redis: RedisConfig{
@@ -118,7 +120,7 @@ func GetDefaultAppConfig() *AppConfig {
 		},
 		Log: LogConfig{
 			Level:      "info",
-			File:       "./logs/app.log",
+			File:       "logs/app.log",
 			MaxSize:    100,
 			MaxBackups: 5,
 			MaxAge:     30,
@@ -128,6 +130,9 @@ func GetDefaultAppConfig() *AppConfig {
 
 // Init 初始化配置文件
 func Init(cfgFilePath string) {
+	if !filepath.IsAbs(cfgFilePath) {
+		cfgFilePath = filepath.Join(utils.GetRootDir(), cfgFilePath)
+	}
 	currentConfigFilePath = cfgFilePath
 	viper.SetConfigFile(cfgFilePath)
 	viper.SetConfigType("json")
@@ -204,7 +209,10 @@ func SaveConfig(appConfig *AppConfig) error {
 		return err
 	}
 	if currentConfigFilePath == "" {
-		currentConfigFilePath = "./config.json"
+		currentConfigFilePath = "config.json"
+	}
+	if !filepath.IsAbs(currentConfigFilePath) {
+		currentConfigFilePath = filepath.Join(utils.GetRootDir(), currentConfigFilePath)
 	}
 	if err := os.MkdirAll(filepath.Dir(currentConfigFilePath), 0755); err != nil {
 		return err

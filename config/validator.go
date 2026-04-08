@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"NetworkAuth/utils"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
@@ -125,8 +127,13 @@ func validateSQLiteConfig(config *SQLiteConfig) error {
 		return errors.New("SQLite数据库路径不能为空")
 	}
 
+	path := config.Path
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(utils.GetRootDir(), path)
+	}
+
 	// 检查目录是否存在，不存在则创建
-	dir := filepath.Dir(config.Path)
+	dir := filepath.Dir(path)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("创建SQLite数据库目录失败: %w", err)
@@ -160,7 +167,11 @@ func validateLogConfig(config *LogConfig) error {
 
 	// 检查日志文件目录（仅当日志文件路径不为空时）
 	if config.File != "" {
-		dir := filepath.Dir(config.File)
+		path := config.File
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(utils.GetRootDir(), path)
+		}
+		dir := filepath.Dir(path)
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				return fmt.Errorf("创建日志目录失败: %w", err)

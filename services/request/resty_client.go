@@ -74,9 +74,26 @@ func NewClient(baseURL string, proxyStr string, persistCookies bool, timeout int
 		panic(err)
 	}
 
-	rc.SetTransport(bypass.Transport)
+	rc.SetTransport(&sanitizeTransport{t: bypass.Transport})
 
 	return &RestyClient{client: rc}
+}
+
+// sanitizeTransport 包装 http.RoundTripper 以修复底层库可能违背 Go 接口约定的行为
+type sanitizeTransport struct {
+	t http.RoundTripper
+}
+
+func (s *sanitizeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := s.t.RoundTrip(req)
+	// net/http 规定 RoundTripper 要么返回有效的 resp 和 nil error，要么返回 nil resp 和有效的 error。
+	// 某些第三方库（如部分 tls-client 封装）在遇到网络小问题时会同时返回 resp 和 err。
+	// 这会导致 net/http 打印 "RoundTripper returned a response & error; ignoring response" 并强制丢弃响应。
+	// 在这里我们进行修正：如果已经拿到了响应（哪怕是不完整的），我们优先保留响应并将 err 置空，让上层通过读取 Body 自行发现错误。
+	if resp != nil && err != nil {
+		err = nil
+	}
+	return resp, err
 }
 
 // fillResponseBody 使用反射强制填充响应体

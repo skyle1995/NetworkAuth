@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"NetworkAuth/config"
+	"NetworkAuth/utils"
 	"NetworkAuth/utils/logger"
 	"io"
 	"os"
@@ -67,7 +68,7 @@ func setupLogrusForNonHTTP() {
 	if cfgFile != "" {
 		config.Init(cfgFile)
 	} else {
-		config.Init("./config.json")
+		config.Init("config.json")
 	}
 
 	// 根据配置文件进一步配置logrus
@@ -105,7 +106,11 @@ func setupLogrusFromConfig() {
 	logFile := viper.GetString("log.file")
 	if logFile != "" {
 		// 确保日志目录存在
-		logDir := filepath.Dir(logFile)
+		path := logFile
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(utils.GetRootDir(), path)
+		}
+		logDir := filepath.Dir(path)
 		if err := os.MkdirAll(logDir, 0755); err != nil {
 			logrus.WithError(err).Error("创建日志目录失败")
 			return
@@ -113,7 +118,7 @@ func setupLogrusFromConfig() {
 
 		// 配置lumberjack日志轮转
 		lumberjackLogger := &lumberjack.Logger{
-			Filename:   logFile,
+			Filename:   path,
 			MaxSize:    viper.GetInt("log.max_size"),    // MB
 			MaxBackups: viper.GetInt("log.max_backups"), // 保留的旧日志文件数量
 			MaxAge:     viper.GetInt("log.max_age"),     // 天数

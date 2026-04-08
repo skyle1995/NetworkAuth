@@ -2,12 +2,14 @@ package server
 
 import (
 	"NetworkAuth/public"
+	"NetworkAuth/utils"
 	"io"
 	"io/fs"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -48,6 +50,9 @@ func registerFrontendRoutes(r *gin.Engine) {
 			return // 反向代理接管了所有非 API 路由，直接返回
 		} else {
 			// 使用本地外部目录
+			if !filepath.IsAbs(distConfig) {
+				distConfig = filepath.Join(utils.GetRootDir(), distConfig)
+			}
 			fileServer = http.FileServer(http.Dir(distConfig))
 
 			// 拦截并处理静态资源请求

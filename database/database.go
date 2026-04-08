@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -103,7 +104,10 @@ func performInitFromViper() error {
 	case "sqlite":
 		dbPath := cfg.Database.SQLite.Path
 		if dbPath == "" {
-			dbPath = "./database.db"
+			dbPath = "database.db"
+		}
+		if !filepath.IsAbs(dbPath) {
+			dbPath = filepath.Join(utils.GetRootDir(), dbPath)
 		}
 		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 			logrus.Info("SQLite 数据库文件不存在，系统尚未安装，跳过数据库连接")
@@ -209,7 +213,10 @@ func buildGormLogger(level string) gLogger.Interface {
 func initSQLite(sqliteConfig *appconfig.SQLiteConfig, logLevel string) error {
 	path := sqliteConfig.Path
 	if path == "" {
-		path = "./database.db"
+		path = "database.db"
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(utils.GetRootDir(), path)
 	}
 	dsn := fmt.Sprintf("file:%s?cache=shared&_busy_timeout=5000&_fk=1", path)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: buildGormLogger(logLevel)})
