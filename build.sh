@@ -54,9 +54,9 @@ build_backend() {
     local desc=$4
 
     # 确定可执行文件名称
-    local exe_name="NetworkAuth"
+    local exe_name="ApiServe"
     if [ "$os" = "windows" ]; then
-        exe_name="NetworkAuth.exe"
+        exe_name="ApiServe.exe"
     fi
 
     # 创建对应架构的输出目录

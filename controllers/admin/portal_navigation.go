@@ -26,7 +26,7 @@ func PortalNavigationListHandler(c *gin.Context) {
 }
 
 // PortalNavigationPublicListHandler 查询公开门户导航列表
-// 返回门户首页展示使用的可见导航数据
+// 返回门户首页展示使用的导航数据
 func PortalNavigationPublicListHandler(c *gin.Context) {
 	db, ok := authBaseController.GetDB(c)
 	if !ok {
@@ -141,6 +141,18 @@ func PortalNavigationDeleteHandler(c *gin.Context) {
 		authBaseController.HandleValidationError(c, "管理员登录导航为系统保留项，不允许删除")
 		return
 	}
+	switch services.IsPortalNavigationGroup(item) {
+	case true:
+		var childCount int64
+		if err := db.Model(&models.PortalNavigation{}).Where("parent_id = ?", item.ID).Count(&childCount).Error; err != nil {
+			authBaseController.HandleInternalError(c, "查询分组子导航失败", err)
+			return
+		}
+		if childCount > 0 {
+			authBaseController.HandleValidationError(c, "请先移除分组下的导航链接")
+			return
+		}
+	}
 
 	if err := db.Delete(&item).Error; err != nil {
 		authBaseController.HandleInternalError(c, "删除门户导航失败", err)
@@ -155,6 +167,8 @@ func PortalNavigationDeleteHandler(c *gin.Context) {
 type portalNavigationPayload struct {
 	ID         uint   `json:"id"`
 	Name       string `json:"name"`
+	Type       string `json:"type"`
+	ParentID   uint   `json:"parent_id"`
 	Path       string `json:"path"`
 	Sort       int    `json:"sort"`
 	IsHome     bool   `json:"is_home"`
@@ -166,7 +180,10 @@ type portalNavigationPayload struct {
 // 负责统一做字段校验和数据转换
 func buildPortalNavigationFromPayload(c *gin.Context, body portalNavigationPayload) (models.PortalNavigation, bool) {
 	item := models.PortalNavigation{
+		ID:         body.ID,
 		Name:       body.Name,
+		Type:       body.Type,
+		ParentID:   body.ParentID,
 		Path:       body.Path,
 		Sort:       body.Sort,
 		IsHome:     body.IsHome,
@@ -175,7 +192,7 @@ func buildPortalNavigationFromPayload(c *gin.Context, body portalNavigationPaylo
 	}
 	services.NormalizePortalNavigation(&item)
 
-	if err := validatePortalNavigationInput(item); err != nil {
+	if err := validatePortalNavigationInput(c, item); err != nil {
 		authBaseController.HandleValidationError(c, err.Error())
 		return models.PortalNavigation{}, false
 	}
@@ -185,21 +202,47 @@ func buildPortalNavigationFromPayload(c *gin.Context, body portalNavigationPaylo
 
 // validatePortalNavigationInput 校验门户导航字段
 // 保证名称和地址满足基础格式要求
-func validatePortalNavigationInput(item models.PortalNavigation) error {
+func validatePortalNavigationInput(c *gin.Context, item models.PortalNavigation) error {
 	switch {
 	case item.Name == "":
 		return fmt.Errorf("名称不能为空")
 	case len(item.Name) > 64:
 		return fmt.Errorf("名称长度不能超过64个字符")
-	case item.Path == "":
+	case item.Type != "link" && item.Type != "group":
+		return fmt.Errorf("导航类型不合法")
+	case item.Type == "link" && item.Path == "":
 		return fmt.Errorf("地址不能为空")
-	case len(item.Path) > 255:
+	case item.Type == "link" && len(item.Path) > 255:
 		return fmt.Errorf("地址长度不能超过255个字符")
 	case item.Sort < 0:
 		return fmt.Errorf("排序不能小于0")
 	case item.IsHome && item.IsHidden:
 		return fmt.Errorf("设为首页后禁止隐藏")
+	case item.Type == "group" && item.ParentID > 0:
+		return fmt.Errorf("分组不允许设置所属分组")
+	case item.Type == "group" && item.IsHome:
+		return fmt.Errorf("分组不允许设为首页")
+	case item.Type == "group" && item.IsExternal:
+		return fmt.Errorf("分组不支持外部打开")
+	case item.ParentID > 0 && item.ParentID == item.ID:
+		return fmt.Errorf("所属分组不能选择自身")
+	case item.ParentID > 0 && item.IsHome:
+		return fmt.Errorf("分组内链接不允许设为首页")
 	default:
+		db, ok := authBaseController.GetDB(c)
+		if !ok {
+			return fmt.Errorf("数据库连接失败")
+		}
+		if item.ParentID == 0 {
+			return nil
+		}
+		var parent models.PortalNavigation
+		if err := db.Where("id = ?", item.ParentID).First(&parent).Error; err != nil {
+			return fmt.Errorf("所属分组不存在")
+		}
+		if !services.IsPortalNavigationGroup(parent) {
+			return fmt.Errorf("所属导航不是分组")
+		}
 		return nil
 	}
 }
