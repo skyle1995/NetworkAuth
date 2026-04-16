@@ -16,6 +16,7 @@ func AutoMigrate() error {
 	}
 	if err := db.AutoMigrate(
 		&models.Settings{},
+		&models.PortalNavigation{},
 		&models.OperationLog{},
 		&models.LoginLog{},
 		&models.User{},

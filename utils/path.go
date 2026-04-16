@@ -62,3 +62,24 @@ func GetRootDir() string {
 
 	return baseDir
 }
+
+// DisplayPath 返回适合日志展示的路径。
+// 对项目根目录内的文件保留相对路径；其他路径退化为文件名，避免泄露绝对安装目录。
+func DisplayPath(path string) string {
+	if path == "" {
+		return ""
+	}
+
+	cleanPath := filepath.Clean(path)
+	if !filepath.IsAbs(cleanPath) {
+		return cleanPath
+	}
+
+	rootDir := filepath.Clean(GetRootDir())
+	rel, err := filepath.Rel(rootDir, cleanPath)
+	if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return rel
+	}
+
+	return filepath.Base(cleanPath)
+}

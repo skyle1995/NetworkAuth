@@ -82,6 +82,9 @@ func runServer(cmd *cobra.Command, args []string) {
 			if err := database.SeedDefaultSettings(); err != nil {
 				logrus.WithError(err).Fatal("默认系统设置初始化失败")
 			}
+			if err := database.SeedDefaultPortalNavigation(); err != nil {
+				logrus.WithError(err).Fatal("默认门户导航初始化失败")
+			}
 
 			// 初始化加密管理器
 			// 从数据库设置中获取加密密钥

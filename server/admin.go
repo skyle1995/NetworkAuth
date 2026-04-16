@@ -17,6 +17,7 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 
 	// 公开设置API
 	admin.GET("/settings/public", adminctl.SettingsPublicHandler)
+	admin.GET("/portal-navigation/public", adminctl.PortalNavigationPublicListHandler)
 
 	// 退出登录
 	admin.POST("/logout", adminctl.LogoutHandler)
@@ -39,13 +40,17 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 		authorized.GET("/settings", adminctl.SettingsQueryHandler)
 		authorized.POST("/settings/update", adminctl.SettingsUpdateHandler)
 		authorized.POST("/settings/generate-key", adminctl.SettingsGenerateKeyHandler)
+		authorized.GET("/portal-navigation", adminctl.PortalNavigationListHandler)
+		authorized.POST("/portal-navigation/create", adminctl.PortalNavigationCreateHandler)
+		authorized.POST("/portal-navigation/update", adminctl.PortalNavigationUpdateHandler)
+		authorized.POST("/portal-navigation/delete", adminctl.PortalNavigationDeleteHandler)
 
 		// 操作日志API
-		authorized.GET("/logs", adminctl.LogsListHandler) // 获取操作日志列表
+		authorized.GET("/logs", adminctl.LogsListHandler)         // 获取操作日志列表
 		authorized.POST("/logs/clear", adminctl.LogsClearHandler) // 清空操作日志
 
 		// 登录日志API
-		authorized.GET("/login_logs", adminctl.LoginLogsListHandler) // 获取登录日志列表
+		authorized.GET("/login_logs", adminctl.LoginLogsListHandler)         // 获取登录日志列表
 		authorized.POST("/login_logs/clear", adminctl.LoginLogsClearHandler) // 清空登录日志
 
 		// 子账号相关API (Mock)

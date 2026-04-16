@@ -229,7 +229,7 @@ func initSQLite(sqliteConfig *appconfig.SQLiteConfig, logLevel string) error {
 		sqlDB.SetMaxIdleConns(1)
 	}
 	dbInstance = db
-	logrus.WithField("path", path).Info("SQLite 连接已建立")
+	logrus.WithField("path", utils.DisplayPath(path)).Info("SQLite 连接已建立")
 	return nil
 }
 

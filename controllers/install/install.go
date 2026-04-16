@@ -98,6 +98,7 @@ func InstallSubmitHandler(c *gin.Context) {
 
 	// 初始化系统默认设置
 	database.SeedDefaultSettings()
+	database.SeedDefaultPortalNavigation()
 
 	// 3. 生成新的管理员密码哈希和盐值
 	adminSalt, err := utils.GenerateRandomSalt()

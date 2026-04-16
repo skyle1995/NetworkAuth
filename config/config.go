@@ -186,11 +186,11 @@ func Init(cfgFilePath string) {
 		).Fatal("配置文件解析错误")
 	}
 
-	// 统一使用 filepath.Clean 和 filepath.Base 处理路径展示
+	// 日志中优先显示相对运行根目录的路径，避免泄露安装目录。
 	cleanPath := filepath.Clean(cfgFilePath)
 	log.WithFields(
 		log.Fields{
-			"file": cleanPath,
+			"file": utils.DisplayPath(cleanPath),
 		},
 	).Info("使用配置文件")
 

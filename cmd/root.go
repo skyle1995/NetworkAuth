@@ -80,7 +80,7 @@ func setupLogrusForNonHTTP() {
 	// 记录配置加载完成，使用相对路径或文件名保持一致性
 	configFile := viper.ConfigFileUsed()
 	if configFile != "" {
-		fileName := filepath.Base(configFile)
+		fileName := utils.DisplayPath(configFile)
 		logrus.WithField("file", fileName).Info("配置文件加载完成")
 	} else {
 		logrus.Info("配置加载完成(内存默认配置)")
@@ -105,12 +105,17 @@ func setupLogrusFromConfig() {
 	// 设置日志输出目标
 	logFile := viper.GetString("log.file")
 	if logFile != "" {
-		// 确保日志目录存在
-		path := logFile
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(utils.GetRootDir(), path)
+		// 统一转换为绝对路径，避免不同系统或启动目录下出现日志落点不一致。
+		absPath := filepath.Clean(logFile)
+		if !filepath.IsAbs(absPath) {
+			absPath = filepath.Join(utils.GetRootDir(), absPath)
 		}
-		logDir := filepath.Dir(path)
+		if normalizedPath, err := filepath.Abs(absPath); err == nil {
+			absPath = normalizedPath
+		}
+
+		// 确保日志目录存在
+		logDir := filepath.Dir(absPath)
 		if err := os.MkdirAll(logDir, 0755); err != nil {
 			logrus.WithError(err).Error("创建日志目录失败")
 			return
@@ -118,7 +123,7 @@ func setupLogrusFromConfig() {
 
 		// 配置lumberjack日志轮转
 		lumberjackLogger := &lumberjack.Logger{
-			Filename:   path,
+			Filename:   absPath,
 			MaxSize:    viper.GetInt("log.max_size"),    // MB
 			MaxBackups: viper.GetInt("log.max_backups"), // 保留的旧日志文件数量
 			MaxAge:     viper.GetInt("log.max_age"),     // 天数
@@ -130,7 +135,7 @@ func setupLogrusFromConfig() {
 		logrus.SetOutput(multiWriter)
 
 		logrus.WithFields(logrus.Fields{
-			"file":        logFile,
+			"file":        utils.DisplayPath(absPath),
 			"max_size":    viper.GetInt("log.max_size"),
 			"max_backups": viper.GetInt("log.max_backups"),
 			"max_age":     viper.GetInt("log.max_age"),

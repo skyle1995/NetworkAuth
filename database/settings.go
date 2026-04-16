@@ -52,11 +52,6 @@ func SeedDefaultSettings() error {
 			Description: "维护模式，0=关闭维护模式，1=开启维护模式",
 		},
 		{
-			Name:        "hide_login_entrance",
-			Value:       "0",
-			Description: "隐藏登录入口，0=显示，1=隐藏（门户中不显示管理员或子账号登录入口）",
-		},
-		{
 			Name:        "encryption_key",
 			Value:       encryptionKey,
 			Description: "数据加密密钥",
@@ -327,6 +322,11 @@ func SeedDefaultSettings() error {
 			}
 			logrus.WithField("name", setting.Name).WithField("value", setting.Value).Debug("创建系统设置项")
 		}
+	}
+
+	// 移除已废弃的旧设置项，管理员登录入口改由门户导航控制
+	if err := db.Where("name = ?", "hide_login_entrance").Delete(&models.Settings{}).Error; err != nil {
+		return err
 	}
 
 	logrus.Info("系统设置初始化完成")
