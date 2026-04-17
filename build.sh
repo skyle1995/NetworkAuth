@@ -54,9 +54,9 @@ build_backend() {
     local desc=$4
 
     # 确定可执行文件名称
-    local exe_name="ApiServe"
-    if [ "$os" = "windows" ]; then
-        exe_name="ApiServe.exe"
+    local exe_name="NetworkAuth"
+    if [ "$os" = "NetworkAuth" ]; then
+        exe_name="NetworkAuth.exe"
     fi
 
     # 创建对应架构的输出目录
@@ -96,7 +96,7 @@ pause_and_return() {
 show_menu() {
     clear
     echo -e "${BLUE}=====================================${NC}"
-    echo -e "${GREEN}    ApiServe 项目构建脚本菜单        ${NC}"
+    echo -e "${GREEN}           项目构建脚本菜单           ${NC}"
     echo -e "${BLUE}=====================================${NC}"
     echo -e "1. 🚀 一键全部构建 (前端 + 所有架构后端)"
     echo -e "2. 📦 仅编译所有后端架构"
