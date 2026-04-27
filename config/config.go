@@ -133,66 +133,67 @@ func Init(cfgFilePath string) {
 	if !filepath.IsAbs(cfgFilePath) {
 		cfgFilePath = filepath.Join(utils.GetRootDir(), cfgFilePath)
 	}
+
 	currentConfigFilePath = cfgFilePath
 	viper.SetConfigFile(cfgFilePath)
 	viper.SetConfigType("json")
 	viper.AddConfigPath(".")
 
-	// 检查配置文件是否存在，如果不存在则使用内存默认配置，并创建默认配置文件
-	if _, err := os.Stat(cfgFilePath); os.IsNotExist(err) {
-		log.WithField("file", cfgFilePath).Info("配置文件不存在，将在本地生成默认配置")
-		defaultConfig := GetDefaultAppConfig()
+	defaultConfig := GetDefaultAppConfig()
+	var needWrite bool
+	var configBytes []byte
 
-		configBytes, err := json.MarshalIndent(defaultConfig, "", "  ")
-		if err != nil {
-			log.WithFields(
-				log.Fields{
-					"err": err,
-				},
-			).Fatal("默认配置序列化错误")
-		}
-
-		// 创建默认配置文件
-		if err := os.WriteFile(cfgFilePath, configBytes, 0644); err != nil {
-			log.WithFields(
-				log.Fields{
-					"err": err,
-				},
-			).Fatal("创建默认配置文件失败")
-		}
-
-		// 将配置加载到viper中
-		err = viper.ReadConfig(bytes.NewBuffer(configBytes))
-		if err != nil {
-			log.WithFields(
-				log.Fields{
-					"err": err,
-				},
-			).Error("读取默认配置失败")
+	// 检查配置文件是否存在
+	fileContent, err := os.ReadFile(cfgFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.WithField("file", utils.DisplayPath(filepath.Clean(cfgFilePath))).Info("配置文件不存在，将在本地生成默认配置")
+			needWrite = true
 		} else {
-			log.Info("已成功在内存中加载默认配置")
+			log.WithField("err", err).Fatal("读取配置文件失败")
 		}
-
-		// 明确设置当前配置路径为待保存的路径，以便后续安装时保存
-		currentConfigFilePath = cfgFilePath
-		return
+	} else {
+		// 尝试解析现有的配置，与默认配置合并，结构不一致则重写
+		if err := json.Unmarshal(fileContent, defaultConfig); err != nil {
+			log.WithField("err", err).Warn("配置文件解析失败，将使用默认值重写")
+			needWrite = true
+		} else {
+			// 将合并后的配置重新序列化，比对是否需要更新（例如结构体增加了新字段）
+			newBytes, _ := json.MarshalIndent(defaultConfig, "", "  ")
+			// 简单比较去除空白后的长度或内容
+			if !bytes.Equal(bytes.TrimSpace(fileContent), bytes.TrimSpace(newBytes)) {
+				needWrite = true
+			}
+		}
 	}
 
-	if err := viper.ReadInConfig(); err != nil {
-		log.WithFields(
-			log.Fields{
-				"err": err,
-			},
-		).Fatal("配置文件解析错误")
+	if needWrite {
+		configBytes, err = json.MarshalIndent(defaultConfig, "", "  ")
+		if err != nil {
+			log.WithField("err", err).Fatal("配置序列化错误")
+		}
+		if err := os.MkdirAll(filepath.Dir(cfgFilePath), 0755); err != nil {
+			log.WithField("err", err).Fatal("创建配置目录失败")
+		}
+		if err := os.WriteFile(cfgFilePath, configBytes, 0644); err != nil {
+			log.WithField("err", err).Fatal("写入配置文件失败")
+		}
+		if len(fileContent) == 0 {
+			log.Info("已成功生成并加载默认配置")
+		} else {
+			log.Info("已写出更新后的配置结构到文件")
+		}
+	} else {
+		configBytes = fileContent
 	}
 
-	// 日志中优先显示相对运行根目录的路径，避免泄露安装目录。
+	// 将配置加载到viper中
+	if err := viper.ReadConfig(bytes.NewBuffer(configBytes)); err != nil {
+		log.WithField("err", err).Fatal("读取配置到viper失败")
+	}
+
 	cleanPath := filepath.Clean(cfgFilePath)
-	log.WithFields(
-		log.Fields{
-			"file": utils.DisplayPath(cleanPath),
-		},
-	).Info("使用配置文件")
+	log.WithField("file", utils.DisplayPath(cleanPath)).Info("使用配置文件")
 
 	// 验证配置
 	if _, err := ValidateConfig(); err != nil {
