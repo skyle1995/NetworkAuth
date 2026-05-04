@@ -144,11 +144,6 @@ func (s *SettingsService) RefreshCache() {
 	s.loadAllSettings()
 }
 
-// GetSessionTimeout 获取会话超时时间（秒）
-func (s *SettingsService) GetSessionTimeout() int {
-	return s.GetInt("session_timeout", 3600) // 默认1小时
-}
-
 // IsMaintenanceMode 检查是否开启维护模式
 func (s *SettingsService) IsMaintenanceMode() bool {
 	return s.GetBool("maintenance_mode", false)
@@ -164,14 +159,36 @@ func (s *SettingsService) GetEncryptionKey() string {
 	return s.GetString("encryption_key", "")
 }
 
-// GetJWTRefresh 获取JWT刷新时间（小时）
+// GetJWTRefresh 已废弃，请使用 GetRefreshTokenExpireDays
 func (s *SettingsService) GetJWTRefresh() int {
-	return s.GetInt("jwt_refresh", 6)
+	return 0
 }
 
-// GetJWTExpire 获取JWT有效期（小时）
+// GetJWTExpire 获取 accessToken 有效期（小时）
 func (s *SettingsService) GetJWTExpire() int {
-	return s.GetInt("jwt_expire", 24)
+	v := s.GetInt("jwt_expire", 2)
+	if v <= 0 {
+		return 2
+	}
+	return v
+}
+
+// GetRefreshTokenExpireDays 获取 refreshToken 有效期（天）
+func (s *SettingsService) GetRefreshTokenExpireDays() int {
+	v := s.GetInt("refresh_token_expire_days", 7)
+	if v <= 0 {
+		return 7
+	}
+	return v
+}
+
+// GetSessionAbsoluteExpireDays 获取会话绝对过期上限（天）
+func (s *SettingsService) GetSessionAbsoluteExpireDays() int {
+	v := s.GetInt("session_absolute_expire_days", 30)
+	if v <= 0 {
+		return 30
+	}
+	return v
 }
 
 // GetCookieConfig 获取Cookie配置

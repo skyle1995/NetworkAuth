@@ -47,6 +47,16 @@ func cleanupLogs() {
 		logrus.WithError(err).Error("清理操作日志失败")
 	}
 
+	// 清理刷新令牌（已过期的记录，包括已撤销的旧记录）
+	refreshTokenDays := getSettingInt("refresh_token_cleanup_days", 7)
+	if refreshTokenDays > 0 {
+		if err := GetRefreshTokenService().CleanupExpired(refreshTokenDays); err != nil {
+			logrus.WithError(err).Error("清理刷新令牌失败")
+		} else {
+			logrus.Debugf("清理刷新令牌完成 (保留 %d 天)", refreshTokenDays)
+		}
+	}
+
 	logrus.Debug("日志清理任务执行完成")
 }
 

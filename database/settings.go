@@ -62,19 +62,24 @@ func SeedDefaultSettings() error {
 			Description: "JWT签名密钥",
 		},
 		{
-			Name:        "jwt_refresh",
-			Value:       "6",
-			Description: "JWT令牌刷新阈值（小时）",
-		},
-		{
 			Name:        "jwt_expire",
-			Value:       "24",
-			Description: "JWT令牌有效期（小时）",
+			Value:       "2",
+			Description: "accessToken 有效期（小时），建议 0.5~2 小时",
 		},
 		{
-			Name:        "session_timeout",
-			Value:       "3600",
-			Description: "会话超时时间（秒），默认1小时",
+			Name:        "refresh_token_expire_days",
+			Value:       "7",
+			Description: "refreshToken 滑动有效期（天），每次刷新可重新计算",
+		},
+		{
+			Name:        "session_absolute_expire_days",
+			Value:       "30",
+			Description: "会话绝对过期上限（天），超过必须重新登录，refreshToken 滑动续期不能突破此上限",
+		},
+		{
+			Name:        "refresh_advance_seconds",
+			Value:       "60",
+			Description: "accessToken 提前多少秒触发刷新（前端读取）",
 		},
 		{
 			Name:        "max_upload_size",
@@ -109,6 +114,11 @@ func SeedDefaultSettings() error {
 			Name:        "operation_log_cleanup_limit",
 			Value:       "10000",
 			Description: "操作日志保留条数（0表示不按数量清理）",
+		},
+		{
+			Name:        "refresh_token_cleanup_days",
+			Value:       "7",
+			Description: "刷新令牌过期后保留天数（0表示不自动清理）",
 		},
 	}...)
 
@@ -322,11 +332,6 @@ func SeedDefaultSettings() error {
 			}
 			logrus.WithField("name", setting.Name).WithField("value", setting.Value).Debug("创建系统设置项")
 		}
-	}
-
-	// 移除已废弃的旧设置项，管理员登录入口改由门户导航控制
-	if err := db.Where("name = ?", "hide_login_entrance").Delete(&models.Settings{}).Error; err != nil {
-		return err
 	}
 
 	logrus.Info("系统设置初始化完成")

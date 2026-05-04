@@ -125,7 +125,7 @@ func LoginHandler(c *gin.Context) {
 		return
 	}
 
-	// 生成JWT令牌
+	// 生成 access JWT
 	token, err := generateJWTTokenForAdmin(user.Username, user.Password, user.UUID, user.Role)
 	if err != nil {
 		recordLoginLog(c, user.UUID, body.Username, 0, "生成令牌失败")
@@ -133,21 +133,44 @@ func LoginHandler(c *gin.Context) {
 		return
 	}
 
-	// 设置JWT Cookie（HttpOnly，安全）
-	// 使用系统配置的Cookie参数
+	// 签发 refreshToken（新 family）
 	settingsService := services.GetSettingsService()
-	secure, sameSite, domain, maxAge := settingsService.GetCookieConfig()
-	cookie := utils.CreateSecureCookie("admin_session", token, maxAge, domain, secure, sameSite)
-	c.SetCookie(cookie.Name, cookie.Value, cookie.MaxAge, cookie.Path, cookie.Domain, cookie.Secure, cookie.HttpOnly)
+	refreshTokenSvc := services.GetRefreshTokenService()
+	refreshDays := settingsService.GetRefreshTokenExpireDays()
+	absoluteDays := settingsService.GetSessionAbsoluteExpireDays()
+	if absoluteDays < refreshDays {
+		absoluteDays = refreshDays
+	}
+	refreshExpiresAt := time.Now().Add(time.Duration(refreshDays) * 24 * time.Hour)
+	absoluteExpiresAt := time.Now().Add(time.Duration(absoluteDays) * 24 * time.Hour)
+	jti := refreshTokenSvc.NewJTI()
+	familyID := refreshTokenSvc.NewFamilyID()
+	refreshToken, err := generateRefreshTokenForAdmin(user.Username, user.Password, user.UUID, user.Role, jti, familyID, refreshExpiresAt)
+	if err != nil {
+		recordLoginLog(c, user.UUID, body.Username, 0, "生成刷新令牌失败")
+		authBaseController.HandleInternalError(c, "生成刷新令牌失败", err)
+		return
+	}
+	if err := refreshTokenSvc.Create(jti, familyID, user.UUID, "admin",
+		refreshExpiresAt, absoluteExpiresAt, c.Request.UserAgent(), c.ClientIP()); err != nil {
+		recordLoginLog(c, user.UUID, body.Username, 0, "持久化刷新令牌失败")
+		authBaseController.HandleInternalError(c, "持久化刷新令牌失败", err)
+		return
+	}
+
+	accessExpiresAt := time.Now().Add(time.Duration(settingsService.GetJWTExpire()) * time.Hour)
 
 	recordLoginLog(c, user.UUID, body.Username, 1, "登录成功")
 	authBaseController.HandleSuccess(c, "登录成功", gin.H{
-		"redirect": "/admin",
-		"avatar":   user.Avatar,
-		"nickname": user.Nickname,
-		"username": user.Username,
-		"role":     user.Role,
-		"token":    token,
+		"redirect":     "/admin",
+		"avatar":       user.Avatar,
+		"nickname":     user.Nickname,
+		"username":     user.Username,
+		"role":         user.Role,
+		"token":        token,
+		"accessToken":  token,
+		"refreshToken": refreshToken,
+		"expires":      accessExpiresAt,
 	})
 }
 
@@ -179,8 +202,16 @@ func recordLoginLog(c *gin.Context, uuid string, username string, status int, me
 
 // LogoutHandler 管理员登出
 // - 清理JWT Cookie会话
-// - 确保令牌完全失效
+// - 撤销当前 refreshToken family
 func LogoutHandler(c *gin.Context) {
+	// 尝试解析当前 access token，提取 family（通过 refresh DB 反查）
+	if token, err := getJWTCookie(c); err == nil && token != "" {
+		if claims, err := parseJWTToken(token); err == nil {
+			// access token 不带 family，需通过 user uuid 撤销该用户全部活跃 refresh
+			revokeAllRefreshOfUser(claims.UUID)
+		}
+	}
+
 	// 清理JWT Cookie
 	clearInvalidJWTCookie(c)
 
@@ -189,34 +220,110 @@ func LogoutHandler(c *gin.Context) {
 	})
 }
 
-// RefreshTokenHandler 刷新管理员会话令牌
-// - 校验当前会话（Cookie 或 Authorization）
-// - 重新签发 JWT 并同步写回 Cookie
-// - 返回前端可直接持久化的新 token 信息
-func RefreshTokenHandler(c *gin.Context) {
-	token, err := getJWTCookie(c)
-	if err != nil || token == "" {
-		clearInvalidJWTCookie(c)
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"code": 1,
-			"msg":  "未登录或会话已过期",
-			"data": nil,
-		})
-		return
-	}
-
-	claims, err := parseJWTToken(token)
+// revokeAllRefreshOfUser 撤销该用户全部未撤销的 refreshToken
+func revokeAllRefreshOfUser(userUUID string) {
+	db, err := database.GetDB()
 	if err != nil {
-		clearInvalidJWTCookie(c)
+		return
+	}
+	db.Model(&models.RefreshToken{}).
+		Where("user_uuid = ? AND user_type = ? AND revoked = ?", userUUID, "admin", false).
+		Update("revoked", true)
+}
+
+// RefreshTokenHandler 刷新管理员会话令牌
+// - 校验请求体中的 refreshToken（OAuth2 风格）
+// - DB 校验：jti 存在、未撤销、未过期、未超绝对上限
+// - 轮换：旧 jti 标记 revoked + replaced_by；签发新 access + 新 refresh
+// - 重用检测：旧已撤销 token 再次提交 -> 整 family 撤销
+func RefreshTokenHandler(c *gin.Context) {
+	var body struct {
+		RefreshToken string `json:"refreshToken"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	refreshTokenStr := strings.TrimSpace(body.RefreshToken)
+	if refreshTokenStr == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"code": 1,
-			"msg":  "无效的会话信息",
+			"msg":  "缺少刷新令牌",
 			"data": nil,
 		})
 		return
 	}
 
+	// 1. 解析 JWT
+	claims, err := parseJWTToken(refreshTokenStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code": 1,
+			"msg":  "无效的刷新令牌",
+			"data": nil,
+		})
+		return
+	}
+
+	// 2. 必须是 refresh 类型
+	if claims.TokenType != TokenTypeRefresh {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code": 1,
+			"msg":  "令牌类型错误",
+			"data": nil,
+		})
+		return
+	}
+
+	// 3. DB 查询 jti
+	refreshSvc := services.GetRefreshTokenService()
+	rec, err := refreshSvc.FindByJTI(claims.ID)
+	if err != nil {
+		// 找不到 = 已被清理或伪造 -> 拒绝
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code": 1,
+			"msg":  "刷新令牌不存在或已失效",
+			"data": nil,
+		})
+		return
+	}
+
+	// 4. 重用检测：已撤销的 token 被再次使用 -> 整族撤销
+	if rec.Revoked {
+		_ = refreshSvc.RevokeFamily(rec.FamilyID)
+		clearInvalidJWTCookie(c)
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code": 1,
+			"msg":  "检测到刷新令牌重用，会话已强制失效",
+			"data": nil,
+		})
+		return
+	}
+
+	now := time.Now()
+
+	// 5. 过期检查
+	if now.After(rec.ExpiresAt) {
+		_ = refreshSvc.RevokeByJTI(rec.JTI)
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code": 1,
+			"msg":  "刷新令牌已过期，请重新登录",
+			"data": nil,
+		})
+		return
+	}
+
+	// 6. 绝对上限检查
+	if now.After(rec.AbsoluteExpiresAt) {
+		_ = refreshSvc.RevokeFamily(rec.FamilyID)
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code": 1,
+			"msg":  "会话已达最长有效期，请重新登录",
+			"data": nil,
+		})
+		return
+	}
+
+	// 7. 校验用户依然有效 + 密码未变
 	if !validateAdminPasswordHash(claims, c) {
+		_ = refreshSvc.RevokeFamily(rec.FamilyID)
 		clearInvalidJWTCookie(c)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"code": 1,
@@ -231,9 +338,9 @@ func RefreshTokenHandler(c *gin.Context) {
 		authBaseController.HandleInternalError(c, "数据库连接失败", err)
 		return
 	}
-
 	var adminUser models.User
 	if err := db.Where("uuid = ?", claims.UUID).First(&adminUser).Error; err != nil {
+		_ = refreshSvc.RevokeFamily(rec.FamilyID)
 		clearInvalidJWTCookie(c)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"code": 1,
@@ -243,25 +350,41 @@ func RefreshTokenHandler(c *gin.Context) {
 		return
 	}
 
-	newToken, err := generateJWTTokenForAdmin(adminUser.Username, adminUser.Password, adminUser.UUID, adminUser.Role)
+	// 8. 签发新 access + 新 refresh（一次一换，继承 absolute）
+	settingsService := services.GetSettingsService()
+	newAccess, err := generateJWTTokenForAdmin(adminUser.Username, adminUser.Password, adminUser.UUID, adminUser.Role)
 	if err != nil {
 		authBaseController.HandleInternalError(c, "生成令牌失败", err)
 		return
 	}
-
-	secure, sameSite, domain, maxAge := services.GetSettingsService().GetCookieConfig()
-	cookieObj := utils.CreateSecureCookie("admin_session", newToken, maxAge, domain, secure, sameSite)
-	c.SetCookie(cookieObj.Name, cookieObj.Value, cookieObj.MaxAge, cookieObj.Path, cookieObj.Domain, cookieObj.Secure, cookieObj.HttpOnly)
-
-	expireHours := services.GetSettingsService().GetJWTExpire()
-	if expireHours <= 0 {
-		expireHours = 24
+	refreshDays := settingsService.GetRefreshTokenExpireDays()
+	newRefreshExpiresAt := now.Add(time.Duration(refreshDays) * 24 * time.Hour)
+	if newRefreshExpiresAt.After(rec.AbsoluteExpiresAt) {
+		newRefreshExpiresAt = rec.AbsoluteExpiresAt
+	}
+	newJTI := refreshSvc.NewJTI()
+	newRefresh, err := generateRefreshTokenForAdmin(adminUser.Username, adminUser.Password, adminUser.UUID, adminUser.Role,
+		newJTI, rec.FamilyID, newRefreshExpiresAt)
+	if err != nil {
+		authBaseController.HandleInternalError(c, "生成刷新令牌失败", err)
+		return
+	}
+	if err := refreshSvc.Create(newJTI, rec.FamilyID, adminUser.UUID, "admin",
+		newRefreshExpiresAt, rec.AbsoluteExpiresAt, c.Request.UserAgent(), c.ClientIP()); err != nil {
+		authBaseController.HandleInternalError(c, "持久化刷新令牌失败", err)
+		return
+	}
+	if err := refreshSvc.Rotate(rec.JTI, newJTI); err != nil {
+		// 旋转失败不影响响应，但记录
+		logrus.WithError(err).Warn("rotate refresh token failed")
 	}
 
+	// 9. access token 通过响应体返回，不再同步到 Cookie
+
 	authBaseController.HandleSuccess(c, "刷新成功", gin.H{
-		"accessToken":  newToken,
-		"refreshToken": newToken,
-		"expires":      time.Now().Add(time.Duration(expireHours) * time.Hour),
+		"accessToken":  newAccess,
+		"refreshToken": newRefresh,
+		"expires":      now.Add(time.Duration(settingsService.GetJWTExpire()) * time.Hour),
 	})
 }
 
@@ -307,13 +430,10 @@ func validateCSRFToken(c *gin.Context, requestToken string) bool {
 // 辅助函数
 // ============================================================================
 
-// clearInvalidJWTCookie 清理无效的JWT Cookie
-// - 统一的Cookie清理函数，确保一致性
-// - 在JWT校验失败时自动调用，提升安全性和用户体验
+// clearInvalidJWTCookie 已废弃：当前使用纯 Bearer Token 模式，无需清理 Cookie
+// 保留空实现以兼容历史调用
 func clearInvalidJWTCookie(c *gin.Context) {
-	_, _, domain, _ := services.GetSettingsService().GetCookieConfig()
-	cookie := utils.CreateExpiredCookie("admin_session", domain)
-	c.SetCookie(cookie.Name, cookie.Value, cookie.MaxAge, cookie.Path, cookie.Domain, cookie.Secure, cookie.HttpOnly)
+	_ = c
 }
 
 // getJWTSecret 动态获取当前的JWT密钥
@@ -339,34 +459,36 @@ func getJWTSecret() []byte {
 // 结构体定义
 // ============================================================================
 
+// Token 类型常量
+const (
+	TokenTypeAccess  = "access"
+	TokenTypeRefresh = "refresh"
+)
+
 // JWTClaims JWT载荷结构体
 type JWTClaims struct {
 	Username     string `json:"username"`
 	UUID         string `json:"uuid"`          // 用户UUID
 	Role         int    `json:"role"`          // 用户角色
 	PasswordHash string `json:"password_hash"` // 密码哈希摘要，用于验证密码是否被修改
+	TokenType    string `json:"typ,omitempty"` // access | refresh，旧版无此字段视为 access
+	FamilyID     string `json:"fid,omitempty"` // refresh 专用：会话族 ID
 	jwt.RegisteredClaims
 }
 
-// generateJWTTokenForAdmin 生成管理员JWT令牌
+// generateJWTTokenForAdmin 生成管理员 access JWT 令牌
 // - 包含管理员用户名信息和密码哈希
 // - 设置过期时间
 // - 使用HMAC-SHA256签名
 func generateJWTTokenForAdmin(username, passwordHash string, adminUUID string, role int) (string, error) {
-	// 生成密码哈希摘要（使用SHA256）
-	// 注意：传入的 passwordHash 已经是数据库存的 Hash，这里我们再次 Hash 还是直接用？
-	// atomicLibrary 的实现是: utils.GenerateSHA256Hash(adminUser.Password)
-	// 这里我们直接用数据库里的 Hash 值作为 Token 的一部分即可，或者对它再 Hash 一次。
-	// 为了与 validateAdminPasswordHash 对应，我们需要知道验证时怎么比对。
-	// validateAdminPasswordHash: currentPasswordHash := utils.GenerateSHA256Hash(adminPassword.Value)
-	// 所以这里也应该对数据库里的值进行 Hash。
 	passwordHashDigest := utils.GenerateSHA256Hash(passwordHash)
 
 	claims := JWTClaims{
 		Username:     username,
 		UUID:         adminUUID,
-		Role:         role,               // 用户真实角色
-		PasswordHash: passwordHashDigest, // 包含密码哈希摘要
+		Role:         role,
+		PasswordHash: passwordHashDigest,
+		TokenType:    TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(services.GetSettingsService().GetJWTExpire()) * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -376,6 +498,32 @@ func generateJWTTokenForAdmin(username, passwordHash string, adminUUID string, r
 		},
 	}
 
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(getJWTSecret())
+}
+
+// generateRefreshTokenForAdmin 生成管理员 refresh JWT 令牌
+// - 携带 jti / family_id 用于持久化与轮换
+// - 过期时间使用 settings.refresh_token_expire_days
+func generateRefreshTokenForAdmin(username, passwordHash, adminUUID string, role int,
+	jti, familyID string, expiresAt time.Time) (string, error) {
+	passwordHashDigest := utils.GenerateSHA256Hash(passwordHash)
+	claims := JWTClaims{
+		Username:     username,
+		UUID:         adminUUID,
+		Role:         role,
+		PasswordHash: passwordHashDigest,
+		TokenType:    TokenTypeRefresh,
+		FamilyID:     familyID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        jti,
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			Issuer:    "NetworkAuth",
+			Subject:   username,
+		},
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(getJWTSecret())
 }
@@ -403,20 +551,16 @@ func parseJWTToken(tokenString string) (*JWTClaims, error) {
 	return nil, fmt.Errorf("invalid token")
 }
 
-// getJWTCookie 获取JWT cookie的通用函数，支持从Cookie或Authorization Header中获取
+// getJWTCookie 从 Authorization Bearer 头中读取 access token
+// 注意：函数名保留以兼容历史调用，已不再读取 Cookie
 func getJWTCookie(c *gin.Context) (string, error) {
-	cookie, err := c.Cookie("admin_session")
-	if err == nil && cookie != "" {
-		return cookie, nil
-	}
-
-	// 如果Cookie中没有，尝试从Authorization Header中获取 (兼容前端在非HTTPS环境下无法设置Secure Cookie的情况)
 	authHeader := c.GetHeader("Authorization")
 	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
 		token := strings.TrimPrefix(authHeader, "Bearer ")
-		return token, nil
+		if token != "" {
+			return token, nil
+		}
 	}
-
 	return "", fmt.Errorf("未找到会话信息")
 }
 
@@ -595,10 +739,10 @@ func GetCurrentAdminUser(r *http.Request) (*JWTClaims, error) {
 	return claims, nil
 }
 
-// GetCurrentAdminUserWithRefresh 获取当前登录的管理员用户信息并自动刷新令牌
-// - 从JWT令牌中提取用户信息
-// - 自动刷新接近过期的令牌（剩余时间少于6小时时刷新）
-// - 返回用户ID、用户名、角色和是否刷新了令牌
+// GetCurrentAdminUserWithRefresh 获取当前登录的管理员用户信息
+// - 仅校验 access token 是否有效（不再做滑动续期）
+// - 续期统一由前端调用 /refresh-token 完成（OAuth2 风格）
+// - 第二个返回值保留为 false 以兼容历史调用方
 func GetCurrentAdminUserWithRefresh(c *gin.Context) (*JWTClaims, bool, error) {
 	cookie, err := getJWTCookie(c)
 	if err != nil {
@@ -610,60 +754,16 @@ func GetCurrentAdminUserWithRefresh(c *gin.Context) (*JWTClaims, bool, error) {
 		return nil, false, fmt.Errorf("无效的会话信息")
 	}
 
-	// 验证密码哈希
+	// access token 必须是 access 类型
+	if claims.TokenType != "" && claims.TokenType != TokenTypeAccess {
+		return nil, false, fmt.Errorf("令牌类型错误")
+	}
+
 	if !validateAdminPasswordHash(claims, c) {
 		return nil, false, fmt.Errorf("会话已失效，请重新登录")
 	}
 
-	// 检查是否需要刷新令牌
-	refreshed := false
-
-	// 动态获取刷新阈值：默认剩余时间少于6小时刷新
-	refreshThresholdHours := services.GetSettingsService().GetJWTRefresh()
-	if refreshThresholdHours <= 0 {
-		refreshThresholdHours = 6 // 默认值
-	}
-	refreshThreshold := time.Duration(refreshThresholdHours) * time.Hour
-
-	// 动态获取JWT总有效期
-	expireHours := services.GetSettingsService().GetJWTExpire()
-	if expireHours <= 0 {
-		expireHours = 24 // 默认值
-	}
-
-	// 动态获取Cookie配置（用于更新Cookie过期时间）
-	secure, sameSite, domain, maxAge := services.GetSettingsService().GetCookieConfig()
-
-	// 1. 默认情况下，每次请求都更新Cookie的过期时间（滑动过期）
-	tokenToSet := cookie
-	shouldUpdateCookie := true
-
-	// 2. 检查是否需要刷新JWT令牌（生成新的Token）
-	if time.Until(claims.ExpiresAt.Time) < refreshThreshold {
-		// 获取当前的 PasswordHash
-		db, _ := database.GetDB()
-		var adminUser models.User
-		db.Where("uuid = ? AND role = ?", claims.UUID, claims.Role).First(&adminUser)
-
-		// 使用新的有效期生成令牌
-		newToken, err := generateJWTTokenForAdmin(claims.Username, adminUser.Password, claims.UUID, adminUser.Role)
-		if err == nil {
-			tokenToSet = newToken
-			refreshed = true
-
-			// 更新当前claims的过期时间
-			claims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(time.Duration(expireHours) * time.Hour))
-			claims.IssuedAt = jwt.NewNumericDate(time.Now())
-		}
-	}
-
-	// 3. 执行Cookie更新
-	if shouldUpdateCookie {
-		cookieObj := utils.CreateSecureCookie("admin_session", tokenToSet, maxAge, domain, secure, sameSite)
-		c.SetCookie(cookieObj.Name, cookieObj.Value, cookieObj.MaxAge, cookieObj.Path, cookieObj.Domain, cookieObj.Secure, cookieObj.HttpOnly)
-	}
-
-	return claims, refreshed, nil
+	return claims, false, nil
 }
 
 // AdminAuthRequired 管理员认证拦截中间件 (Gin Middleware)
