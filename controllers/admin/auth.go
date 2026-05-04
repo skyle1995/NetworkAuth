@@ -189,6 +189,82 @@ func LogoutHandler(c *gin.Context) {
 	})
 }
 
+// RefreshTokenHandler 刷新管理员会话令牌
+// - 校验当前会话（Cookie 或 Authorization）
+// - 重新签发 JWT 并同步写回 Cookie
+// - 返回前端可直接持久化的新 token 信息
+func RefreshTokenHandler(c *gin.Context) {
+	token, err := getJWTCookie(c)
+	if err != nil || token == "" {
+		clearInvalidJWTCookie(c)
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code": 1,
+			"msg":  "未登录或会话已过期",
+			"data": nil,
+		})
+		return
+	}
+
+	claims, err := parseJWTToken(token)
+	if err != nil {
+		clearInvalidJWTCookie(c)
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code": 1,
+			"msg":  "无效的会话信息",
+			"data": nil,
+		})
+		return
+	}
+
+	if !validateAdminPasswordHash(claims, c) {
+		clearInvalidJWTCookie(c)
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code": 1,
+			"msg":  "会话已失效，请重新登录",
+			"data": nil,
+		})
+		return
+	}
+
+	db, err := database.GetDB()
+	if err != nil {
+		authBaseController.HandleInternalError(c, "数据库连接失败", err)
+		return
+	}
+
+	var adminUser models.User
+	if err := db.Where("uuid = ?", claims.UUID).First(&adminUser).Error; err != nil {
+		clearInvalidJWTCookie(c)
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code": 1,
+			"msg":  "会话已失效，请重新登录",
+			"data": nil,
+		})
+		return
+	}
+
+	newToken, err := generateJWTTokenForAdmin(adminUser.Username, adminUser.Password, adminUser.UUID, adminUser.Role)
+	if err != nil {
+		authBaseController.HandleInternalError(c, "生成令牌失败", err)
+		return
+	}
+
+	secure, sameSite, domain, maxAge := services.GetSettingsService().GetCookieConfig()
+	cookieObj := utils.CreateSecureCookie("admin_session", newToken, maxAge, domain, secure, sameSite)
+	c.SetCookie(cookieObj.Name, cookieObj.Value, cookieObj.MaxAge, cookieObj.Path, cookieObj.Domain, cookieObj.Secure, cookieObj.HttpOnly)
+
+	expireHours := services.GetSettingsService().GetJWTExpire()
+	if expireHours <= 0 {
+		expireHours = 24
+	}
+
+	authBaseController.HandleSuccess(c, "刷新成功", gin.H{
+		"accessToken":  newToken,
+		"refreshToken": newToken,
+		"expires":      time.Now().Add(time.Duration(expireHours) * time.Hour),
+	})
+}
+
 // ============================================================================
 // CSRF 相关辅助函数
 // ============================================================================

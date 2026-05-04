@@ -14,6 +14,7 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 	admin.GET("/captcha", adminctl.CaptchaHandler)
 	admin.GET("/csrf", adminctl.CSRFTokenHandler)
 	admin.POST("/login", adminctl.LoginHandler)
+	admin.POST("/refresh-token", adminctl.RefreshTokenHandler)
 
 	// 公开设置API
 	admin.GET("/settings/public", adminctl.SettingsPublicHandler)
