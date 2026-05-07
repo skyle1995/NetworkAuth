@@ -34,6 +34,13 @@ func InstallSubmitHandler(c *gin.Context) {
 		DbUser string `json:"db_user"`
 		DbPass string `json:"db_pass"`
 
+		// Redis配置（可选）
+		RedisEnabled  bool   `json:"redis_enabled"`
+		RedisHost     string `json:"redis_host"`
+		RedisPort     int    `json:"redis_port"`
+		RedisPassword string `json:"redis_password"`
+		RedisDB       int    `json:"redis_db"`
+
 		// 站点和管理员配置
 		SiteTitle     string `json:"site_title" binding:"required"`
 		AdminUsername string `json:"admin_username" binding:"required"`
@@ -45,6 +52,22 @@ func InstallSubmitHandler(c *gin.Context) {
 		return
 	}
 
+	// 校验 Redis 配置（启用时）
+	if req.RedisEnabled {
+		if strings.TrimSpace(req.RedisHost) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 1, "msg": "启用 Redis 时主机地址不能为空"})
+			return
+		}
+		if req.RedisPort < 1 || req.RedisPort > 65535 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 1, "msg": "Redis 端口号无效"})
+			return
+		}
+		if req.RedisDB < 0 || req.RedisDB > 15 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 1, "msg": "Redis 数据库索引必须在 0-15 之间"})
+			return
+		}
+	}
+
 	// 1. 更新配置文件
 	err := config.UpdateConfig(func(cfg *config.AppConfig) {
 		cfg.Database.Type = req.DbType
@@ -54,6 +77,20 @@ func InstallSubmitHandler(c *gin.Context) {
 			cfg.Database.MySQL.Database = req.DbName
 			cfg.Database.MySQL.Username = req.DbUser
 			cfg.Database.MySQL.Password = req.DbPass
+		}
+		// 写入 Redis 配置
+		if req.RedisEnabled {
+			cfg.Redis.Host = strings.TrimSpace(req.RedisHost)
+			cfg.Redis.Port = req.RedisPort
+			cfg.Redis.Password = req.RedisPassword
+			cfg.Redis.DB = req.RedisDB
+		} else {
+			if cfg.Redis.Host == "" {
+				cfg.Redis.Host = "localhost"
+			}
+			if cfg.Redis.Port == 0 {
+				cfg.Redis.Port = 6379
+			}
 		}
 	})
 	if err != nil {
@@ -178,6 +215,14 @@ func InstallSubmitHandler(c *gin.Context) {
 	encryptionKey := services.GetSettingsService().GetEncryptionKey()
 	if err := utils.InitEncryption(encryptionKey); err != nil {
 		logrus.WithError(err).Error("安装完成后加密管理器初始化失败")
+	}
+
+	// 根据用户提供的 Redis 配置重新初始化 Redis 连接
+	if req.RedisEnabled {
+		utils.ReInitRedis()
+		if !utils.IsRedisAvailable() {
+			logrus.Warn("安装完成后 Redis 连接失败，请检查配置；系统将以无 Redis 模式运行")
+		}
 	}
 
 	// 启动日志清理定时任务

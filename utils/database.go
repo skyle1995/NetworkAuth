@@ -162,6 +162,21 @@ func InitRedis() {
 	})
 }
 
+// ReInitRedis 强制重新初始化Redis客户端
+// - 用于安装/配置变更后无视 sync.Once 重新建立连接
+// - 旧连接会被关闭
+func ReInitRedis() {
+	// 关闭旧连接
+	if redisClient != nil {
+		_ = redisClient.Close()
+		redisClient = nil
+	}
+	redisAvailable = false
+	// 重置 sync.Once，使下次 GetRedis/InitRedis 重新执行
+	redisOnce = sync.Once{}
+	InitRedis()
+}
+
 // GetRedis 获取全局Redis客户端，可能返回nil（当不可用时）
 func GetRedis() *redis.Client {
 	if redisClient == nil {

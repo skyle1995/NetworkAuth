@@ -244,7 +244,19 @@ func SettingsPublicHandler(c *gin.Context) {
 
 	var list []models.Settings
 	// 查询公开的基本信息、维护模式和所有前端平台配置
-	if err := db.Where("name IN ? OR name LIKE ?", []string{"site_title", "site_description", "site_keywords", "site_logo", "contact_email", "maintenance_mode"}, "platform_%").Find(&list).Error; err != nil {
+	if err := db.Where("name IN ? OR name LIKE ?", []string{
+		"site_title",
+		"site_description",
+		"site_keywords",
+		"site_logo",
+		"contact_email",
+		"maintenance_mode",
+		"footer_text",
+		"icp_record",
+		"icp_record_link",
+		"psb_record",
+		"psb_record_link",
+	}, "platform_%").Find(&list).Error; err != nil {
 		authBaseController.HandleInternalError(c, "查询失败", err)
 		return
 	}
