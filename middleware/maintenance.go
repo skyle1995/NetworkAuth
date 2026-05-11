@@ -21,6 +21,11 @@ func MaintenanceMiddleware() gin.HandlerFunc {
 
 		path := c.Request.URL.Path
 
+		if !strings.HasPrefix(path, "/api") {
+			c.Next()
+			return
+		}
+
 		// 允许管理员后台相关接口（以便管理员登录关闭维护模式）
 		// 包括登录页、登录接口、API接口、CSRF Token等
 		if strings.HasPrefix(path, "/api/admin") {

@@ -131,7 +131,16 @@ func GetDefaultAppConfig() *AppConfig {
 // Init 初始化配置文件
 func Init(cfgFilePath string) {
 	if !filepath.IsAbs(cfgFilePath) {
-		cfgFilePath = filepath.Join(utils.GetRootDir(), cfgFilePath)
+		if wd, err := os.Getwd(); err == nil {
+			candidate := filepath.Clean(filepath.Join(wd, cfgFilePath))
+			if _, statErr := os.Stat(candidate); statErr == nil {
+				cfgFilePath = candidate
+			} else {
+				cfgFilePath = filepath.Join(utils.GetRootDir(), cfgFilePath)
+			}
+		} else {
+			cfgFilePath = filepath.Join(utils.GetRootDir(), cfgFilePath)
+		}
 	}
 
 	currentConfigFilePath = cfgFilePath
