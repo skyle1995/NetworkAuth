@@ -57,6 +57,8 @@ build_all_update_packages() {
     echo -e "${BLUE}=====================================${NC}"
     echo -e "${YELLOW}📦 开始构建所有架构更新包...${NC}"
     echo -e "${BLUE}=====================================${NC}"
+    echo -e "${YELLOW}🧹 清理 Go 编译缓存...${NC}"
+    go clean -cache
 
     build_backend "windows" "amd64" "windows_amd64" "Windows 64位"
     package_update_zip "windows" "amd64" "windows_amd64"
@@ -235,6 +237,8 @@ build_all_backend() {
     echo -e "${BLUE}=====================================${NC}"
     echo -e "${YELLOW}⚙️  开始编译所有架构 Go 后端项目...${NC}"
     echo -e "${BLUE}=====================================${NC}"
+    echo -e "${YELLOW}🧹 清理 Go 编译缓存...${NC}"
+    go clean -cache
     build_backend "windows" "amd64" "windows_amd64" "Windows 64位"
     build_backend "linux" "arm64" "linux_arm64" "Linux ARM64"
     build_backend "linux" "amd64" "linux_amd64" "Linux 64位"
