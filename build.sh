@@ -186,7 +186,7 @@ get_sha256_hex() {
     return 1
 }
 
-# 编译并拷贝前端
+# 编译前端
 build_frontend() {
     echo -e "${BLUE}=====================================${NC}"
     echo -e "${YELLOW}🚀 开始编译前端项目...${NC}"
@@ -197,17 +197,6 @@ build_frontend() {
     pnpm run build
     cd ..
     echo -e "${GREEN}✅ 前端编译完成！${NC}\n"
-
-    echo -e "${BLUE}=====================================${NC}"
-    echo -e "${YELLOW}📂 正在将前端代码拷贝到后端 public 目录...${NC}"
-    echo -e "${BLUE}=====================================${NC}"
-    # 清理旧的静态文件
-    rm -rf public/dist
-    # 确保 public 目录存在
-    mkdir -p public
-    # 将前端新编译的 dist 目录整个复制到 public 下 (使用 -R 增强跨平台兼容性)
-    cp -R frontend/dist public/
-    echo -e "${GREEN}✅ 前端代码拷贝完成！${NC}\n"
 }
 
 # 编译后端指定架构
@@ -267,7 +256,7 @@ show_menu() {
     echo -e "1. 🔁 自动构建 + 生成更新包"
     echo -e "2. 🚀 全部构建 (前端 + 后端)"
     echo -e "3. 📦 编译所有后端架构"
-    echo -e "4. 🌐 仅编译前端并拷贝"
+    echo -e "4. 🌐 仅编译前端"
     echo -e "-------------------------------------"
     echo -e "0. ❌ 退出"
     echo -e "${BLUE}=====================================${NC}"

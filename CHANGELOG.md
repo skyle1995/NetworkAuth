@@ -1,5 +1,15 @@
 # 更新日志
 
+## 2026-05-24
+
+### 登录
+
+- [2026-05-24] [修正] 登录态判定改为仅依赖 localStorage 中 token + expires，不再依赖 multiple-tabs cookie，浏览器重启不再误清登录态。
+
+### 前端资源
+
+- [2026-05-24] [调整] 后端静态资源嵌入改为 go:embed frontend/dist，由 main.go 注入 fs.FS 至 server 挂载；移除 public/public.go 依赖，构建不再需要拷贝到 public/dist。
+
 ## 2026-05-17
 
 ### 前端布局

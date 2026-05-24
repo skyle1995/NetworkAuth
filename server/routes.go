@@ -1,7 +1,6 @@
 package server
 
 import (
-	"NetworkAuth/public"
 	"NetworkAuth/utils"
 	"io"
 	"io/fs"
@@ -15,6 +14,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
 )
+
+var frontendFS fs.FS
+
+func SetFrontendFS(fsys fs.FS) {
+	frontendFS = fsys
+}
 
 // RegisterRoutes 聚合注册所有路由
 func RegisterRoutes(r *gin.Engine) {
@@ -93,14 +98,12 @@ func registerFrontendRoutes(r *gin.Engine) {
 		}
 	}
 
-	// 提取嵌入的 dist 目录 (默认方式)
-	distFS, err := fs.Sub(public.Public, "dist")
-	if err != nil {
-		panic("Failed to initialize embedded static files: " + err.Error())
+	if frontendFS == nil {
+		panic("Failed to initialize embedded static files: frontend fs is nil")
 	}
 
 	// 提供静态文件服务器
-	fileServer = http.FileServer(http.FS(distFS))
+	fileServer = http.FileServer(http.FS(frontendFS))
 
 	// 拦截并处理静态资源请求
 	r.Use(func(c *gin.Context) {
@@ -119,7 +122,7 @@ func registerFrontendRoutes(r *gin.Engine) {
 		}
 
 		// 尝试在嵌入的文件系统中查找文件
-		if _, err := fs.Stat(distFS, cleanPath); err == nil {
+		if _, err := fs.Stat(frontendFS, cleanPath); err == nil {
 			// 文件存在，交由 FileServer 处理
 			// 设置一些常见的缓存头
 			if strings.HasPrefix(path, "/static/") || strings.HasPrefix(path, "/assets/") {
@@ -146,7 +149,7 @@ func registerFrontendRoutes(r *gin.Engine) {
 
 		// 其他所有非 API 请求，都返回 index.html 交给前端 Vue Router 处理
 		c.Header("Content-Type", "text/html; charset=utf-8")
-		indexFile, err := distFS.Open("index.html")
+		indexFile, err := frontendFS.Open("index.html")
 		if err != nil {
 			c.String(http.StatusInternalServerError, "Failed to load index.html")
 			return
