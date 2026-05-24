@@ -14,8 +14,16 @@ config.json
 logs/
 *.log
 
-# 前端工程源码 (独立维护)
-frontend/
+# 前端工程源码已纳入同仓维护（仅忽略依赖/环境/产物）
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.turbo/
+frontend/coverage/
+frontend/.pnpm-store/
+frontend/.eslintcache
+frontend/.env.local
+frontend/.env.*.local
 
 # 升级/迁移临时缓存目录
 更新内容/

@@ -1,5 +1,12 @@
 # 更新日志
 
+## 2026-05-25
+
+### 仓库维护
+
+- [2026-05-25] [调整] 前后端改为同仓维护：取消忽略 frontend 源码，仅忽略前端依赖/环境/产物，并移除 frontend 内嵌 Git 仓库关联。
+- [2026-05-25] [调整] 放行前端 .env/.env.development/.env.production/.env.staging 推送，改为仅忽略 .env.local 与 .env.*.local。
+
 ## 2026-05-24
 
 ### 登录
