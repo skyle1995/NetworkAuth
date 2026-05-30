@@ -2,13 +2,12 @@ package utils
 
 import (
 	"strings"
-
-	"github.com/mojocn/base64Captcha"
+	"time"
 )
 
 // CaptchaStore 全局验证码存储器
 // 使用 base64Captcha 提供的默认内存存储，确保 admin 和 user 端可以共享验证码状态
-var CaptchaStore = base64Captcha.DefaultMemStore
+var CaptchaStore = NewBoundedCaptchaStore(20000, 10*time.Minute)
 
 // VerifyCaptcha 验证验证码的有效性
 // captchaId: 验证码的唯一标识符
