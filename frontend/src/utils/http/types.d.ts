@@ -16,6 +16,8 @@ export type RequestMethods = Extract<
 
 export interface PureHttpError extends AxiosError {
   isCancelRequest?: boolean;
+  /** 标记该错误已由响应拦截器处理（如登出、页面跳转等），业务方应抑制重复的错误提示 */
+  handled?: boolean;
 }
 
 export interface PureHttpResponse extends AxiosResponse {

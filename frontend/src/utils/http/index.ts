@@ -143,14 +143,66 @@ class PureHttp {
         const $error = error;
         $error.isCancelRequest = Axios.isCancel($error);
 
-        // 统一处理 401 未授权异常：后端会话已过期或未登录
+        // 统一处理 401 未授权异常：先尝试用 refreshToken 刷新后重试，刷新失败再登出
         if ($error.response && $error.response.status === 401) {
+          const reqUrl = ($error.config?.url || "") as string;
+          const isAuthEndpoint =
+            reqUrl.endsWith("/refresh-token") || reqUrl.endsWith("/login");
+          const originalConfig = $error.config as PureHttpRequestConfig & {
+            _isRetry?: boolean;
+          };
+          const tokenData = getToken();
+
+          if (
+            !isAuthEndpoint &&
+            originalConfig &&
+            !originalConfig._isRetry &&
+            tokenData?.refreshToken
+          ) {
+            originalConfig._isRetry = true;
+            if (PureHttp.isRefreshing) {
+              // 已有刷新任务在进行，挂起当前请求，等待新 token 后重试
+              return new Promise(resolve => {
+                PureHttp.requests.push((token: string) => {
+                  originalConfig.headers = originalConfig.headers || {};
+                  originalConfig.headers["Authorization"] =
+                    formatToken(token);
+                  resolve(PureHttp.axiosInstance.request(originalConfig));
+                });
+              });
+            }
+
+            PureHttp.isRefreshing = true;
+            return useUserStoreHook()
+              .handRefreshToken({ refreshToken: tokenData.refreshToken })
+              .then(res => {
+                const newToken = res.data.accessToken;
+                originalConfig.headers = originalConfig.headers || {};
+                originalConfig.headers["Authorization"] =
+                  formatToken(newToken);
+                PureHttp.requests.forEach(cb => cb(newToken));
+                PureHttp.requests = [];
+                return PureHttp.axiosInstance.request(originalConfig);
+              })
+              .catch(refreshErr => {
+                PureHttp.requests = [];
+                useUserStoreHook().logOut();
+                return Promise.reject(refreshErr);
+              })
+              .finally(() => {
+                PureHttp.isRefreshing = false;
+              });
+          }
+
+          // 无 refreshToken 或刷新接口本身 401，直接登出
+          $error.handled = true;
           useUserStoreHook().logOut();
         }
 
         // 统一处理 503 维护模式异常
         if ($error.response && $error.response.status === 503) {
           // 不重定向，而是刷新页面以重新获取全局配置，触发 App.vue 拦截
+          $error.handled = true;
           window.location.reload();
         }
 
@@ -160,6 +212,7 @@ class PureHttp {
           $error.response.status === 403 &&
           ($error.response.data as any)?.msg?.includes("未初始化")
         ) {
+          $error.handled = true;
           if (!window.location.hash.includes("/install")) {
             window.location.hash = "/install";
           }
@@ -171,6 +224,7 @@ class PureHttp {
           $error.response.status === 403 &&
           ($error.response.data as any)?.msg?.includes("系统已安装")
         ) {
+          $error.handled = true;
           if (window.location.hash.includes("/install")) {
             window.location.hash = "/home";
           }

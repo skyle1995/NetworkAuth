@@ -131,8 +131,11 @@ router.beforeEach((to: ToRouteType, _from, next) => {
     }
   }
   const userInfo = storageLocal().getItem<DataInfo<number>>(userKey);
+  // 已登录判定：access_token 仍有效，或者 refresh_token 仍存在（交由 http 拦截器去刷新），
+  // 避免 access_token 一过期就直接清掉 refresh_token 跳转登录页，导致刷新令牌形同虚设
   const isAuthed =
-    !!userInfo?.accessToken && Number(userInfo.expires) > Date.now();
+    !!userInfo?.accessToken &&
+    (Number(userInfo.expires) > Date.now() || !!userInfo?.refreshToken);
   const externalLink = isUrl(to?.name as string);
   if (!externalLink) {
     to.matched.some(item => {
