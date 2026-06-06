@@ -124,6 +124,46 @@ docker run -d -p 8080:8080 networkauth
 2. 准备配置文件（可参考默认配置）。
 3. 使用进程管理工具（如 systemd 或 supervisor）管理后端服务进程。
 
+---
+
+## CI/CD Secrets 配置
+
+以下变量需在仓库 **Settings → Actions → Secrets** 中配置。
+
+### 必选（缺一不可）
+
+| Secret 名称 | 说明 |
+|---|---|
+| `RELEASE_TOKEN` | Gitea 访问令牌，权限需包含 `repo`。用于自动创建 Release 并上传附件 |
+
+### 对象存储上传（可选，未配置则跳过）
+
+#### 腾讯云 COS
+
+| Secret 名称 | 必填 | 说明 |
+|---|---|---|
+| `COS_SECRET_ID` | 是 | API 密钥 SecretId |
+| `COS_SECRET_KEY` | 是 | API 密钥 SecretKey |
+| `COS_BUCKET` | 是 | 存储桶名称（不含 AppId 后缀） |
+| `COS_REGION` | 是 | 地域，如 `ap-guangzhou` |
+| `COS_UPLOAD_PATH` | 否 | 上传路径前缀，如 `releases`；留空则放桶根目录 |
+| `COS_CLEAR_BEFORE_UPLOAD` | 否 | 上传前清空目标路径；默认 `false`，设为 `true` 启用 |
+
+#### 阿里云 OSS
+
+| Secret 名称 | 必填 | 说明 |
+|---|---|---|
+| `OSS_ACCESS_KEY_ID` | 是 | RAM 用户 AccessKey ID |
+| `OSS_ACCESS_KEY_SECRET` | 是 | RAM 用户 AccessKey Secret |
+| `OSS_BUCKET` | 是 | Bucket 名称 |
+| `OSS_ENDPOINT` | 是 | Endpoint，如 `oss-cn-hangzhou.aliyuncs.com` |
+| `OSS_UPLOAD_PATH` | 否 | 上传路径前缀，同上 |
+| `OSS_CLEAR_BEFORE_UPLOAD` | 否 | 上传前清空目标路径；默认 `false`，设为 `true` 启用 |
+
+> **优先级**：COS > OSS。两类同时配置时仅使用 COS。全部未配置则跳过存储上传（Release 仍正常创建）。
+
+---
+
 ## 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
