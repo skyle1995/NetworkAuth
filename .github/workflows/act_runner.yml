@@ -1,0 +1,443 @@
+# =============================================================================
+# Act_Runner — Gitea Actions 工作流
+# 用途: 提取 tag 版本 → 编译前端(1次) → 矩阵交叉编译后端 → 发布 Release
+# 触发: push tag v* / workflow_dispatch
+# =============================================================================
+
+name: Act_Runner
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version_override:
+        description: '覆盖版本号（留空则从 git tag 自动生成）'
+        required: false
+        type: string
+
+env:
+  APP_NAME: NetworkAuth
+
+jobs:
+
+  # ==========================================
+  # Job 1: 版本号提取
+  # ==========================================
+  prepare:
+    runs-on: ubuntu-latest
+    container:
+      image: node:22
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      is_tag: ${{ steps.version.outputs.is_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 确定版本号
+        id: version
+        run: |
+          IS_TAG=false
+
+          # 优先级 1: 手动输入
+          if [ -n "${{ github.event.inputs.version_override }}" ]; then
+            VERSION="${{ github.event.inputs.version_override }}"
+
+          # 优先级 2: tag push（如 v2.0.150 → 2.0.150）
+          elif echo "${{ github.ref }}" | grep -q '^refs/tags/v'; then
+            VERSION=$(echo "${{ github.ref }}" | sed 's|^refs/tags/v||')
+            IS_TAG=true
+
+          # 优先级 3: workflow_dispatch 未指定版本时回退到 status.go
+          else
+            VERSION=$(grep 'AppVersion' constants/status.go | awk -F'"' '{print $2}')
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            VERSION="${VERSION}+${SHORT_SHA}"
+          fi
+
+          echo "::set-output name=value::${VERSION}"
+          echo "::set-output name=is_tag::${IS_TAG}"
+          echo "✅ 版本号: ${VERSION}"
+
+
+  # ==========================================
+  # Job 2: 编译前端（仅编译 1 次）
+  # 容器: node:22
+  # ==========================================
+  frontend:
+    needs: prepare
+    runs-on: ubuntu-latest
+    container:
+      image: node:22
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 pnpm v9 与依赖
+        run: |
+          npm config set registry https://registry.npmmirror.com
+          npm install -g pnpm@9
+          cd frontend
+          pnpm config set registry https://registry.npmmirror.com
+          HUSKY=0 pnpm install --frozen-lockfile
+
+      - name: 编译前端
+        run: |
+          cd frontend
+          BROWSERSLIST_IGNORE_OLD_DATA=true NODE_OPTIONS="--max-old-space-size=4096" \
+            pnpm exec vite build
+
+      - name: 上传前端产物
+        uses: actions/upload-artifact@v3
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 3
+
+
+  # ==========================================
+  # Job 3: 矩阵交叉编译后端 + 打包（5 平台）
+  # 容器: golang:1.25
+  # ==========================================
+  build:
+    needs: [ prepare, frontend ]
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.25
+    strategy:
+      matrix:
+        target:
+          - os: windows
+            arch: amd64
+            dir: windows_amd64
+            ext: .exe
+          - os: linux
+            arch: arm64
+            dir: linux_arm64
+            ext: ""
+          - os: linux
+            arch: amd64
+            dir: linux_amd64
+            ext: ""
+          - os: darwin
+            arch: arm64
+            dir: darwin_arm64
+            ext: ""
+          - os: darwin
+            arch: amd64
+            dir: darwin_amd64
+            ext: ""
+    steps:
+      - name: 安装运行时依赖（Node.js + 打包工具）
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq nodejs npm zip --no-install-recommends
+
+      - uses: actions/checkout@v4
+
+      - name: 下载前端产物
+        uses: actions/download-artifact@v3
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
+      - name: 写入版本号
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          # 摘掉 +hash 后缀（仅用于 status.go 常量）
+          CLEAN_VERSION=$(echo "${VERSION}" | sed 's/\+.*//')
+          sed -i "s/AppVersion[[:space:]]*=[[:space:]]*\"[^\"]*\"/AppVersion = \"${CLEAN_VERSION}\"/" \
+            constants/status.go
+          echo "✅ 版本常量已更新为: ${CLEAN_VERSION}"
+
+      - name: 交叉编译
+        run: |
+          echo "目标: ${{ matrix.target.os }}/${{ matrix.target.arch }}"
+          EXE_NAME="${{ env.APP_NAME }}${{ matrix.target.ext }}"
+          mkdir -p dist/${{ matrix.target.dir }}
+          CGO_ENABLED=0 \
+          GOOS=${{ matrix.target.os }} \
+          GOARCH=${{ matrix.target.arch }} \
+            go build -trimpath -ldflags="-s -w" \
+              -o "dist/${{ matrix.target.dir }}/${EXE_NAME}" .
+          echo "✅ 编译成功: dist/${{ matrix.target.dir }}/${EXE_NAME}"
+
+      - name: 打包 + SHA256
+        run: |
+          EXE_NAME="${{ env.APP_NAME }}${{ matrix.target.ext }}"
+          VERSION="${{ needs.prepare.outputs.version }}"
+          PKG_NAME="${{ env.APP_NAME }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-v${VERSION}.zip"
+
+          mkdir -p dist/packages
+
+          # zip（进入目录打包，确保 zip 内路径平整）
+          cd dist/${{ matrix.target.dir }}
+          zip -q -9 -r "../packages/${PKG_NAME}" "${EXE_NAME}"
+          cd "${GITHUB_WORKSPACE}"
+
+          # SHA256
+          PKG_PATH="dist/packages/${PKG_NAME}"
+          if command -v sha256sum &>/dev/null; then
+            sha256sum "${PKG_PATH}" | awk '{print $1}' > "${PKG_PATH}.sha256"
+          elif command -v shasum &>/dev/null; then
+            shasum -a 256 "${PKG_PATH}" | awk '{print $1}' > "${PKG_PATH}.sha256"
+          fi
+
+          echo "✅ 包已生成: ${PKG_NAME}"
+
+      - name: 上传包
+        uses: actions/upload-artifact@v3
+        with:
+          name: package-${{ matrix.target.dir }}
+          path: dist/packages/
+          retention-days: 7
+
+
+  # ==========================================
+  # Job 4: 发布 Gitea Release（仅 tag push）
+  # ==========================================
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ prepare, build ]
+    runs-on: ubuntu-latest
+    container:
+      image: node:22
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装工具
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq curl jq --no-install-recommends
+
+      - name: 下载所有包
+        uses: actions/download-artifact@v3
+        with:
+          name: package-windows_amd64
+          path: dist/packages/
+      - uses: actions/download-artifact@v3
+        with:
+          name: package-linux_arm64
+          path: dist/packages/
+      - uses: actions/download-artifact@v3
+        with:
+          name: package-linux_amd64
+          path: dist/packages/
+      - uses: actions/download-artifact@v3
+        with:
+          name: package-darwin_arm64
+          path: dist/packages/
+      - uses: actions/download-artifact@v3
+        with:
+          name: package-darwin_amd64
+          path: dist/packages/
+
+      - name: 创建 Gitea Release 并上传附件
+        env:
+          GITEA_URL: ${{ github.server_url }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -e
+          VERSION="${{ needs.prepare.outputs.version }}"
+          REPO="${{ github.repository }}"
+
+          # 检查是否已有同名 Release
+          HTTP_CODE=$(curl -s -o /tmp/release.json -w "%{http_code}" \
+            -H "Authorization: token ${RELEASE_TOKEN}" \
+            "${GITEA_URL}/api/v1/repos/${REPO}/releases/tags/${{ github.ref_name }}")
+
+          if [ "${HTTP_CODE}" = "200" ]; then
+            RELEASE_ID=$(jq -r '.id' /tmp/release.json)
+            echo "✅ Release 已存在 (ID: ${RELEASE_ID})，将补充附件"
+          else
+            echo "🆕  创建新 Release..."
+            cat > /tmp/release-body.json << 'RELEASE_EOF'
+          {
+            "tag_name": "${{ github.ref_name }}",
+            "name": "${{ needs.prepare.outputs.version }}",
+            "body": "NetworkAuth ${{ needs.prepare.outputs.version }} 各平台编译包，解压后直接运行。",
+            "draft": false,
+            "prerelease": false
+          }
+          RELEASE_EOF
+            RESP=$(curl -s -X POST \
+              "${GITEA_URL}/api/v1/repos/${REPO}/releases" \
+              -H "Authorization: token ${RELEASE_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d @/tmp/release-body.json)
+            RELEASE_ID=$(echo "${RESP}" | jq -r '.id // empty')
+            if [ -z "${RELEASE_ID}" ]; then
+              echo "❌ 创建 Release 失败: ${RESP}"
+              exit 1
+            fi
+            echo "✅  Release 创建成功 (ID: ${RELEASE_ID})"
+          fi
+
+          # 上传所有附件
+          echo "📤  上传附件..."
+          PREV_ASSETS=$(curl -s \
+            -H "Authorization: token ${RELEASE_TOKEN}" \
+            "${GITEA_URL}/api/v1/repos/${REPO}/releases/${RELEASE_ID}/assets")
+
+          for file in dist/packages/*; do
+            [ -f "$file" ] || continue
+            BASENAME=$(basename "$file")
+
+            EXISTS=$(echo "${PREV_ASSETS}" | jq -r ".[] | select(.name == \"${BASENAME}\") | .id")
+            if [ -n "${EXISTS}" ]; then
+              echo "⏩  跳过已有附件: ${BASENAME}"
+              continue
+            fi
+
+            echo "  → ${BASENAME}"
+            curl -s -X POST \
+              "${GITEA_URL}/api/v1/repos/${REPO}/releases/${RELEASE_ID}/assets" \
+              -H "Authorization: token ${RELEASE_TOKEN}" \
+              -F "attachment=@${file}" > /dev/null
+          done
+
+          echo "✅  Release ${{ needs.prepare.outputs.version }} 所有附件已就绪"
+          echo "🔗  ${GITEA_URL}/${REPO}/releases/tag/${{ github.ref_name }}"
+
+
+  # ==========================================
+  # Job 5: 上传到对象存储（COS / OSS）
+  # 仅 tag push 触发，未配置 Secret 则自动跳过
+  # ==========================================
+  upload-storage:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ prepare, build ]
+    runs-on: ubuntu-latest
+    container:
+      image: node:22
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装工具
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq curl --no-install-recommends
+
+      - uses: actions/download-artifact@v3
+        with:
+          name: package-windows_amd64
+          path: dist/packages/
+      - uses: actions/download-artifact@v3
+        with:
+          name: package-linux_arm64
+          path: dist/packages/
+      - uses: actions/download-artifact@v3
+        with:
+          name: package-linux_amd64
+          path: dist/packages/
+      - uses: actions/download-artifact@v3
+        with:
+          name: package-darwin_arm64
+          path: dist/packages/
+      - uses: actions/download-artifact@v3
+        with:
+          name: package-darwin_amd64
+          path: dist/packages/
+
+      - name: 上传到对象存储
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_BUCKET: ${{ secrets.COS_BUCKET }}
+          COS_REGION: ${{ secrets.COS_REGION }}
+          COS_UPLOAD_PATH: ${{ secrets.COS_UPLOAD_PATH }}
+          COS_CLEAR_BEFORE_UPLOAD: ${{ secrets.COS_CLEAR_BEFORE_UPLOAD }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_UPLOAD_PATH: ${{ secrets.OSS_UPLOAD_PATH }}
+          OSS_CLEAR_BEFORE_UPLOAD: ${{ secrets.OSS_CLEAR_BEFORE_UPLOAD }}
+        run: |
+          set -e
+          VERSION="${{ needs.prepare.outputs.version }}"
+
+          STORAGE=""
+          if [ -n "${COS_SECRET_ID}" ] && [ -n "${COS_SECRET_KEY}" ] && [ -n "${COS_BUCKET}" ] && [ -n "${COS_REGION}" ]; then
+            STORAGE="cos"
+            UPLOAD_PREFIX="${COS_UPLOAD_PATH:-}"
+            CLEAR="${COS_CLEAR_BEFORE_UPLOAD:-false}"
+          elif [ -n "${OSS_ACCESS_KEY_ID}" ] && [ -n "${OSS_ACCESS_KEY_SECRET}" ] && [ -n "${OSS_BUCKET}" ] && [ -n "${OSS_ENDPOINT}" ]; then
+            STORAGE="oss"
+            UPLOAD_PREFIX="${OSS_UPLOAD_PATH:-}"
+            CLEAR="${OSS_CLEAR_BEFORE_UPLOAD:-false}"
+          else
+            echo "ℹ️  未配置 COS 或 OSS 凭据，跳过存储上传"
+            exit 0
+          fi
+
+          echo "📤  存储类型: ${STORAGE}"
+          echo "🧹  上传前清空: ${CLEAR}"
+
+          if [ -n "${UPLOAD_PREFIX}" ]; then
+            TARGET_DIR="${UPLOAD_PREFIX}/NetworkAuth/v${VERSION}"
+            LATEST_DIR="${UPLOAD_PREFIX}/NetworkAuth/latest"
+          else
+            TARGET_DIR="NetworkAuth/v${VERSION}"
+            LATEST_DIR="NetworkAuth/latest"
+          fi
+
+          if [ "${STORAGE}" = "cos" ]; then
+            curl -fsSL -o /usr/local/bin/coscli https://cosbrowser.cloud.tencent.com/software/coscli/coscli-linux
+            chmod +x /usr/local/bin/coscli
+
+            if [ "${CLEAR}" = "true" ]; then
+              echo "🧹  清空目标路径: ${TARGET_DIR}"
+              coscli -i "${COS_SECRET_ID}" -k "${COS_SECRET_KEY}" -e "cos.${COS_REGION}.myqcloud.com" rm "cos://${COS_BUCKET}/${TARGET_DIR}" -r --force > /dev/null 2>&1 || true
+            else
+              echo "⏩  不清空目标路径"
+            fi
+
+            echo "📤  上传文件到: ${TARGET_DIR}"
+            for file in dist/packages/*; do
+              [ -f "$file" ] || continue
+              coscli -i "${COS_SECRET_ID}" -k "${COS_SECRET_KEY}" -e "cos.${COS_REGION}.myqcloud.com" cp "$file" "cos://${COS_BUCKET}/${TARGET_DIR}/" > /dev/null
+              echo "  ✅ $(basename "$file")"
+            done
+
+            echo "🔄  更新 latest 目录..."
+            if [ "${CLEAR}" = "true" ]; then
+              coscli -i "${COS_SECRET_ID}" -k "${COS_SECRET_KEY}" -e "cos.${COS_REGION}.myqcloud.com" rm "cos://${COS_BUCKET}/${LATEST_DIR}" -r --force > /dev/null 2>&1 || true
+            fi
+            for file in dist/packages/*; do
+              [ -f "$file" ] || continue
+              coscli -i "${COS_SECRET_ID}" -k "${COS_SECRET_KEY}" -e "cos.${COS_REGION}.myqcloud.com" cp "$file" "cos://${COS_BUCKET}/${LATEST_DIR}/" > /dev/null
+            done
+
+            echo "🔗  版本: https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/${TARGET_DIR}/"
+            echo "🔗  latest: https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/${LATEST_DIR}/"
+
+          elif [ "${STORAGE}" = "oss" ]; then
+            echo "🔧  下载 ossutil..."
+            curl -fsSL -o /usr/local/bin/ossutil https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil64
+            chmod +x /usr/local/bin/ossutil
+            ossutil config -e "${OSS_ENDPOINT}" -i "${OSS_ACCESS_KEY_ID}" -k "${OSS_ACCESS_KEY_SECRET}" > /dev/null
+
+            if [ "${CLEAR}" = "true" ]; then
+              echo "🧹  清空目标路径: ${TARGET_DIR}"
+              ossutil rm "oss://${OSS_BUCKET}/${TARGET_DIR}" -r --force > /dev/null 2>&1 || true
+            else
+              echo "⏩  不清空目标路径"
+            fi
+
+            echo "📤  上传文件..."
+            ossutil cp dist/packages/ "oss://${OSS_BUCKET}/${TARGET_DIR}/" -r > /dev/null
+            echo "  ✅ 已上传 $(ls dist/packages/ | wc -l) 个文件"
+
+            echo "🔄  更新 latest 目录..."
+            if [ "${CLEAR}" = "true" ]; then
+              ossutil rm "oss://${OSS_BUCKET}/${LATEST_DIR}" -r --force > /dev/null 2>&1 || true
+            fi
+            ossutil cp dist/packages/ "oss://${OSS_BUCKET}/${LATEST_DIR}/" -r > /dev/null
+
+            echo "🔗  版本: https://${OSS_BUCKET}.${OSS_ENDPOINT}/${TARGET_DIR}/"
+            echo "🔗  latest: https://${OSS_BUCKET}.${OSS_ENDPOINT}/${LATEST_DIR}/"
+          fi
+
+          echo "✅ 存储上传完成"
