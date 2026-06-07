@@ -138,12 +138,21 @@ docker run -d -p 8080:8080 networkauth
 
 ### 对象存储上传（可选，未配置则跳过）
 
+以下凭据需在 **Settings → Actions → Secrets** 中配置，其余配置项在 **Settings → Actions → Variables** 中配置。
+
 #### 腾讯云 COS
+
+**Secrets（凭据）**
 
 | Secret 名称 | 必填 | 说明 |
 |---|---|---|
 | `COS_SECRET_ID` | 是 | API 密钥 SecretId |
 | `COS_SECRET_KEY` | 是 | API 密钥 SecretKey |
+
+**Variables（配置）**
+
+| Variable 名称 | 必填 | 说明 |
+|---|---|---|
 | `COS_BUCKET` | 是 | 存储桶名称（不含 AppId 后缀） |
 | `COS_REGION` | 是 | 地域，如 `ap-guangzhou` |
 | `COS_UPLOAD_PATH` | 否 | 上传路径前缀，如 `releases`；留空则放桶根目录 |
@@ -151,10 +160,17 @@ docker run -d -p 8080:8080 networkauth
 
 #### 阿里云 OSS
 
+**Secrets（凭据）**
+
 | Secret 名称 | 必填 | 说明 |
 |---|---|---|
 | `OSS_ACCESS_KEY_ID` | 是 | RAM 用户 AccessKey ID |
 | `OSS_ACCESS_KEY_SECRET` | 是 | RAM 用户 AccessKey Secret |
+
+**Variables（配置）**
+
+| Variable 名称 | 必填 | 说明 |
+|---|---|---|
 | `OSS_BUCKET` | 是 | Bucket 名称 |
 | `OSS_ENDPOINT` | 是 | Endpoint，如 `oss-cn-hangzhou.aliyuncs.com` |
 | `OSS_UPLOAD_PATH` | 否 | 上传路径前缀，同上 |

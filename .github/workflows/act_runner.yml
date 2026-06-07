@@ -344,16 +344,16 @@ jobs:
         env:
           COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
           COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
-          COS_BUCKET: ${{ secrets.COS_BUCKET }}
-          COS_REGION: ${{ secrets.COS_REGION }}
-          COS_UPLOAD_PATH: ${{ secrets.COS_UPLOAD_PATH }}
-          COS_CLEAR_BEFORE_UPLOAD: ${{ secrets.COS_CLEAR_BEFORE_UPLOAD }}
+          COS_BUCKET: ${{ vars.COS_BUCKET }}
+          COS_REGION: ${{ vars.COS_REGION }}
+          COS_UPLOAD_PATH: ${{ vars.COS_UPLOAD_PATH }}
+          COS_CLEAR_BEFORE_UPLOAD: ${{ vars.COS_CLEAR_BEFORE_UPLOAD }}
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
-          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
-          OSS_UPLOAD_PATH: ${{ secrets.OSS_UPLOAD_PATH }}
-          OSS_CLEAR_BEFORE_UPLOAD: ${{ secrets.OSS_CLEAR_BEFORE_UPLOAD }}
+          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
+          OSS_ENDPOINT: ${{ vars.OSS_ENDPOINT }}
+          OSS_UPLOAD_PATH: ${{ vars.OSS_UPLOAD_PATH }}
+          OSS_CLEAR_BEFORE_UPLOAD: ${{ vars.OSS_CLEAR_BEFORE_UPLOAD }}
         run: |
           set -e
           VERSION="${{ needs.prepare.outputs.version }}"
