@@ -126,6 +126,69 @@ docker run -d -p 8080:8080 networkauth
 
 ---
 
+## Git 版本发布（Tag）
+
+本项目的发布通常以 Tag 为触发点（例如在 CI/CD 中自动构建并创建 Release）。建议使用语义化版本号（SemVer），并统一以 `v` 前缀命名，例如 `v1.2.3`。
+
+### 发布一个 Tag 版本
+
+```bash
+# 0) 同步远端 Tag（推荐）
+#    目的：避免本地残留 Tag（远端已删除）被误推回去并触发工作流
+#    Git 版本需支持 --prune-tags（不支持时看下方兼容方案）
+git fetch origin --tags --prune --prune-tags
+
+# 1) 确保代码已提交且工作区干净
+git status
+
+# 2) 确认远端不存在同名 Tag（避免误复用）
+git ls-remote --tags origin v1.2.3
+
+# 3) 创建“附注（annotated）”Tag（推荐）
+git tag -a v1.2.3 -m "release: v1.2.3"
+
+# 4) 推送 Tag 到远端（推荐：仅推送本次发布的 Tag）
+git push origin v1.2.3
+```
+
+注意：不建议直接使用 `git push origin --tags`。如果远端曾删除某些 Tag，但本地仍保留，这条命令会把这些 Tag 重新推送回远端，从而可能再次触发 Release/工作流。
+
+如你的 Git 不支持 `--prune-tags`，可用“清空本地 Tag → 重新从远端拉取 Tag”的方式确保对齐后再发布：
+
+```bash
+git tag -l | xargs -n 1 git tag -d
+git fetch origin --tags
+```
+
+```powershell
+git tag | ForEach-Object { git tag -d $_ }
+git fetch origin --tags
+```
+
+### 重新发布同名 Tag 版本（修正打错的 Tag）
+
+同名 Tag 一般不建议复用；如确需修正（例如 Tag 指向了错误提交），请先删除远端 Tag，再重新创建并推送。
+
+```bash
+# 假设要修正的 Tag 为 v1.2.3
+
+# 1) 删除本地 Tag
+git tag -d v1.2.3
+
+# 2) 删除远端 Tag
+git push origin --delete v1.2.3
+
+# 3) 在正确的提交上重建 Tag（<commit> 可省略，默认当前 HEAD）
+git tag -a v1.2.3 <commit> -m "release: v1.2.3"
+
+# 4) 重新推送到远端
+git push origin v1.2.3
+```
+
+如果远端已基于该 Tag 生成了 Release（例如 Gitea/GitHub Release），通常也需要同步删除并重新创建对应 Release，避免附件与版本信息不一致。
+
+---
+
 ## CI/CD Secrets 配置
 
 以下变量需在仓库 **Settings → Actions → Secrets** 中配置。
