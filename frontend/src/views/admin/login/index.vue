@@ -85,7 +85,10 @@ const onLogin = async (formEl: FormInstance | undefined) => {
           }
         })
         .catch(err => {
-          message(err.message || "登录异常", { type: "error" });
+          // 全局响应拦截器已处理(handled)的异常不再重复弹提示，避免重复
+          if (!err.handled) {
+            message(err.message || "登录异常", { type: "error" });
+          }
           refreshCaptcha(); // 登录失败后刷新验证码
         })
         .finally(() => (loading.value = false));
