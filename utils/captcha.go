@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"strings"
 	"time"
 )
 
@@ -13,25 +12,13 @@ var CaptchaStore = NewBoundedCaptchaStore(20000, 10*time.Minute)
 // captchaId: 验证码的唯一标识符
 // captchaValue: 用户输入的验证码内容
 // 返回值: 验证是否通过
-// 该函数提供函数级注释，支持大小写不敏感匹配，验证通过后会自动删除验证码
+// 该函数提供函数级注释，支持大小写不敏感匹配，验证通过后会自动删除验证码（一次性使用，防重放）
 func VerifyCaptcha(captchaId, captchaValue string) bool {
 	if captchaId == "" || captchaValue == "" {
 		return false
 	}
 
-	// 使用 switch 进行连续逻辑判断，尝试不同的大小写组合
-	switch {
-	case CaptchaStore.Verify(captchaId, captchaValue, true):
-		// 原始值匹配成功
-		return true
-	case CaptchaStore.Verify(captchaId, strings.ToLower(captchaValue), true):
-		// 小写匹配成功
-		return true
-	case CaptchaStore.Verify(captchaId, strings.ToUpper(captchaValue), true):
-		// 大写匹配成功
-		return true
-	default:
-		// 匹配失败
-		return false
-	}
+	// CaptchaStore.Verify 内部使用 strings.EqualFold 进行大小写不敏感比较，
+	// 且 clear=true 会在取出后立即删除该验证码，确保一次性使用、防止重放。
+	return CaptchaStore.Verify(captchaId, captchaValue, true)
 }

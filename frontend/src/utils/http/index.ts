@@ -10,7 +10,7 @@ import type {
   PureHttpRequestConfig
 } from "./types.d";
 import { stringify } from "qs";
-import { getToken, formatToken } from "@/utils/auth";
+import { getToken, formatToken, removeToken } from "@/utils/auth";
 import { useUserStoreHook } from "@/store/modules/user";
 
 // 相关配置请参考：www.axios-js.com/zh-cn/docs/#axios-request-config-1
@@ -99,6 +99,13 @@ class PureHttp {
                         config.headers["Authorization"] = formatToken(token);
                         PureHttp.requests.forEach(cb => cb(token));
                         PureHttp.requests = [];
+                      })
+                      .catch(() => {
+                        // 刷新失败（如后端未安装/令牌失效）：放行挂起队列并清除失效令牌，
+                        // 让原请求继续走、交由响应拦截器统一处理 403 未初始化 跳转安装页，避免永久挂起
+                        PureHttp.requests.forEach(cb => cb(""));
+                        PureHttp.requests = [];
+                        removeToken();
                       })
                       .finally(() => {
                         PureHttp.isRefreshing = false;

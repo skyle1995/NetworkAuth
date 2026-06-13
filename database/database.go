@@ -224,6 +224,11 @@ func initSQLite(sqliteConfig *appconfig.SQLiteConfig, logLevel string) error {
 		logrus.WithError(err).Error("SQLite 初始化失败")
 		return err
 	}
+	// 启用 WAL 日志模式：读写不再互相阻塞，提升写入性能与并发表现。
+	// 通过 PRAGMA 执行而非 DSN 参数，避免不同驱动参数格式差异导致打不开库；失败仅降级不致命。
+	if err := db.Exec("PRAGMA journal_mode=WAL;").Error; err != nil {
+		logrus.WithError(err).Warn("启用 SQLite WAL 模式失败，将继续使用默认日志模式")
+	}
 	if sqlDB, err := db.DB(); err == nil {
 		sqlDB.SetMaxOpenConns(1)
 		sqlDB.SetMaxIdleConns(1)

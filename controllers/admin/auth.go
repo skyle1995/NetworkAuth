@@ -6,6 +6,7 @@ import (
 	"NetworkAuth/models"
 	"NetworkAuth/services"
 	"NetworkAuth/utils"
+	"crypto/subtle"
 	"fmt"
 	"net/http"
 	"strings"
@@ -99,6 +100,8 @@ func LoginHandler(c *gin.Context) {
 
 	var user models.User
 	if err := db.Where("username = ?", body.Username).First(&user).Error; err != nil {
+		// 用户不存在时执行一次等价耗时的密码校验，消除时序差异，缓解用户名枚举
+		utils.PerformDummyPasswordCheck(body.Password)
 		recordLoginLog(c, user.UUID, body.Username, 0, "用户不存在")
 		authBaseController.HandleValidationError(c, "用户不存在或密码错误")
 		return
@@ -180,7 +183,7 @@ func recordLoginLog(c *gin.Context, uuid string, username string, status int, me
 	db, err := database.GetDB()
 	if err != nil {
 		// 记录日志失败不应影响主流程，但可以记录到系统日志
-		fmt.Printf("Failed to connect to database for login log: %v\n", err)
+		logrus.WithError(err).Error("记录登录日志失败：获取数据库连接失败")
 		return
 	}
 
@@ -196,7 +199,7 @@ func recordLoginLog(c *gin.Context, uuid string, username string, status int, me
 	}
 
 	if err := db.Create(&log).Error; err != nil {
-		fmt.Printf("Failed to create login log: %v\n", err)
+		logrus.WithError(err).Error("写入登录日志失败")
 	}
 }
 
@@ -321,8 +324,9 @@ func RefreshTokenHandler(c *gin.Context) {
 		return
 	}
 
-	// 7. 校验用户依然有效 + 密码未变
-	if !validateAdminPasswordHash(claims, c) {
+	// 7. 校验用户依然有效 + 密码未变（复用此处加载的用户，避免后续重复查询）
+	adminUserPtr, ok := loadAndValidateAdmin(claims, c)
+	if !ok {
 		_ = refreshSvc.RevokeFamily(rec.FamilyID)
 		clearInvalidJWTCookie(c)
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -332,23 +336,7 @@ func RefreshTokenHandler(c *gin.Context) {
 		})
 		return
 	}
-
-	db, err := database.GetDB()
-	if err != nil {
-		authBaseController.HandleInternalError(c, "数据库连接失败", err)
-		return
-	}
-	var adminUser models.User
-	if err := db.Where("uuid = ?", claims.UUID).First(&adminUser).Error; err != nil {
-		_ = refreshSvc.RevokeFamily(rec.FamilyID)
-		clearInvalidJWTCookie(c)
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"code": 1,
-			"msg":  "会话已失效，请重新登录",
-			"data": nil,
-		})
-		return
-	}
+	adminUser := *adminUserPtr
 
 	// 8. 签发新 access + 新 refresh（一次一换，继承 absolute）
 	settingsService := services.GetSettingsService()
@@ -369,14 +357,11 @@ func RefreshTokenHandler(c *gin.Context) {
 		authBaseController.HandleInternalError(c, "生成刷新令牌失败", err)
 		return
 	}
-	if err := refreshSvc.Create(newJTI, rec.FamilyID, adminUser.UUID, "admin",
-		newRefreshExpiresAt, rec.AbsoluteExpiresAt, c.Request.UserAgent(), c.ClientIP()); err != nil {
+	// 在单个事务内插入新令牌并撤销旧令牌，保证轮换的原子性
+	if err := refreshSvc.CreateAndRotate(newJTI, rec.FamilyID, adminUser.UUID, "admin",
+		newRefreshExpiresAt, rec.AbsoluteExpiresAt, c.Request.UserAgent(), c.ClientIP(), rec.JTI); err != nil {
 		authBaseController.HandleInternalError(c, "持久化刷新令牌失败", err)
 		return
-	}
-	if err := refreshSvc.Rotate(rec.JTI, newJTI); err != nil {
-		// 旋转失败不影响响应，但记录
-		logrus.WithError(err).Warn("rotate refresh token failed")
 	}
 
 	// 9. access token 通过响应体返回，不再同步到 Cookie
@@ -399,9 +384,24 @@ const (
 )
 
 // setCSRFToken 设置CSRF令牌到Cookie (Gin适配)
+// - HttpOnly 必须为 false：前端采用 double-submit 模式，需通过 JS 读取该 Cookie 并回填到请求头
+// - Secure 在 HTTPS 连接下自动开启，避免明文链路泄露令牌
 func setCSRFToken(c *gin.Context, token string) {
-	c.SetCookie(CSRFCookieName, token, 3600*24, "/", "", false, false)
+	secure := isSecureRequest(c)
+	c.SetCookie(CSRFCookieName, token, 3600*24, "/", "", secure, false)
 	c.Header(CSRFHeaderName, token)
+}
+
+// isSecureRequest 判断当前请求是否经由 HTTPS（含反向代理场景）
+func isSecureRequest(c *gin.Context) bool {
+	if c.Request.TLS != nil {
+		return true
+	}
+	// 兼容反向代理：优先看 X-Forwarded-Proto
+	if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
+		return strings.EqualFold(proto, "https")
+	}
+	return false
 }
 
 // validateCSRFToken 验证CSRF令牌 (Gin适配)
@@ -422,8 +422,8 @@ func validateCSRFToken(c *gin.Context, requestToken string) bool {
 		return false
 	}
 
-	// 使用常量时间比较
-	return strings.Compare(cookieToken, requestToken) == 0
+	// 使用常量时间比较，避免逐字节比较带来的时序泄露
+	return subtle.ConstantTimeCompare([]byte(cookieToken), []byte(requestToken)) == 1
 }
 
 // ============================================================================
@@ -450,9 +450,11 @@ func getJWTSecret() []byte {
 		return []byte(secret)
 	}
 
-	// 3. 如果仍未获取到，则记录严重错误并抛出 panic，拒绝使用硬编码的不安全密钥
-	logrus.Fatal("致命安全错误: 无法获取有效的 JWT 密钥，请检查数据库设置或重新安装系统。系统拒绝以不安全模式运行。")
-	return nil
+	// 3. 如果仍未获取到，则记录严重错误并 panic，拒绝使用空/不安全密钥签名。
+	//    这里使用 panic 而非 logrus.Fatal：panic 会被 gin.Recovery 捕获，
+	//    仅令当前请求返回 500，而不会让单个异常请求拖垮整个服务进程。
+	logrus.Error("致命安全错误: 无法获取有效的 JWT 密钥，请检查数据库设置或重新安装系统。系统拒绝以不安全模式运行。")
+	panic("JWT secret 不可用，拒绝以不安全模式签发/校验令牌")
 }
 
 // ============================================================================
@@ -564,37 +566,43 @@ func getJWTCookie(c *gin.Context) (string, error) {
 	return "", fmt.Errorf("未找到会话信息")
 }
 
-// validateAdminPasswordHash 验证管理员密码哈希的通用函数
-func validateAdminPasswordHash(claims *JWTClaims, c *gin.Context) bool {
+// loadAndValidateAdmin 加载并校验管理员：账号存在、启用、角色合法、密码未变更
+// - 返回已加载的用户对象，便于调用方复用，避免在同一请求内重复查询数据库
+// - 校验不通过时返回 (nil, false)
+func loadAndValidateAdmin(claims *JWTClaims, c *gin.Context) (*models.User, bool) {
 	// 【安全修复】验证数据库中的当前密码哈希
 	// 这确保了密码修改后，旧的JWT令牌会失效
 	db, err := database.GetDB()
 	if err != nil {
-		fmt.Printf("[SECURITY WARNING] Database connection failed during auth - Username=%s, IP=%s\n",
-			claims.Username, c.ClientIP())
-		return false
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"username": claims.Username, "ip": c.ClientIP(),
+		}).Warn("鉴权失败：数据库连接异常")
+		return nil, false
 	}
 
 	// 获取当前数据库中的管理员用户
 	var adminUser models.User
 	if err := db.Where("uuid = ?", claims.UUID).First(&adminUser).Error; err != nil {
-		fmt.Printf("[SECURITY WARNING] Admin user not found in database - UUID=%s, IP=%s\n",
-			claims.UUID, c.ClientIP())
-		return false
+		logrus.WithFields(logrus.Fields{
+			"uuid": claims.UUID, "ip": c.ClientIP(),
+		}).Warn("鉴权失败：管理员用户不存在")
+		return nil, false
 	}
 
 	// 检查账号状态 (Status=1 表示启用，否则强制下线)
 	if adminUser.Status != 1 {
-		fmt.Printf("[SECURITY WARNING] Admin user is disabled - UUID=%s, IP=%s\n",
-			claims.UUID, c.ClientIP())
-		return false
+		logrus.WithFields(logrus.Fields{
+			"uuid": claims.UUID, "ip": c.ClientIP(),
+		}).Warn("鉴权失败：管理员账号已被禁用")
+		return nil, false
 	}
 
 	// 检查是否允许登录 (role=0 或 role=1 允许，role=2不允许访问admin后台)
 	if adminUser.Role > 1 {
-		fmt.Printf("[SECURITY WARNING] Admin user role > 1 - UUID=%s, IP=%s\n",
-			claims.UUID, c.ClientIP())
-		return false
+		logrus.WithFields(logrus.Fields{
+			"uuid": claims.UUID, "ip": c.ClientIP(),
+		}).Warn("鉴权失败：管理员角色权限不足")
+		return nil, false
 	}
 
 	// 生成当前数据库密码的哈希摘要
@@ -602,12 +610,19 @@ func validateAdminPasswordHash(claims *JWTClaims, c *gin.Context) bool {
 
 	// 验证JWT中的密码哈希是否与当前数据库中的密码哈希一致
 	if claims.PasswordHash != currentPasswordHash {
-		fmt.Printf("[SECURITY WARNING] Password hash mismatch - JWT token invalidated - Username=%s, IP=%s\n",
-			claims.Username, c.ClientIP())
-		return false
+		logrus.WithFields(logrus.Fields{
+			"username": claims.Username, "ip": c.ClientIP(),
+		}).Warn("鉴权失败：密码哈希不匹配，令牌已失效")
+		return nil, false
 	}
 
-	return true
+	return &adminUser, true
+}
+
+// validateAdminPasswordHash 验证管理员密码哈希的通用函数（仅返回校验结果）
+func validateAdminPasswordHash(claims *JWTClaims, c *gin.Context) bool {
+	_, ok := loadAndValidateAdmin(claims, c)
+	return ok
 }
 
 // IsAdminAuthenticated 判断管理员是否已认证（Gin版本）

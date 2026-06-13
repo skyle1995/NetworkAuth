@@ -352,3 +352,25 @@ func GenerateSHA256Hash(input string) string {
 	hash := sha256.Sum256([]byte(input))
 	return fmt.Sprintf("%x", hash)
 }
+
+// dummyBcryptHash 预计算的占位 bcrypt 哈希，用于登录时“用户不存在”分支的等价耗时计算
+var (
+	dummyBcryptHash     string
+	dummyBcryptHashOnce sync.Once
+)
+
+// PerformDummyPasswordCheck 执行一次与真实密码校验等价耗时的 bcrypt 比较
+// 用途：当登录用户不存在时调用本函数，使“用户不存在”与“密码错误”两条路径耗时接近，
+// 从而缓解攻击者基于响应时间的用户名枚举。其比较结果被丢弃。
+func PerformDummyPasswordCheck(password string) {
+	dummyBcryptHashOnce.Do(func() {
+		// 占位明文无实际意义，成本因子与 HashPasswordWithSalt 保持一致（10）
+		if h, err := bcrypt.GenerateFromPassword([]byte("dummy-password-placeholder"), 10); err == nil {
+			dummyBcryptHash = string(h)
+		}
+	})
+	if dummyBcryptHash == "" {
+		return
+	}
+	_ = bcrypt.CompareHashAndPassword([]byte(dummyBcryptHash), []byte(password))
+}

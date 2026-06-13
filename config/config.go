@@ -21,11 +21,12 @@ var currentConfigFilePath string
 // ServerConfig 服务器配置结构体
 // 包含服务器运行相关的配置信息
 type ServerConfig struct {
-	Host      string `json:"host" mapstructure:"host"`             // 服务器监听地址
-	Port      int    `json:"port" mapstructure:"port"`             // 服务器监听端口
-	Dist      string `json:"dist" mapstructure:"dist"`             // 静态文件目录
-	DevMode   bool   `json:"dev_mode" mapstructure:"dev_mode"`     // 开发模式（跳过验证码等）
-	AccessLog bool   `json:"access_log" mapstructure:"access_log"` // 是否输出访问日志
+	Host             string   `json:"host" mapstructure:"host"`                             // 服务器监听地址
+	Port             int      `json:"port" mapstructure:"port"`                             // 服务器监听端口
+	Dist             string   `json:"dist" mapstructure:"dist"`                             // 静态文件目录
+	DevMode          bool     `json:"dev_mode" mapstructure:"dev_mode"`                     // 开发模式（跳过验证码等）
+	AccessLog        bool     `json:"access_log" mapstructure:"access_log"`                 // 是否输出访问日志
+	CorsAllowOrigins []string `json:"cors_allow_origins" mapstructure:"cors_allow_origins"` // 允许跨域携带凭证的来源白名单（为空时回退到安全降级策略）
 }
 
 // DatabaseConfig 数据库配置结构体
@@ -90,11 +91,12 @@ type AppConfig struct {
 func GetDefaultAppConfig() *AppConfig {
 	return &AppConfig{
 		Server: ServerConfig{
-			Host:      "0.0.0.0",
-			Port:      8080,
-			Dist:      "",
-			DevMode:   false,
-			AccessLog: true,
+			Host:             "0.0.0.0",
+			Port:             8080,
+			Dist:             "",
+			DevMode:          false,
+			AccessLog:        true,
+			CorsAllowOrigins: []string{},
 		},
 		Database: DatabaseConfig{
 			Type: "sqlite",
@@ -264,6 +266,7 @@ func syncViperConfig(currentConfig *AppConfig) {
 	viper.Set("server.dist", currentConfig.Server.Dist)
 	viper.Set("server.dev_mode", currentConfig.Server.DevMode)
 	viper.Set("server.access_log", currentConfig.Server.AccessLog)
+	viper.Set("server.cors_allow_origins", currentConfig.Server.CorsAllowOrigins)
 
 	viper.Set("database.type", currentConfig.Database.Type)
 	viper.Set("database.mysql.host", currentConfig.Database.MySQL.Host)

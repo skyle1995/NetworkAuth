@@ -59,6 +59,9 @@ func runServer(cmd *cobra.Command, args []string) {
 	// 设置 Gin 模式
 	if !viper.GetBool("server.dev_mode") {
 		gin.SetMode(gin.ReleaseMode)
+	} else {
+		// 开发模式会跳过验证码校验并输出详细错误信息，严禁用于生产环境
+		logrus.Warn("⚠️  [安全警告] 开发模式 (server.dev_mode) 已开启：验证码校验被跳过、错误详情对外暴露，请勿在生产环境使用！")
 	}
 
 	// 初始化Redis（如果配置存在，失败不致命）

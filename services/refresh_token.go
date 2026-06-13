@@ -53,6 +53,40 @@ func (s *RefreshTokenService) Create(jti, familyID, userUUID, userType string,
 	return db.Create(&rec).Error
 }
 
+// CreateAndRotate 在单个事务内完成令牌轮换：插入新 refreshToken 记录 + 撤销旧记录
+// - 保证"新令牌已写入"与"旧令牌已撤销"两步的原子性，避免中途失败留下不一致的中间态
+// - 入参与 Create 一致，额外的 oldJTI 为被替换的旧令牌
+func (s *RefreshTokenService) CreateAndRotate(jti, familyID, userUUID, userType string,
+	expiresAt, absoluteExpiresAt time.Time, ua, ip, oldJTI string) error {
+	db, err := database.GetDB()
+	if err != nil {
+		return err
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		rec := models.RefreshToken{
+			JTI:               jti,
+			FamilyID:          familyID,
+			UserUUID:          userUUID,
+			UserType:          userType,
+			IssuedAt:          time.Now(),
+			ExpiresAt:         expiresAt,
+			AbsoluteExpiresAt: absoluteExpiresAt,
+			UserAgent:         ua,
+			IP:                ip,
+		}
+		if err := tx.Create(&rec).Error; err != nil {
+			return err
+		}
+		// 撤销旧令牌并记录被替换为新 jti
+		return tx.Model(&models.RefreshToken{}).
+			Where("jti = ?", oldJTI).
+			Updates(map[string]interface{}{
+				"revoked":     true,
+				"replaced_by": jti,
+			}).Error
+	})
+}
+
 // FindByJTI 根据 jti 查询
 func (s *RefreshTokenService) FindByJTI(jti string) (*models.RefreshToken, error) {
 	db, err := database.GetDB()
