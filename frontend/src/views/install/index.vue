@@ -17,13 +17,13 @@ const checking = ref(true);
 
 const form = reactive({
   db_type: "sqlite",
-  db_host: "127.0.0.1",
+  db_host: "localhost",
   db_port: 3306,
   db_name: "networkauth",
   db_user: "",
   db_pass: "",
   redis_enabled: false,
-  redis_host: "127.0.0.1",
+  redis_host: "localhost",
   redis_port: 6379,
   redis_password: "",
   redis_db: 0,
@@ -157,7 +157,7 @@ const handleInstall = async () => {
 
         <template v-if="form.db_type === 'mysql'">
           <el-form-item label="主机地址" prop="db_host">
-            <el-input v-model="form.db_host" placeholder="127.0.0.1" />
+            <el-input v-model="form.db_host" placeholder="localhost" />
           </el-form-item>
           <el-form-item label="端口号" prop="db_port">
             <el-input-number
@@ -190,7 +190,7 @@ const handleInstall = async () => {
         </el-form-item>
         <template v-if="form.redis_enabled">
           <el-form-item label="主机地址" prop="redis_host">
-            <el-input v-model="form.redis_host" placeholder="127.0.0.1" />
+            <el-input v-model="form.redis_host" placeholder="localhost" />
           </el-form-item>
           <el-form-item label="端口号" prop="redis_port">
             <el-input-number
