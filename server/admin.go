@@ -50,11 +50,22 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 
 		// 操作日志API
 		authorized.GET("/logs", adminctl.LogsListHandler)         // 获取操作日志列表
-		authorized.POST("/logs/clear", adminctl.LogsClearHandler) // 清空操作日志
+		authorized.POST("/logs/clear", adminctl.LogsClearHandler)               // 清空操作日志
+		authorized.POST("/logs/batch-delete", adminctl.LogsBatchDeleteHandler) // 批量删除操作日志
+		apikeyGroup := authorized.Group("/apikey")
+		{
+			apikeyGroup.GET("/scopes", adminctl.GetApiKeyScopes)
+			apikeyGroup.GET("/list", adminctl.GetApiKeyList)
+			apikeyGroup.POST("/create", adminctl.CreateApiKey)
+			apikeyGroup.PUT("/update", adminctl.UpdateApiKey)
+			apikeyGroup.POST("/regenerate", adminctl.RegenerateApiKey)
+			apikeyGroup.DELETE("/delete/:id", adminctl.DeleteApiKey)
+		}
 
 		// 登录日志API
 		authorized.GET("/login_logs", adminctl.LoginLogsListHandler)         // 获取登录日志列表
-		authorized.POST("/login_logs/clear", adminctl.LoginLogsClearHandler) // 清空登录日志
+		authorized.POST("/login_logs/clear", adminctl.LoginLogsClearHandler)               // 清空登录日志
+		authorized.POST("/login_logs/batch-delete", adminctl.LoginLogsBatchDeleteHandler) // 批量删除登录日志
 
 		// 子账号相关API (Mock)
 		authorized.GET("/subaccounts/simple", adminctl.SubAccountSimpleListHandler)

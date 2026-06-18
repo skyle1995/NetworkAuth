@@ -25,6 +25,7 @@ func AutoMigrate() error {
 		&models.Variable{},
 		&models.Function{},
 		&models.RefreshToken{},
+		&models.ApiKey{},
 	); err != nil {
 		logrus.WithError(err).Error("AutoMigrate 执行失败")
 		return err

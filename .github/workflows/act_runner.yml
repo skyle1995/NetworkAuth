@@ -105,6 +105,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: golang:1.25
+    env:
+      # 走国内 Go 模块代理加速依赖下载（goproxy.cn 同时代理校验库 sumdb）
+      GOPROXY: https://goproxy.cn,direct
     strategy:
       matrix:
         target:
@@ -129,10 +132,15 @@ jobs:
             dir: darwin_amd64
             ext: ""
     steps:
-      - name: 安装运行时依赖（Node.js + 打包工具）
+      - name: 安装依赖 (nodejs + zip)
+        # nodejs：Gitea Actions 的 checkout/artifact 等 JS Action 需在容器内用 node 运行（golang 镜像不自带）
+        # zip：打包用。Go 编译本身不需要 node（前端已 go:embed），故省去 npm
         run: |
+          # Debian apt 换阿里云国内镜像（兼容旧 sources.list 与新 deb822 格式）
+          sed -i 's@deb.debian.org@mirrors.aliyun.com@g; s@security.debian.org@mirrors.aliyun.com@g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources 2>/dev/null || true
           apt-get update -qq
-          apt-get install -y -qq nodejs npm zip --no-install-recommends
+          apt-get install -y -qq nodejs zip --no-install-recommends
 
       - uses: actions/checkout@v4
 
@@ -208,6 +216,8 @@ jobs:
 
       - name: 安装工具
         run: |
+          sed -i 's@deb.debian.org@mirrors.aliyun.com@g; s@security.debian.org@mirrors.aliyun.com@g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources 2>/dev/null || true
           apt-get update -qq
           apt-get install -y -qq curl jq --no-install-recommends
 
@@ -316,6 +326,8 @@ jobs:
 
       - name: 安装工具
         run: |
+          sed -i 's@deb.debian.org@mirrors.aliyun.com@g; s@security.debian.org@mirrors.aliyun.com@g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources 2>/dev/null || true
           apt-get update -qq
           apt-get install -y -qq curl --no-install-recommends
 

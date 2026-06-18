@@ -285,3 +285,61 @@ func LogsClearHandler(c *gin.Context) {
 
 	logBaseController.HandleSuccess(c, "日志已清空", nil)
 }
+
+// LogsBatchDeleteHandler 按 ID 批量删除操作日志。
+// 配合前端「智能删除」的「删除选中」分支使用（未勾选时走清空接口）。
+func LogsBatchDeleteHandler(c *gin.Context) {
+	// 鉴权拦截：仅超级管理员 (role=0) 允许删除日志
+	if role, exists := c.Get("admin_role"); !exists || role.(int) != 0 {
+		logBaseController.HandleValidationError(c, "权限不足，仅超级管理员可删除日志")
+		return
+	}
+
+	// 解析待删除的 ID 列表
+	var req struct {
+		IDs []uint `json:"ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.IDs) == 0 {
+		logBaseController.HandleValidationError(c, "请提供要删除的日志 ID 列表")
+		return
+	}
+
+	db, ok := logBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+
+	// 按 ID 集合物理删除
+	if err := db.Unscoped().Where("id IN ?", req.IDs).Delete(&models.OperationLog{}).Error; err != nil {
+		logrus.WithError(err).Error("批量删除操作日志失败")
+		logBaseController.HandleInternalError(c, "批量删除操作日志失败", err)
+		return
+	}
+
+	logBaseController.HandleSuccess(c, "批量删除成功", gin.H{"deleted": len(req.IDs)})
+}
+
+// LoginLogsBatchDeleteHandler 按 ID 批量删除登录日志（配合前端「智能删除」的删除选中分支）。
+func LoginLogsBatchDeleteHandler(c *gin.Context) {
+	if role, exists := c.Get("admin_role"); !exists || role.(int) != 0 {
+		logBaseController.HandleValidationError(c, "权限不足，仅超级管理员可删除日志")
+		return
+	}
+	var req struct {
+		IDs []uint `json:"ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.IDs) == 0 {
+		logBaseController.HandleValidationError(c, "请提供要删除的日志 ID 列表")
+		return
+	}
+	db, ok := logBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+	if err := db.Unscoped().Where("id IN ?", req.IDs).Delete(&models.LoginLog{}).Error; err != nil {
+		logrus.WithError(err).Error("批量删除登录日志失败")
+		logBaseController.HandleInternalError(c, "批量删除登录日志失败", err)
+		return
+	}
+	logBaseController.HandleSuccess(c, "批量删除成功", gin.H{"deleted": len(req.IDs)})
+}

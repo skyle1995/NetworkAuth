@@ -153,6 +153,11 @@ class PureHttp {
         // 统一处理 401 未授权异常：先尝试用 refreshToken 刷新后重试，刷新失败再登出
         if ($error.response && $error.response.status === 401) {
           const reqUrl = ($error.config?.url || "") as string;
+          // 仅后台(/api/admin)接口的 401 视为会话失效；其余公开接口(/api/home、/api/install 等)的 401
+          // 一律不登出，交由业务层处理，避免门户接口的业务性 401 误触发后台登出
+          if (!reqUrl.includes("/api/admin")) {
+            return Promise.reject($error);
+          }
           const isAuthEndpoint =
             reqUrl.endsWith("/refresh-token") || reqUrl.endsWith("/login");
           const originalConfig = $error.config as PureHttpRequestConfig & {

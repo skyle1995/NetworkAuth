@@ -37,6 +37,15 @@ export default {
         icon: "ep:operation",
         title: "导航设置"
       }
+    },
+    {
+      path: "/admin/system/apikey",
+      name: "ApiKeyIndex",
+      component: () => import("@/views/admin/apikey/index.vue"),
+      meta: {
+        icon: "ep:key",
+        title: "密钥管理"
+      }
     }
   ]
 } satisfies RouteConfigsTable;
