@@ -35,10 +35,10 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 		authorized.POST("/profile/update", adminctl.ProfileUpdateHandler)
 		authorized.POST("/profile/password", adminctl.ProfilePasswordUpdateHandler)
 
-		// 设置API
-		authorized.GET("/settings", adminctl.SettingsQueryHandler)
-		authorized.POST("/settings/update", adminctl.SettingsUpdateHandler)
-		authorized.POST("/settings/generate-key", adminctl.SettingsGenerateKeyHandler)
+		// 设置API（系统级，仅超级管理员）
+		authorized.GET("/settings", adminctl.SuperAdminRequired(), adminctl.SettingsQueryHandler)
+		authorized.POST("/settings/update", adminctl.SuperAdminRequired(), adminctl.SettingsUpdateHandler)
+		authorized.POST("/settings/generate-key", adminctl.SuperAdminRequired(), adminctl.SettingsGenerateKeyHandler)
 		authorized.GET("/navigation", adminctl.PortalNavigationListHandler)
 		authorized.POST("/navigation/create", adminctl.PortalNavigationCreateHandler)
 		authorized.POST("/navigation/update", adminctl.PortalNavigationUpdateHandler)

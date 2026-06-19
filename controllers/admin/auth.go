@@ -616,6 +616,10 @@ func loadAndValidateAdmin(claims *JWTClaims, c *gin.Context) (*models.User, bool
 		return nil, false
 	}
 
+	// 【安全修复】用数据库实时角色覆盖 JWT 载荷中的角色，防止角色被降级后旧令牌权限残留(TOCTOU)。
+	// claims 为指针，此处同步后，所有读取 claims.Role 的路径（含 AdminAuthRequired 写入 admin_role）均使用 DB 实时值。
+	claims.Role = adminUser.Role
+
 	return &adminUser, true
 }
 
@@ -813,6 +817,25 @@ func AdminAuthRequired() gin.HandlerFunc {
 		c.Set("admin_username", claims.Username)
 		c.Set("admin_role", claims.Role)
 
+		c.Next()
+	}
+}
+
+// SuperAdminRequired 超级管理员专属接口拦截中间件 (Gin Middleware)
+// - 必须在 AdminAuthRequired 之后使用，依赖其写入的 admin_role 上下文（已同步为数据库实时角色）。
+// - 仅放行 role==0 的超级管理员，其余角色返回 403，阻止普通管理员访问系统级敏感接口。
+func SuperAdminRequired() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, exists := c.Get("admin_role")
+		if !exists || role.(int) != 0 {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"message": "权限不足，仅超级管理员可访问",
+				"data":    nil,
+			})
+			c.Abort()
+			return
+		}
 		c.Next()
 	}
 }

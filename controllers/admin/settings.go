@@ -23,8 +23,21 @@ func SubAccountSimpleListHandler(c *gin.Context) {
 	})
 }
 
+// sensitiveSettingKeys 安全关键设置项：禁止经设置接口读取或写入，
+// 防止普通管理员获取/篡改签名密钥后伪造超级管理员令牌。
+var sensitiveSettingKeys = map[string]struct{}{
+	"jwt_secret":     {},
+	"encryption_key": {},
+}
+
+// isSensitiveSettingKey 判断设置键是否为安全关键项（不可经设置接口读写）。
+func isSensitiveSettingKey(key string) bool {
+	_, ok := sensitiveSettingKeys[key]
+	return ok
+}
+
 // SettingsQueryHandler 设置查询API
-// - 返回所有设置项的 name:value 映射
+// - 返回所有设置项的 name:value 映射（安全关键键已过滤）
 func SettingsQueryHandler(c *gin.Context) {
 	db, ok := authBaseController.GetDB(c)
 	if !ok {
@@ -38,6 +51,10 @@ func SettingsQueryHandler(c *gin.Context) {
 	}
 	res := map[string]string{}
 	for _, s := range list {
+		// 【安全修复】过滤安全关键键，避免普通管理员经查询接口读取签名密钥。
+		if isSensitiveSettingKey(s.Name) {
+			continue
+		}
 		res[s.Name] = s.Value
 	}
 	authBaseController.HandleSuccess(c, "ok", res)
@@ -101,6 +118,15 @@ func SettingsUpdateHandler(c *gin.Context) {
 	if len(settingsData) == 0 {
 		authBaseController.HandleValidationError(c, "无设置项")
 		return
+	}
+
+	// 【安全修复】拒绝经设置接口写入安全关键键（如 jwt_secret/encryption_key），
+	// 防止普通管理员篡改签名密钥后伪造超级管理员令牌。
+	for k := range settingsData {
+		if isSensitiveSettingKey(k) {
+			authBaseController.HandleValidationError(c, fmt.Sprintf("设置项 %s 不允许通过此接口修改", k))
+			return
+		}
 	}
 
 	// 验证设置项值
