@@ -68,7 +68,7 @@ const checkInstallStatus = async () => {
     checking.value = true;
     // 请求任意一个非安装接口，如果未安装会被拦截并返回 403 未初始化
     // 如果已安装，会正常返回
-    const res = await http.request("get", "/api/admin/settings/public");
+    const res = await http.request("get", "/api/home/settings/public");
     if (res) {
       const redirect = sessionStorage.getItem("install_redirect") || "/home";
       sessionStorage.removeItem("install_redirect");

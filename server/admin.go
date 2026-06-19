@@ -18,10 +18,6 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 	admin.POST("/login", middleware.RateLimit(10, time.Minute), adminctl.LoginHandler)
 	admin.POST("/refresh-token", middleware.RateLimit(30, time.Minute), adminctl.RefreshTokenHandler)
 
-	// 公开设置API
-	admin.GET("/settings/public", adminctl.SettingsPublicHandler)
-	admin.GET("/portal-navigation/public", adminctl.PortalNavigationPublicListHandler)
-
 	// 退出登录
 	admin.POST("/logout", adminctl.LogoutHandler)
 
@@ -43,14 +39,14 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 		authorized.GET("/settings", adminctl.SettingsQueryHandler)
 		authorized.POST("/settings/update", adminctl.SettingsUpdateHandler)
 		authorized.POST("/settings/generate-key", adminctl.SettingsGenerateKeyHandler)
-		authorized.GET("/portal-navigation", adminctl.PortalNavigationListHandler)
-		authorized.POST("/portal-navigation/create", adminctl.PortalNavigationCreateHandler)
-		authorized.POST("/portal-navigation/update", adminctl.PortalNavigationUpdateHandler)
-		authorized.POST("/portal-navigation/delete", adminctl.PortalNavigationDeleteHandler)
+		authorized.GET("/navigation", adminctl.PortalNavigationListHandler)
+		authorized.POST("/navigation/create", adminctl.PortalNavigationCreateHandler)
+		authorized.POST("/navigation/update", adminctl.PortalNavigationUpdateHandler)
+		authorized.POST("/navigation/delete", adminctl.PortalNavigationDeleteHandler)
 
 		// 操作日志API
-		authorized.GET("/logs", adminctl.LogsListHandler)         // 获取操作日志列表
-		authorized.POST("/logs/clear", adminctl.LogsClearHandler)               // 清空操作日志
+		authorized.GET("/logs", adminctl.LogsListHandler)                      // 获取操作日志列表
+		authorized.POST("/logs/clear", adminctl.LogsClearHandler)              // 清空操作日志
 		authorized.POST("/logs/batch-delete", adminctl.LogsBatchDeleteHandler) // 批量删除操作日志
 		apikeyGroup := authorized.Group("/apikey")
 		{
@@ -63,8 +59,8 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 		}
 
 		// 登录日志API
-		authorized.GET("/login_logs", adminctl.LoginLogsListHandler)         // 获取登录日志列表
-		authorized.POST("/login_logs/clear", adminctl.LoginLogsClearHandler)               // 清空登录日志
+		authorized.GET("/login_logs", adminctl.LoginLogsListHandler)                      // 获取登录日志列表
+		authorized.POST("/login_logs/clear", adminctl.LoginLogsClearHandler)              // 清空登录日志
 		authorized.POST("/login_logs/batch-delete", adminctl.LoginLogsBatchDeleteHandler) // 批量删除登录日志
 
 		// 子账号相关API (Mock)

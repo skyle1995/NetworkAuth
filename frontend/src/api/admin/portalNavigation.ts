@@ -37,7 +37,7 @@ export type PortalNavigationSavePayload = {
  * 返回后台导航设置页面使用的完整数据
  */
 export const getPortalNavigationList = () => {
-  return http.request<PortalNavigationResult>("get", "/api/admin/portal-navigation");
+  return http.request<PortalNavigationResult>("get", "/api/admin/navigation");
 };
 
 /**
@@ -47,7 +47,7 @@ export const getPortalNavigationList = () => {
 export const getPublicPortalNavigationList = () => {
   return http.request<PortalNavigationResult>(
     "get",
-    "/api/admin/portal-navigation/public"
+    "/api/home/navigation/public"
   );
 };
 
@@ -58,7 +58,7 @@ export const getPublicPortalNavigationList = () => {
 export const createPortalNavigation = (data: PortalNavigationSavePayload) => {
   return http.request<PortalNavigationResult>(
     "post",
-    "/api/admin/portal-navigation/create",
+    "/api/admin/navigation/create",
     {
       data
     }
@@ -72,7 +72,7 @@ export const createPortalNavigation = (data: PortalNavigationSavePayload) => {
 export const updatePortalNavigation = (data: PortalNavigationSavePayload) => {
   return http.request<PortalNavigationResult>(
     "post",
-    "/api/admin/portal-navigation/update",
+    "/api/admin/navigation/update",
     {
       data
     }
@@ -86,7 +86,7 @@ export const updatePortalNavigation = (data: PortalNavigationSavePayload) => {
 export const deletePortalNavigation = (id: number) => {
   return http.request<PortalNavigationResult>(
     "post",
-    "/api/admin/portal-navigation/delete",
+    "/api/admin/navigation/delete",
     {
       data: { id }
     }

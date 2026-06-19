@@ -29,7 +29,7 @@ export const getPlatformConfig = async (app: App): Promise<undefined> => {
   app.config.globalProperties.$config = getConfig();
   return axios({
     method: "get",
-    url: `/api/admin/settings/public`
+    url: `/api/home/settings/public`
   })
     .then(({ data: res }) => {
       let $config = app.config.globalProperties.$config;
