@@ -49,13 +49,13 @@ func NewClient(baseURL string, proxyStr string, persistCookies bool, timeout int
 		"connection":         "keep-alive",
 		"pragma":             "no-cache",
 		"priority":           "u=1,i",
-		"sec-ch-ua":          "\"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Google Chrome\";v=\"146\"",
+		"sec-ch-ua":          "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
 		"sec-ch-ua-mobile":   "?0",
 		"sec-ch-ua-platform": "\"macOS\"",
 		"sec-fetch-dest":     "empty",
 		"sec-fetch-mode":     "cors",
 		"sec-fetch-site":     "same-origin",
-		"user-agent":         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+		"user-agent":         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
 	}
 
 	stateClient := resty.New().
