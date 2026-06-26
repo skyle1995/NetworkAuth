@@ -30,10 +30,45 @@ var sensitiveSettingKeys = map[string]struct{}{
 	"encryption_key": {},
 }
 
+// maskSensitiveValue 对安全关键键的值做部分掩码：保留首尾各 4 位，中间以 * 占位；
+// 值长度 <= 8 时整体以 * 占位。供非超级管理员读取时展示，既不泄露真值又便于识别。
+func maskSensitiveValue(v string) string {
+	r := []rune(v)
+	n := len(r)
+	if n == 0 {
+		return ""
+	}
+	keep := 4
+	if n <= keep*2 {
+		keep = 0
+	}
+	out := make([]rune, n)
+	for i := 0; i < n; i++ {
+		if i < keep || i >= n-keep {
+			out[i] = r[i]
+		} else {
+			out[i] = '*'
+		}
+	}
+	return string(out)
+}
+
 // isSensitiveSettingKey 判断设置键是否为安全关键项（不可经设置接口读写）。
 func isSensitiveSettingKey(key string) bool {
 	_, ok := sensitiveSettingKeys[key]
 	return ok
+}
+
+// isRequestSuperAdmin 判断当前请求者是否为超级管理员(role=0)。
+// 超级管理员可经设置接口读写安全关键键(jwt_secret/encryption_key)；其余角色一律拒绝，
+// 防止普通管理员/子账号越权篡改签名密钥伪造超级管理员令牌。
+func isRequestSuperAdmin(c *gin.Context) bool {
+	role, exists := c.Get("admin_role")
+	if !exists {
+		return false
+	}
+	r, ok := role.(int)
+	return ok && r == 0
 }
 
 // SettingsQueryHandler 设置查询API
@@ -51,8 +86,12 @@ func SettingsQueryHandler(c *gin.Context) {
 	}
 	res := map[string]string{}
 	for _, s := range list {
-		// 【安全修复】过滤安全关键键，避免普通管理员经查询接口读取签名密钥。
-		if isSensitiveSettingKey(s.Name) {
+		// 安全关键键（jwt_secret/encryption_key）：超级管理员返回真实值；
+		// 其余角色以掩码占位返回（有值才掩码，无值则不返回），既不泄露又能让前端展示。
+		if isSensitiveSettingKey(s.Name) && !isRequestSuperAdmin(c) {
+			if s.Value != "" {
+				res[s.Name] = maskSensitiveValue(s.Value)
+			}
 			continue
 		}
 		res[s.Name] = s.Value
@@ -120,12 +159,13 @@ func SettingsUpdateHandler(c *gin.Context) {
 		return
 	}
 
-	// 【安全修复】拒绝经设置接口写入安全关键键（如 jwt_secret/encryption_key），
-	// 防止普通管理员篡改签名密钥后伪造超级管理员令牌。
-	for k := range settingsData {
-		if isSensitiveSettingKey(k) {
-			authBaseController.HandleValidationError(c, fmt.Sprintf("设置项 %s 不允许通过此接口修改", k))
-			return
+	// 安全关键键（jwt_secret/encryption_key）：仅超级管理员可写入；
+	// 非超级管理员的提交一律静默忽略（不报错、不覆盖真实值），保证其余设置正常保存。
+	if !isRequestSuperAdmin(c) {
+		for k := range settingsData {
+			if isSensitiveSettingKey(k) {
+				delete(settingsData, k)
+			}
 		}
 	}
 

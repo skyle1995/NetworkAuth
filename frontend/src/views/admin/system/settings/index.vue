@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import { ElMessage } from "element-plus";
 import { getSettings, updateSettings, generateKey } from "@/api/admin/settings";
+import { useUserStoreHook } from "@/store/modules/user";
 
 defineOptions({
   name: "Settings"
 });
 
 const activeTab = ref("basic");
+
+// 仅超级管理员可读写安全关键键（jwt_secret/encryption_key）；普通管理员只读+部分掩码，相关控件禁用
+const isSuperAdmin = computed(() => useUserStoreHook().roles.includes("super_admin"));
 
 const form = ref<Record<string, any>>({
   // 基本信息
@@ -275,9 +279,10 @@ onMounted(() => {
               <div class="flex w-full gap-2">
                 <el-input
                   v-model="form.encryption_key"
+                  :disabled="!isSuperAdmin"
                   placeholder="请输入数据加密密钥"
                 />
-                <el-button @click="handleGenerateKey('encryption')"
+                <el-button @click="handleGenerateKey('encryption')" :disabled="!isSuperAdmin"
                   >随机生成</el-button
                 >
               </div>
@@ -287,9 +292,10 @@ onMounted(() => {
               <div class="flex w-full gap-2">
                 <el-input
                   v-model="form.jwt_secret"
+                  :disabled="!isSuperAdmin"
                   placeholder="请输入 JWT 密钥"
                 />
-                <el-button @click="handleGenerateKey('jwt')"
+                <el-button @click="handleGenerateKey('jwt')" :disabled="!isSuperAdmin"
                   >随机生成</el-button
                 >
               </div>
