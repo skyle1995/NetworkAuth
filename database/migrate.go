@@ -14,7 +14,18 @@ func AutoMigrate() error {
 	if err != nil {
 		return err
 	}
-	if err := db.AutoMigrate(
+	if err := db.AutoMigrate(AllModels()...); err != nil {
+		logrus.WithError(err).Error("AutoMigrate 执行失败")
+		return err
+	}
+	logrus.Info("AutoMigrate 执行完成")
+	return nil
+}
+
+// AllModels 返回参与迁移与结构整理的全部模型清单。
+// AutoMigrate 与 db tidy 维护命令共用此清单，避免两处各维护一份导致遗漏。
+func AllModels() []any {
+	return []any{
 		&models.Settings{},
 		&models.PortalNavigation{},
 		&models.OperationLog{},
@@ -26,10 +37,5 @@ func AutoMigrate() error {
 		&models.Function{},
 		&models.RefreshToken{},
 		&models.ApiKey{},
-	); err != nil {
-		logrus.WithError(err).Error("AutoMigrate 执行失败")
-		return err
 	}
-	logrus.Info("AutoMigrate 执行完成")
-	return nil
 }
