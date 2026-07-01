@@ -74,13 +74,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 安装 pnpm v9 与依赖
+      - name: 安装 pnpm 11 与依赖
         run: |
           npm config set registry https://registry.npmmirror.com
-          npm install -g pnpm@9
+          npm install -g pnpm@11.5.1
           cd frontend
           pnpm config set registry https://registry.npmmirror.com
-          HUSKY=0 pnpm install --frozen-lockfile
+          CI=true HUSKY=0 pnpm install --frozen-lockfile
 
       - name: 编译前端
         run: |

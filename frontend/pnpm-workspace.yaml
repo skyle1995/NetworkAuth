@@ -1,0 +1,32 @@
+onlyBuiltDependencies:
+  - '@parcel/watcher'
+  - core-js
+  - es5-ext
+  - esbuild
+  - typeit
+  - vue-demi
+
+ignoredBuiltDependencies:
+  - '@tailwindcss/oxide'
+
+allowBuilds:
+  '@parcel/watcher': true
+  core-js: true
+  es5-ext: true
+  esbuild: true
+  typeit: true
+  vue-demi: true
+
+allowedDeprecatedVersions:
+  are-we-there-yet: '*'
+  sourcemap-codec: '*'
+  lodash.isequal: '*'
+  domexception: '*'
+  w3c-hr-time: '*'
+  inflight: '*'
+  npmlog: '*'
+  rimraf: '*'
+  stable: '*'
+  gauge: '*'
+  abab: '*'
+  glob: '*'

@@ -19,7 +19,7 @@ export const cdn = importToCDN({
       var: "VueRouter",
       path: "vue-router.global.min.js"
     },
-    // 项目中没有直接安装vue-demi，但是pinia用到了，所以需要在引入pinia前引入vue-demi（https://github.com/vuejs/pinia/blob/v2/packages/pinia/package.json#L77）
+    // Pinia 的 CDN 产物依赖 vue-demi，需在引入 pinia 前先引入 vue-demi
     {
       name: "vue-demi",
       var: "VueDemi",
