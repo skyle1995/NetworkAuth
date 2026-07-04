@@ -77,6 +77,34 @@ export const getCaptcha = () => {
   return http.request<any>("get", "/api/admin/captcha");
 };
 
+/** 获取当前验证码类型：slide=滑动拼图 / click=点击文字 / image=字符验证码 */
+export const getCaptchaType = () => {
+  return http.request<any>("get", "/api/admin/captcha/type");
+};
+
+/** 获取一道滑动拼图验证码 */
+export const getSlideCaptcha = () => {
+  return http.request<any>("get", "/api/admin/captcha/slide");
+};
+
+/** 校验滑动拼图落点，通过返回一次性令牌 */
+export const verifySlideCaptcha = (data: { id: string; x: number }) => {
+  return http.request<any>("post", "/api/admin/captcha/slide/verify", { data });
+};
+
+/** 获取一道点击文字验证码 */
+export const getClickCaptcha = () => {
+  return http.request<any>("get", "/api/admin/captcha/click");
+};
+
+/** 校验有序点击点，通过返回一次性令牌 */
+export const verifyClickCaptcha = (data: {
+  id: string;
+  points: { x: number; y: number }[];
+}) => {
+  return http.request<any>("post", "/api/admin/captcha/click/verify", { data });
+};
+
 /** 刷新`token` */
 export const refreshTokenApi = (data?: object) => {
   return http.request<RefreshTokenResult>("post", "/api/admin/refresh-token", {

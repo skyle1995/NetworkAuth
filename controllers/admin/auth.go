@@ -59,10 +59,11 @@ func CSRFTokenHandler(c *gin.Context) {
 // - 成功后设置JWT Cookie
 func LoginHandler(c *gin.Context) {
 	var body struct {
-		Username  string `json:"username"`
-		Password  string `json:"password"`
-		Captcha   string `json:"captcha"`
-		CSRFToken string `json:"csrf_token"`
+		Username     string `json:"username"`
+		Password     string `json:"password"`
+		Captcha      string `json:"captcha"`       // 字符验证码用户输入
+		CaptchaToken string `json:"captcha_token"` // 滑块验证通过后的一次性令牌
+		CSRFToken    string `json:"csrf_token"`
 	}
 
 	if !authBaseController.BindJSON(c, &body) {
@@ -75,16 +76,16 @@ func LoginHandler(c *gin.Context) {
 		return
 	}
 
+	// 用户名/密码必填；验证码是否必填、如何校验交由 VerifyCaptcha 按类型处理
 	if !authBaseController.ValidateRequired(c, map[string]interface{}{
 		"用户名": body.Username,
 		"密码":  body.Password,
-		"验证码": body.Captcha,
 	}) {
 		return
 	}
 
-	// 验证验证码
-	if !VerifyCaptcha(c, body.Captcha) {
+	// 验证验证码（按当前类型：字符 or 滑块令牌）
+	if !VerifyCaptcha(c, body.Captcha, body.CaptchaToken) {
 		recordLoginLog(c, "", body.Username, 0, "验证码错误或已过期")
 		authBaseController.HandleValidationError(c, "验证码错误或已过期")
 		return

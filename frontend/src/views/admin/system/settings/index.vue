@@ -23,6 +23,7 @@ const form = ref<Record<string, any>>({
 
   // 系统和安全
   maintenance_mode: "0",
+  captcha_type: "slide",
   encryption_key: "",
   jwt_secret: "",
   jwt_expire: 2,
@@ -274,6 +275,17 @@ onMounted(() => {
               </div>
             </el-form-item>
 
+            <el-form-item label="验证码类型">
+              <el-radio-group v-model="form.captcha_type">
+                <el-radio value="slide">滑动拼图</el-radio>
+                <el-radio value="click">点击文字</el-radio>
+                <el-radio value="image">字符验证码</el-radio>
+              </el-radio-group>
+              <div class="text-gray-400 text-xs mt-1 w-full">
+                登录页验证码形式；滑动拼图/点击文字体验更好，字符验证码更轻量
+              </div>
+            </el-form-item>
+
             <el-divider content-position="left">密钥配置</el-divider>
             <el-form-item label="数据加密密钥">
               <div class="flex w-full gap-2">
@@ -362,6 +374,7 @@ onMounted(() => {
                 @click="
                   handleSave([
                     'maintenance_mode',
+                    'captcha_type',
                     'encryption_key',
                     'jwt_secret',
                     'jwt_expire',

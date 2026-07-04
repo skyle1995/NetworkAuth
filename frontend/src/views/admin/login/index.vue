@@ -3,7 +3,10 @@ import Motion from "./utils/motion";
 import { useRouter } from "vue-router";
 import { message } from "@/utils/message";
 import { loginRules } from "./utils/rule";
-import { ref, reactive, toRaw } from "vue";
+import { ref, reactive, toRaw, onMounted } from "vue";
+import SlideCaptcha from "./components/SlideCaptcha.vue";
+import ClickCaptcha from "./components/ClickCaptcha.vue";
+import { getCaptchaType } from "@/api/admin/user";
 import { debounce } from "@pureadmin/utils";
 import { useNav } from "@/layout/hooks/useNav";
 import { useEventListener } from "@vueuse/core";
@@ -40,13 +43,38 @@ const ruleForm = reactive({
   username: "admin",
   password: "admin123",
   captcha: "",
+  captcha_token: "",
   csrf_token: ""
 });
+
+// 验证码类型：slide=滑动拼图(默认) / click=点击文字 / image=字符验证码
+const captchaType = ref<"slide" | "click" | "image">("slide");
+const slideRef = ref<InstanceType<typeof SlideCaptcha>>();
+const clickRef = ref<InstanceType<typeof ClickCaptcha>>();
 
 const captchaUrl = ref("/api/admin/captcha?" + new Date().getTime());
 const refreshCaptcha = () => {
   captchaUrl.value = "/api/admin/captcha?" + new Date().getTime();
 };
+
+// 滑块/点击校验通过：记录一次性令牌
+const onSlideSuccess = (token: string) => {
+  ruleForm.captcha_token = token;
+};
+
+onMounted(() => {
+  getCaptchaType()
+    .then(res => {
+      if (res.code === 0 && res.data?.type) {
+        const t = res.data.type;
+        captchaType.value =
+          t === "image" ? "image" : t === "click" ? "click" : "slide";
+      }
+    })
+    .catch(() => {
+      /* 取不到则用默认(slide) */
+    });
+});
 
 import { getCsrfToken } from "@/api/admin/user";
 getCsrfToken().then(res => {
@@ -58,6 +86,14 @@ getCsrfToken().then(res => {
 const onLogin = async (formEl: FormInstance | undefined) => {
   if (!formEl) return;
   if (loading.value) return;
+  // 滑块/点击模式：未完成验证则提示，不发起登录
+  if (
+    (captchaType.value === "slide" || captchaType.value === "click") &&
+    !ruleForm.captcha_token
+  ) {
+    message("请先完成安全验证", { type: "warning" });
+    return;
+  }
   loading.value = true;
   await formEl.validate(valid => {
     if (valid) {
@@ -66,6 +102,7 @@ const onLogin = async (formEl: FormInstance | undefined) => {
           username: ruleForm.username,
           password: ruleForm.password,
           captcha: ruleForm.captcha,
+          captcha_token: ruleForm.captcha_token,
           csrf_token: ruleForm.csrf_token
         })
         .then(res => {
@@ -89,7 +126,14 @@ const onLogin = async (formEl: FormInstance | undefined) => {
           if (!err.handled) {
             message(err.message || "登录异常", { type: "error" });
           }
-          refreshCaptcha(); // 登录失败后刷新验证码
+          // 登录失败后重置验证码
+          if (captchaType.value === "image") {
+            refreshCaptcha();
+          } else {
+            ruleForm.captcha_token = "";
+            slideRef.value?.reset();
+            clickRef.value?.reset();
+          }
         })
         .finally(() => (loading.value = false));
     } else {
@@ -185,7 +229,9 @@ useEventListener(document, "keydown", ({ code }) => {
             </Motion>
 
             <Motion :delay="200">
+              <!-- 字符(图形)验证码 -->
               <el-form-item
+                v-if="captchaType === 'image'"
                 prop="captcha"
                 :rules="[
                   {
@@ -210,6 +256,14 @@ useEventListener(document, "keydown", ({ code }) => {
                     @click="refreshCaptcha"
                   />
                 </div>
+              </el-form-item>
+              <!-- 滑动拼图验证码 -->
+              <el-form-item v-else-if="captchaType === 'slide'">
+                <SlideCaptcha ref="slideRef" @success="onSlideSuccess" />
+              </el-form-item>
+              <!-- 点击文字验证码 -->
+              <el-form-item v-else>
+                <ClickCaptcha ref="clickRef" @success="onSlideSuccess" />
               </el-form-item>
             </Motion>
 

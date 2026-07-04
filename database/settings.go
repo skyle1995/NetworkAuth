@@ -47,6 +47,11 @@ func SeedDefaultSettings() error {
 	// ===== 系统和安全相关默认项 =====
 	defaultSettings = append(defaultSettings, []models.Settings{
 		{
+			Name:        "captcha_type",
+			Value:       "slide",
+			Description: "验证码类型：slide=滑动拼图(默认)，click=点击文字，image=字符验证码",
+		},
+		{
 			Name:        "maintenance_mode",
 			Value:       "0",
 			Description: "维护模式，0=关闭维护模式，1=开启维护模式",
