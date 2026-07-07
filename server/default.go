@@ -3,6 +3,7 @@ package server
 import (
 	adminctl "NetworkAuth/controllers/admin"
 	defaultctrl "NetworkAuth/controllers/default"
+	publicctrl "NetworkAuth/controllers/public"
 	"NetworkAuth/middleware"
 	"time"
 
@@ -20,4 +21,7 @@ func RegisterDefaultRoutes(rg *gin.RouterGroup) {
 	// 前台公开接口（从 /api/admin 迁出，避免开启 admin WAF 白名单后前台无法访问）
 	homeGroup.GET("/settings/public", adminctl.SettingsPublicHandler)
 	homeGroup.GET("/navigation/public", adminctl.PortalNavigationPublicListHandler)
+
+	// 客户端公开 API 统一入口（限流防刷）
+	rg.POST("/open", middleware.RateLimit(120, time.Minute), publicctrl.OpenAPIHandler)
 }

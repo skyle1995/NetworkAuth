@@ -50,6 +50,26 @@ export default {
         icon: "ep:setting",
         showParent: true
       }
+    },
+    {
+      path: "/admin/cards/index",
+      name: "CardsIndex",
+      component: () => import("@/views/admin/application/cards/index.vue"),
+      meta: {
+        title: "卡密管理",
+        icon: "ep:tickets",
+        showParent: true
+      }
+    },
+    {
+      path: "/admin/members/index",
+      name: "MembersIndex",
+      component: () => import("@/views/admin/application/members/index.vue"),
+      meta: {
+        title: "终端用户",
+        icon: "ep:user",
+        showParent: true
+      }
     }
   ]
 } satisfies RouteConfigsTable;

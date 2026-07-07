@@ -125,5 +125,32 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			functionGroup.POST("/delete", adminctl.FunctionDeleteHandler)
 			functionGroup.POST("/batch_delete", adminctl.FunctionsBatchDeleteHandler)
 		}
+
+		// 卡密管理API
+		cardGroup := authorized.Group("/card")
+		{
+			cardGroup.GET("/list", adminctl.CardListHandler)
+			cardGroup.POST("/create", adminctl.CardCreateHandler)
+			cardGroup.POST("/export", adminctl.CardExportHandler)
+			cardGroup.POST("/freeze", adminctl.CardFreezeHandler)
+			cardGroup.POST("/unfreeze", adminctl.CardUnfreezeHandler)
+			cardGroup.POST("/batch_delete", adminctl.CardsBatchDeleteHandler)
+			cardGroup.POST("/delete_batch", adminctl.CardDeleteByBatchHandler)
+		}
+
+		// 终端用户管理API
+		memberGroup := authorized.Group("/member")
+		{
+			memberGroup.GET("/list", adminctl.MemberListHandler)
+			memberGroup.POST("/create", adminctl.MemberCreateHandler)
+			memberGroup.POST("/set_status", adminctl.MemberSetStatusHandler)
+			memberGroup.POST("/recharge", adminctl.MemberRechargeHandler)
+			memberGroup.POST("/deduct", adminctl.MemberDeductHandler)
+			memberGroup.POST("/reset_password", adminctl.MemberResetPasswordHandler)
+			memberGroup.POST("/update_remark", adminctl.MemberUpdateRemarkHandler)
+			memberGroup.GET("/bindings", adminctl.MemberBindingsHandler)
+			memberGroup.POST("/clear_bindings", adminctl.MemberClearBindingsHandler)
+			memberGroup.POST("/batch_delete", adminctl.MembersBatchDeleteHandler)
+		}
 	}
 }

@@ -82,6 +82,12 @@ type App struct {
 	// IPRebindDeduct：IP地址重绑扣除（默认0，单位：分钟）
 	IPRebindDeduct int `gorm:"default:0;not null;comment:IP地址重绑扣除，单位分钟" json:"ip_rebind_deduct"`
 
+	// 登录方式开关字段
+	// CardLoginEnabled：卡密登录开关（0=关闭，1=开启）。开启后卡密可直接登录并自动创建绑定账号
+	CardLoginEnabled int `gorm:"default:1;not null;comment:卡密登录开关，0=关闭，1=开启" json:"card_login_enabled"`
+	// RechargeEnabled：卡密充值开关（0=关闭，1=开启）。开启后卡密可为终端用户充值时长
+	RechargeEnabled int `gorm:"default:1;not null;comment:卡密充值开关，0=关闭，1=开启" json:"recharge_enabled"`
+
 	// 账号注册相关字段
 	// RegisterEnabled：账号注册开关（0=关闭，1=开启）
 	RegisterEnabled int `gorm:"default:1;not null;comment:账号注册开关，0=关闭，1=开启" json:"register_enabled"`

@@ -37,5 +37,8 @@ func AllModels() []any {
 		&models.Function{},
 		&models.RefreshToken{},
 		&models.ApiKey{},
+		&models.Card{},
+		&models.Member{},
+		&models.Binding{},
 	}
 }
