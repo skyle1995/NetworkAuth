@@ -24,8 +24,8 @@ const (
 	APITypeSingleLogin = 10 // 卡密登录
 
 	// 账号管理
-	APITypeUserLogin     = 20 // 字系统登录
-	APITypeUserRegin     = 21 // 字系统注册
+	APITypeUserLogin     = 20 // 账号登录
+	APITypeUserRegin     = 21 // 账号注册
 	APITypeUserRecharge  = 22 // 用户充值
 	APITypeSendEmailCode = 23 // 发送注册验证码
 	APITypeClaimTrial    = 24 // 领取试用
@@ -191,8 +191,8 @@ func GetAPITypes(categorized bool) interface{} {
 		{
 			Name: "账号管理",
 			Types: []APITypeInfo{
-				{Type: APITypeUserLogin, Name: "子系统登录"},
-				{Type: APITypeUserRegin, Name: "子系统注册"},
+				{Type: APITypeUserLogin, Name: "账号登录"},
+				{Type: APITypeUserRegin, Name: "账号注册"},
 				{Type: APITypeUserRecharge, Name: "用户充值"},
 				{Type: APITypeSendEmailCode, Name: "发送注册验证码"},
 				{Type: APITypeClaimTrial, Name: "领取试用"},

@@ -148,11 +148,21 @@ func DeleteCardsByBatch(appUUID, batchNo string) (int64, error) {
 }
 
 // MarkCardUsed 在事务内核销卡密：置为已使用并记录去向。供第三步卡密登录/充值调用。
+// 仅当卡密仍为「未使用」时才更新，并校验受影响行数，避免并发下同一张卡被重复核销（双花）。
 func MarkCardUsed(tx *gorm.DB, id uint, memberUUID string) error {
 	now := time.Now()
-	return tx.Model(&models.Card{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":         models.CardStatusUsed,
-		"used_by_member": memberUUID,
-		"used_at":        &now,
-	}).Error
+	res := tx.Model(&models.Card{}).
+		Where("id = ? AND status = ?", id, models.CardStatusUnused).
+		Updates(map[string]interface{}{
+			"status":         models.CardStatusUsed,
+			"used_by_member": memberUUID,
+			"used_at":        &now,
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return errors.New("卡密已被使用")
+	}
+	return nil
 }

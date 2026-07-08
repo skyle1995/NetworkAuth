@@ -53,9 +53,18 @@ const exportColumns = [
     formatter: (r: any) =>
       apps.value.find(a => a.uuid === r.app_uuid)?.name || r.app_uuid
   },
-  { prop: "duration_text", label: "面值时长" },
+  {
+    prop: "value",
+    label: "面值",
+    formatter: (r: any) => (r.points > 0 ? `${r.points} 点` : r.duration_text)
+  },
   { prop: "status_text", label: "状态" },
   { prop: "batch_no", label: "批次号" },
+  {
+    prop: "used_by_name",
+    label: "核销去向",
+    formatter: (r: any) => r.used_by_name || ""
+  },
   { prop: "used_at", label: "核销时间" },
   { prop: "remark", label: "备注" },
   { prop: "created_at", label: "创建时间" }

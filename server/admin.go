@@ -46,6 +46,17 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 		authorized.POST("/settings/update", adminctl.SuperAdminRequired(), adminctl.SettingsUpdateHandler)
 		authorized.POST("/settings/generate-key", adminctl.SuperAdminRequired(), adminctl.SettingsGenerateKeyHandler)
 		authorized.POST("/settings/test-mail", adminctl.SuperAdminRequired(), adminctl.SettingsTestMailHandler)
+
+		// 系统在线更新（自更新）
+		authorized.POST("/system/self-update/check", adminctl.SuperAdminRequired(), adminctl.SelfUpdateCheckHandler)
+		authorized.POST("/system/self-update/check-force", adminctl.SuperAdminRequired(), adminctl.SelfUpdateCheckForceHandler)
+		authorized.POST("/system/self-update/restart", adminctl.SuperAdminRequired(), adminctl.SelfUpdateRestartHandler)
+		authorized.GET("/system/self-update/status", adminctl.SelfUpdateStatusHandler)
+		authorized.GET("/system/self-update/versions", adminctl.SelfUpdateVersionsHandler)
+		authorized.POST("/system/self-update/prepare", adminctl.SuperAdminRequired(), adminctl.SelfUpdatePrepareHandler)
+		authorized.GET("/system/self-update/config", adminctl.SuperAdminRequired(), adminctl.SelfUpdateGetConfigHandler)
+		authorized.PUT("/system/self-update/config", adminctl.SuperAdminRequired(), adminctl.SelfUpdateUpdateConfigHandler)
+		authorized.POST("/system/self-update/test", adminctl.SuperAdminRequired(), adminctl.SelfUpdateTestConfigHandler)
 		authorized.GET("/navigation", adminctl.PortalNavigationListHandler)
 		authorized.POST("/navigation/create", adminctl.PortalNavigationCreateHandler)
 		authorized.POST("/navigation/update", adminctl.PortalNavigationUpdateHandler)
@@ -104,7 +115,7 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			apisGroup.POST("/update", adminctl.APIUpdateHandler)
 			apisGroup.POST("/update_status", adminctl.APIUpdateStatusHandler)
 			apisGroup.GET("/types", adminctl.APIGetTypesHandler)
-			apisGroup.GET("/export", adminctl.APIExportKeysHandler)
+			apisGroup.GET("/export", adminctl.SuperAdminRequired(), adminctl.APIExportKeysHandler)
 			apisGroup.POST("/generate_keys", adminctl.APIGenerateKeysHandler)
 		}
 

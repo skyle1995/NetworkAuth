@@ -49,7 +49,8 @@ func CheckVersion(appUUID, clientVersion string) (any, error) {
 }
 
 // GetCardInfo 获取卡密信息（type 4）：返回卡密的状态与面值。
-func GetCardInfo(appUUID, cardNo string) (any, error) {
+// 同时返回 mode/duration/points：时长模式看 duration，点数模式看 points。
+func GetCardInfo(app *models.App, cardNo string) (any, error) {
 	cardNo = strings.TrimSpace(cardNo)
 	if cardNo == "" {
 		return nil, errors.New("卡号不能为空")
@@ -59,7 +60,7 @@ func GetCardInfo(appUUID, cardNo string) (any, error) {
 		return nil, err
 	}
 	var card models.Card
-	if err := db.Where("app_uuid = ? AND card_no = ?", strings.TrimSpace(appUUID), cardNo).First(&card).Error; err != nil {
+	if err := db.Where("app_uuid = ? AND card_no = ?", app.UUID, cardNo).First(&card).Error; err != nil {
 		return nil, errors.New("卡号不存在")
 	}
 	usedAt := ""
@@ -70,7 +71,9 @@ func GetCardInfo(appUUID, cardNo string) (any, error) {
 		"card_no":     card.CardNo,
 		"status":      card.Status,
 		"status_text": cardStatusName(card.Status),
+		"mode":        app.OperationMode,
 		"duration":    card.Duration,
+		"points":      card.Points,
 		"used_at":     usedAt,
 	}, nil
 }

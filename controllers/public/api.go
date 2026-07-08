@@ -365,7 +365,7 @@ func handleGetCardInfo(app *models.App, plainParams string) (any, error) {
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.GetCardInfo(app.UUID, params.Card)
+	return services.GetCardInfo(app, params.Card)
 }
 
 // handleRebindMachine 机器码转绑（type 51）

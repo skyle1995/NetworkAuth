@@ -17,8 +17,20 @@ export type SystemStatsResult = {
   msg: string;
   data: {
     total_apps: number;
+    enabled_apps: number;
+    total_members: number;
+    normal_members: number;
+    disabled_members: number;
+    black_members: number;
+    today_new_members: number;
+    total_cards: number;
+    unused_cards: number;
+    used_cards: number;
+    frozen_cards: number;
+    total_apis: number;
     total_functions: number;
     total_variables: number;
+    online_sessions: number;
   };
 };
 

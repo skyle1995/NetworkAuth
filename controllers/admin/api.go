@@ -6,6 +6,7 @@ import (
 	"NetworkAuth/services"
 	"NetworkAuth/utils/encrypt"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -301,6 +302,14 @@ func APIExportKeysHandler(c *gin.Context) {
 		"exported_at": time.Now().Format("2006-01-02 15:04:05"),
 		"interfaces":  interfaces,
 	}
+
+	// 导出含应用密钥与私钥，属敏感操作，记入操作日志
+	operator := c.GetString("admin_username")
+	if operator == "" {
+		operator = "unknown"
+	}
+	services.RecordOperationLog("导出对接密钥", operator, c.GetString("admin_uuid"),
+		fmt.Sprintf("导出应用 %s(%s) 的对接密钥", app.Name, app.UUID))
 
 	apiBaseController.HandleSuccess(c, "导出成功", payload)
 }

@@ -6,6 +6,7 @@ import (
 	"NetworkAuth/middleware"
 	"NetworkAuth/models"
 	"NetworkAuth/utils/timeutil"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -73,33 +74,42 @@ func DashboardStatsHandler(c *gin.Context) {
 		return
 	}
 
-	// 统计应用数据
-	var totalApps int64
-	var totalFunctions int64
-	var totalVariables int64
-
-	// 统计全部应用数量
-	if err := db.Model(&models.App{}).Count(&totalApps).Error; err != nil {
-		handlersBaseController.HandleInternalError(c, "统计应用数量失败", err)
-		return
+	// count 统计辅助：出错按 0 计，避免单个查询失败拖垮整个仪表盘
+	count := func(model interface{}, query interface{}, args ...interface{}) int64 {
+		var n int64
+		q := db.Model(model)
+		if query != nil {
+			q = q.Where(query, args...)
+		}
+		q.Count(&n)
+		return n
 	}
 
-	// 统计函数数量
-	if err := db.Model(&models.Function{}).Count(&totalFunctions).Error; err != nil {
-		handlersBaseController.HandleInternalError(c, "统计函数数量失败", err)
-		return
-	}
-
-	// 统计变量数量
-	if err := db.Model(&models.Variable{}).Count(&totalVariables).Error; err != nil {
-		handlersBaseController.HandleInternalError(c, "统计变量数量失败", err)
-		return
-	}
+	// 今日 0 点，用于“今日新增”统计
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 	data := gin.H{
-		"total_apps":      totalApps,
-		"total_functions": totalFunctions,
-		"total_variables": totalVariables,
+		// 应用
+		"total_apps":   count(&models.App{}, nil),
+		"enabled_apps": count(&models.App{}, "status = ?", 1),
+		// 终端用户
+		"total_members":     count(&models.Member{}, nil),
+		"normal_members":    count(&models.Member{}, "status = ?", models.MemberStatusNormal),
+		"disabled_members":  count(&models.Member{}, "status = ?", models.MemberStatusDisabled),
+		"black_members":     count(&models.Member{}, "status = ?", models.MemberStatusBlack),
+		"today_new_members": count(&models.Member{}, "created_at >= ?", todayStart),
+		// 卡密
+		"total_cards":  count(&models.Card{}, nil),
+		"unused_cards": count(&models.Card{}, "status = ?", models.CardStatusUnused),
+		"used_cards":   count(&models.Card{}, "status = ?", models.CardStatusUsed),
+		"frozen_cards": count(&models.Card{}, "status = ?", models.CardStatusFrozen),
+		// 资源
+		"total_apis":      count(&models.API{}, nil),
+		"total_functions": count(&models.Function{}, nil),
+		"total_variables": count(&models.Variable{}, nil),
+		// 在线会话（当前有效登录数）
+		"online_sessions": count(&models.MemberSession{}, nil),
 	}
 
 	handlersBaseController.HandleSuccess(c, "ok", data)

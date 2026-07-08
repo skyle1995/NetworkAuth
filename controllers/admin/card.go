@@ -11,7 +11,31 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
+
+// attachCardUsedByNames 将 used_by_member(UUID) 批量映射为用户名，回填 used_by_name。
+func attachCardUsedByNames(db *gorm.DB, resp []cardResponse) {
+	memberUUIDs := make([]string, 0)
+	for _, r := range resp {
+		if r.UsedByMember != "" {
+			memberUUIDs = append(memberUUIDs, r.UsedByMember)
+		}
+	}
+	if len(memberUUIDs) == 0 {
+		return
+	}
+	var rows []struct{ UUID, Username string }
+	db.Model(&models.Member{}).Select("uuid, username").
+		Where("uuid IN ?", memberUUIDs).Find(&rows)
+	nameByUUID := make(map[string]string, len(rows))
+	for _, row := range rows {
+		nameByUUID[row.UUID] = row.Username
+	}
+	for i := range resp {
+		resp[i].UsedByName = nameByUUID[resp[i].UsedByMember]
+	}
+}
 
 // ============================================================================
 // 全局变量
@@ -106,26 +130,7 @@ func CardListHandler(c *gin.Context) {
 	}
 
 	resp := toCardResponses(cards)
-
-	// 解析核销去向：把 used_by_member(UUID) 映射为用户名
-	memberUUIDs := make([]string, 0)
-	for _, r := range resp {
-		if r.UsedByMember != "" {
-			memberUUIDs = append(memberUUIDs, r.UsedByMember)
-		}
-	}
-	if len(memberUUIDs) > 0 {
-		var rows []struct{ UUID, Username string }
-		db.Model(&models.Member{}).Select("uuid, username").
-			Where("uuid IN ?", memberUUIDs).Find(&rows)
-		nameByUUID := make(map[string]string, len(rows))
-		for _, row := range rows {
-			nameByUUID[row.UUID] = row.Username
-		}
-		for i := range resp {
-			resp[i].UsedByName = nameByUUID[resp[i].UsedByMember]
-		}
-	}
+	attachCardUsedByNames(db, resp)
 
 	c.JSON(http.StatusOK, gin.H{
 		"code":  0,
@@ -229,10 +234,13 @@ func CardExportHandler(c *gin.Context) {
 		return
 	}
 
+	resp := toCardResponses(cards)
+	attachCardUsedByNames(db, resp)
+
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
 		"msg":  "success",
-		"data": toCardResponses(cards),
+		"data": resp,
 	})
 }
 
@@ -276,6 +284,12 @@ func CardCreateHandler(c *gin.Context) {
 			cardBaseController.HandleValidationError(c, err.Error())
 			return
 		}
+	}
+
+	// 面值校验：时长模式须有时长（含永久=-1），点数模式须 points>=1；避免生成 0 值废卡
+	if durationMinutes == 0 && req.Points <= 0 {
+		cardBaseController.HandleValidationError(c, "请设置卡密面值：时长或点数至少填写一项")
+		return
 	}
 
 	cards, batchNo, err := services.BatchCreateCards(

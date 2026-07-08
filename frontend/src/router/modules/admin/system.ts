@@ -32,7 +32,8 @@ export default {
     {
       path: "/admin/system/portal-navigation",
       name: "PortalNavigationIndex",
-      component: () => import("@/views/admin/system/portal-navigation/index.vue"),
+      component: () =>
+        import("@/views/admin/system/portal-navigation/index.vue"),
       meta: {
         icon: "ep:operation",
         title: "导航设置"
@@ -45,6 +46,15 @@ export default {
       meta: {
         icon: "ep:key",
         title: "密钥管理"
+      }
+    },
+    {
+      path: "/admin/system/system-update",
+      name: "SystemUpdateIndex",
+      component: () => import("@/views/admin/system-update/index.vue"),
+      meta: {
+        icon: "ep:upload",
+        title: "软件更新"
       }
     }
   ]

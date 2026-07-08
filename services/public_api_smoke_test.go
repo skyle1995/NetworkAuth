@@ -496,14 +496,15 @@ func TestVersionAndCardInfo(t *testing.T) {
 	// 卡密信息
 	card := models.Card{CardNo: "KM-INFO", AppUUID: "APP-1", Duration: 60, Status: models.CardStatusUnused}
 	db.Create(&card)
-	info, err := GetCardInfo("APP-1", "KM-INFO")
+	infoApp := &models.App{UUID: "APP-1"}
+	info, err := GetCardInfo(infoApp, "KM-INFO")
 	if err != nil {
 		t.Fatalf("GetCardInfo: %v", err)
 	}
 	if info.(map[string]any)["status"].(int) != models.CardStatusUnused {
 		t.Fatalf("unexpected card status")
 	}
-	if _, err := GetCardInfo("APP-1", "NOPE"); err == nil {
+	if _, err := GetCardInfo(infoApp, "NOPE"); err == nil {
 		t.Fatalf("missing card should error")
 	}
 }
@@ -565,6 +566,41 @@ func TestExecuteRemoteFunction(t *testing.T) {
 	// 不存在的函数
 	if _, err := ExecuteFunction("APP-1", login.Token, "nope", nil); err == nil {
 		t.Fatalf("missing function should fail")
+	}
+}
+
+// 验证沙箱内只读辅助函数 getUser()/getApp() 可用，且不泄露 secret/password。
+func TestRemoteFunctionReadOnlyHelpers(t *testing.T) {
+	db := setupPublicTestDB(t)
+	if err := db.Create(&models.Function{
+		Alias:   "whoami",
+		AppUUID: "APP-1",
+		Code: "var u=getUser(); var a=getApp();" +
+			"return { name: u.username, app: a.uuid, leaked: (a.secret!==undefined)||(u.password!==undefined) };",
+	}).Error; err != nil {
+		t.Fatalf("seed whoami: %v", err)
+	}
+
+	card := models.Card{CardNo: "KM-WHO", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
+	db.Create(&card)
+	login, err := CardLogin("APP-1", "KM-WHO", "", "9.9.9.9")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	res, err := ExecuteFunction("APP-1", login.Token, "whoami", nil)
+	if err != nil {
+		t.Fatalf("ExecuteFunction: %v", err)
+	}
+	m := res.(map[string]any)
+	if m["app"] != "APP-1" {
+		t.Fatalf("want app=APP-1, got %v", m["app"])
+	}
+	if m["name"] != "KM-WHO" {
+		t.Fatalf("want name=KM-WHO, got %v", m["name"])
+	}
+	if m["leaked"] != false {
+		t.Fatalf("secret/password must not be exposed to sandbox, got leaked=%v", m["leaked"])
 	}
 }
 
