@@ -10,8 +10,8 @@ NetworkAuth.exe
 # 配置文件 (包含敏感信息)
 config.json
 
-# 日志文件
-logs/
+# 日志文件（仅忽略项目根目录的运行时日志，避免误伤 frontend/src/views/admin/logs 等源码）
+/logs/
 *.log
 
 # 前端工程源码已纳入同仓维护（仅忽略依赖/环境/产物）
