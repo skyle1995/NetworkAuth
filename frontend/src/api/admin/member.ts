@@ -46,6 +46,18 @@ export const updateMemberRemark = (data?: object) => {
   });
 };
 
+/** 获取终端用户的用户数据 */
+export const getMemberData = (params?: object) => {
+  return http.request<Result>("get", "/api/admin/member/get_data", { params });
+};
+
+/** 更新终端用户的用户数据 */
+export const updateMemberData = (data?: object) => {
+  return http.request<Result>("post", "/api/admin/member/update_data", {
+    data
+  });
+};
+
 /** 查询终端用户的机器码/IP 绑定列表 */
 export const getMemberBindings = (params?: object) => {
   return http.request<Result>("get", "/api/admin/member/bindings", { params });

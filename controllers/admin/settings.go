@@ -8,10 +8,34 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
+
+// SettingsTestMailHandler 发送测试邮件，验证当前 SMTP 配置是否可用（仅超级管理员）。
+func SettingsTestMailHandler(c *gin.Context) {
+	var req struct {
+		To string `json:"to"`
+	}
+	if !authBaseController.BindJSON(c, &req) {
+		return
+	}
+	to := strings.TrimSpace(req.To)
+	if to == "" {
+		authBaseController.HandleValidationError(c, "收件邮箱不能为空")
+		return
+	}
+	body := `<div style="font-family:sans-serif;font-size:14px;color:#333">` +
+		`<p>这是一封来自 NetworkAuth 的测试邮件。</p>` +
+		`<p>收到本邮件说明 SMTP 邮件配置正常可用。</p></div>`
+	if err := services.SendMail(to, "【NetworkAuth】SMTP 测试邮件", body); err != nil {
+		authBaseController.HandleValidationError(c, "发送失败："+err.Error())
+		return
+	}
+	authBaseController.HandleSuccess(c, "测试邮件已发送，请查收", nil)
+}
 
 // SubAccountSimpleListHandler 子账号简单列表API处理器 (Mock)
 func SubAccountSimpleListHandler(c *gin.Context) {
@@ -216,6 +240,14 @@ func SettingsUpdateHandler(c *gin.Context) {
 
 	// 刷新内存中的设置缓存，保证后续读取一致
 	services.GetSettingsService().RefreshCache()
+
+	// 若改动了 IP 地区库相关设置，热重载地区库
+	for k := range settingsData {
+		if k == "ip_region_provider" || k == "ip2region_db" || k == "ip2location_db" {
+			services.InitIPRegion()
+			break
+		}
+	}
 
 	// 获取当前操作人信息
 	claims, _, err := GetCurrentAdminUserWithRefresh(c)

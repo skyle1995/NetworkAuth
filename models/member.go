@@ -102,6 +102,9 @@ type Member struct {
 	// LastLoginIP：最近登录IP
 	LastLoginIP string `gorm:"size:50;comment:最近登录IP" json:"last_login_ip"`
 
+	// Data：用户数据（每个终端用户独有的自定义数据，供客户端读取）
+	Data string `gorm:"type:text;comment:用户数据，供客户端读取" json:"data"`
+
 	// Remark：备注信息
 	Remark string `gorm:"size:255;comment:备注信息" json:"remark"`
 

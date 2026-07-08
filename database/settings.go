@@ -224,6 +224,25 @@ func SeedDefaultSettings() error {
 		},
 	}...)
 
+	// ===== IP 地区库相关默认项（用于市级/省级 IP 验证）=====
+	defaultSettings = append(defaultSettings, []models.Settings{
+		{
+			Name:        "ip_region_provider",
+			Value:       "ip2region",
+			Description: "IP地区库提供方：ip2region / ip2location / 空=关闭",
+		},
+		{
+			Name:        "ip2region_db",
+			Value:       "data/ip2region.xdb",
+			Description: "ip2region 库文件路径(.xdb)",
+		},
+		{
+			Name:        "ip2location_db",
+			Value:       "data/IP2LOCATION-LITE.BIN",
+			Description: "IP2Location LITE 库文件路径(.BIN)",
+		},
+	}...)
+
 	// ===== 页脚与备案相关默认项 =====
 	defaultSettings = append(defaultSettings, []models.Settings{
 		{

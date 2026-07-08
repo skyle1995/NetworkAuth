@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -206,6 +207,102 @@ func APIUpdateHandler(c *gin.Context) {
 	}
 
 	apiBaseController.HandleSuccess(c, "接口更新成功", api)
+}
+
+// APIExportKeysHandler 导出指定应用的对接密钥（应用密钥 + 各接口算法与密钥）
+// 供开发者一次性拿到全部加密配置，避免逐个复制
+func APIExportKeysHandler(c *gin.Context) {
+	appUUID := strings.TrimSpace(c.Query("app_uuid"))
+	if appUUID == "" {
+		apiBaseController.HandleValidationError(c, "请先选择要导出的应用")
+		return
+	}
+
+	db, ok := apiBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+
+	// 查询应用
+	var app models.App
+	if err := db.Where("uuid = ?", appUUID).First(&app).Error; err != nil {
+		apiBaseController.HandleValidationError(c, "应用不存在")
+		return
+	}
+
+	// 查询该应用的全部接口，按接口类型升序
+	var apis []models.API
+	if err := db.Where("app_uuid = ?", appUUID).Order("api_type ASC").Find(&apis).Error; err != nil {
+		logrus.WithError(err).Error("Failed to fetch APIs for export")
+		apiBaseController.HandleInternalError(c, "查询接口失败", err)
+		return
+	}
+
+	type ifaceExport struct {
+		APIType             int    `json:"api_type"`
+		APITypeName         string `json:"api_type_name"`
+		Status              int    `json:"status"`
+		StatusName          string `json:"status_name"`
+		SubmitAlgorithm     int    `json:"submit_algorithm"`
+		SubmitAlgorithmName string `json:"submit_algorithm_name"`
+		ReturnAlgorithm     int    `json:"return_algorithm"`
+		ReturnAlgorithmName string `json:"return_algorithm_name"`
+		SubmitPublicKey     string `json:"submit_public_key"`
+		SubmitPrivateKey    string `json:"submit_private_key"`
+		ReturnPublicKey     string `json:"return_public_key"`
+		ReturnPrivateKey    string `json:"return_private_key"`
+	}
+
+	interfaces := make([]ifaceExport, 0, len(apis))
+	for _, api := range apis {
+		interfaces = append(interfaces, ifaceExport{
+			APIType:             api.APIType,
+			APITypeName:         models.GetAPITypeName(api.APIType),
+			Status:              api.Status,
+			StatusName:          getAPIStatusName(api.Status),
+			SubmitAlgorithm:     api.SubmitAlgorithm,
+			SubmitAlgorithmName: models.GetAlgorithmName(api.SubmitAlgorithm),
+			ReturnAlgorithm:     api.ReturnAlgorithm,
+			ReturnAlgorithmName: models.GetAlgorithmName(api.ReturnAlgorithm),
+			SubmitPublicKey:     api.SubmitPublicKey,
+			SubmitPrivateKey:    api.SubmitPrivateKey,
+			ReturnPublicKey:     api.ReturnPublicKey,
+			ReturnPrivateKey:    api.ReturnPrivateKey,
+		})
+	}
+
+	// 根据当前访问请求推导服务器地址（兼容反向代理）
+	scheme := "http"
+	if c.Request.TLS != nil {
+		scheme = "https"
+	}
+	if proto := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")); proto != "" {
+		scheme = proto
+	}
+	host := c.Request.Host
+	if fwdHost := strings.TrimSpace(c.GetHeader("X-Forwarded-Host")); fwdHost != "" {
+		host = fwdHost
+	}
+	baseURL := scheme + "://" + host
+
+	payload := gin.H{
+		"server": gin.H{
+			"base_url":     baseURL,
+			"api_endpoint": baseURL + "/api/open",
+			"method":       "POST",
+		},
+		"app": gin.H{
+			"name":    app.Name,
+			"uuid":    app.UUID,
+			"secret":  app.Secret,
+			"version": app.Version,
+		},
+		"sign_rule":   "sign = SHA256(app_uuid|api_type|data|timestamp|app_secret) 转大写HEX",
+		"exported_at": time.Now().Format("2006-01-02 15:04:05"),
+		"interfaces":  interfaces,
+	}
+
+	apiBaseController.HandleSuccess(c, "导出成功", payload)
 }
 
 // APIGetTypesHandler 获取接口类型列表API处理器

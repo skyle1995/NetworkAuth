@@ -23,7 +23,8 @@ func GetAppData(appUUID, token string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, _, err := authActiveMember(db, appUUID, token); err != nil {
+	member, _, err := authActiveMember(db, appUUID, token)
+	if err != nil {
 		return nil, err
 	}
 	var app models.App
@@ -34,7 +35,8 @@ func GetAppData(appUUID, token string) (any, error) {
 	if decoded, derr := base64.StdEncoding.DecodeString(app.AppData); derr == nil {
 		data = string(decoded)
 	}
-	return map[string]any{"data": data}, nil
+	// 同时返回该终端用户的独有用户数据
+	return map[string]any{"data": data, "user_data": member.Data}, nil
 }
 
 // GetVariable 获取变量数据（type 43）：按别名返回本应用或全局变量的数据。

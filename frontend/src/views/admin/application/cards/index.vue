@@ -7,6 +7,7 @@ import { ElMessageBox, ElMessage } from "element-plus";
 import { useSmartExport } from "@/composables/useSmartExport";
 import {
   batchDeleteCards,
+  deleteCardsByBatch,
   freezeCards,
   unfreezeCards,
   exportCards
@@ -107,6 +108,37 @@ async function onExportBatch() {
     exportBatchNo.value = value.trim();
     await doExportBatch();
   } catch (e) {
+    // cancelled
+  }
+}
+
+async function onDeleteBatch() {
+  if (!form.app_uuid) {
+    ElMessage.warning("请先在上方选择所属应用");
+    return;
+  }
+  try {
+    const { value } = await ElMessageBox.prompt(
+      "请输入要删除的批次号（该应用下整批卡密将被删除）",
+      "按批次删除",
+      {
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+        inputValue: form.batch_no || "",
+        inputValidator: (v: string) => (v && v.trim() ? true : "批次号不能为空")
+      }
+    );
+    const { code, msg, data } = await deleteCardsByBatch({
+      app_uuid: form.app_uuid,
+      batch_no: value.trim()
+    });
+    if (code === 0) {
+      ElMessage.success(`已删除 ${data?.count ?? ""} 张卡密`);
+      onSearch();
+    } else {
+      ElMessage.error(msg || "删除失败");
+    }
+  } catch {
     // cancelled
   }
 }
@@ -307,6 +339,14 @@ async function onBatchDel() {
           @click="onBatchDel"
         >
           批量删除
+        </el-button>
+        <el-button
+          type="danger"
+          plain
+          :icon="useRenderIcon('ep:files')"
+          @click="onDeleteBatch"
+        >
+          删除批次
         </el-button>
       </div>
 

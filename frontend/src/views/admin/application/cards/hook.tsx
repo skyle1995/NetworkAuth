@@ -85,6 +85,12 @@ export function useCard() {
       minWidth: 140
     },
     {
+      label: "核销去向",
+      prop: "used_by_name",
+      minWidth: 140,
+      cellRenderer: ({ row }) => row.used_by_name || "—"
+    },
+    {
       label: "核销时间",
       prop: "used_at",
       minWidth: 160,

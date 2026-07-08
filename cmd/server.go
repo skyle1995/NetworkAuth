@@ -115,6 +115,9 @@ func runServer(cmd *cobra.Command, args []string) {
 
 			// 启动在线会话清理定时任务（按各应用 CleanInterval/CheckInterval）
 			services.StartSessionCleanupTask()
+
+			// 初始化 IP 地区库（按设置选 ip2region / IP2Location；缺失则退回精确匹配）
+			services.InitIPRegion()
 		} else {
 			logrus.Info("系统处于未安装状态，跳过数据库自动迁移和核心组件初始化")
 		}

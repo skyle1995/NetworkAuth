@@ -79,9 +79,9 @@ func buildMessage(cfg SMTPConfig, to, subject, htmlBody string) []byte {
 		fromHeader = fmt.Sprintf("%s <%s>", mime.BEncoding.Encode("UTF-8", cfg.FromName), from)
 	}
 	var b strings.Builder
-	b.WriteString("From: " + fromHeader + "\r\n")
-	b.WriteString("To: " + to + "\r\n")
-	b.WriteString("Subject: " + mime.BEncoding.Encode("UTF-8", subject) + "\r\n")
+	fmt.Fprintf(&b, "From: %s\r\n", fromHeader)
+	fmt.Fprintf(&b, "To: %s\r\n", to)
+	fmt.Fprintf(&b, "Subject: %s\r\n", mime.BEncoding.Encode("UTF-8", subject))
 	b.WriteString("MIME-Version: 1.0\r\n")
 	b.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
 	b.WriteString("\r\n")

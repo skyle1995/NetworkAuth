@@ -45,6 +45,7 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 		authorized.GET("/settings", adminctl.SuperAdminRequired(), adminctl.SettingsQueryHandler)
 		authorized.POST("/settings/update", adminctl.SuperAdminRequired(), adminctl.SettingsUpdateHandler)
 		authorized.POST("/settings/generate-key", adminctl.SuperAdminRequired(), adminctl.SettingsGenerateKeyHandler)
+		authorized.POST("/settings/test-mail", adminctl.SuperAdminRequired(), adminctl.SettingsTestMailHandler)
 		authorized.GET("/navigation", adminctl.PortalNavigationListHandler)
 		authorized.POST("/navigation/create", adminctl.PortalNavigationCreateHandler)
 		authorized.POST("/navigation/update", adminctl.PortalNavigationUpdateHandler)
@@ -103,6 +104,7 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			apisGroup.POST("/update", adminctl.APIUpdateHandler)
 			apisGroup.POST("/update_status", adminctl.APIUpdateStatusHandler)
 			apisGroup.GET("/types", adminctl.APIGetTypesHandler)
+			apisGroup.GET("/export", adminctl.APIExportKeysHandler)
 			apisGroup.POST("/generate_keys", adminctl.APIGenerateKeysHandler)
 		}
 
@@ -152,6 +154,8 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			memberGroup.POST("/clear_bindings", adminctl.MemberClearBindingsHandler)
 			memberGroup.GET("/sessions", adminctl.MemberSessionsHandler)
 			memberGroup.POST("/kick", adminctl.MemberKickSessionHandler)
+			memberGroup.GET("/get_data", adminctl.MemberGetDataHandler)
+			memberGroup.POST("/update_data", adminctl.MemberUpdateDataHandler)
 			memberGroup.GET("/logs", adminctl.MemberLogListHandler)
 			memberGroup.POST("/logs/clear", adminctl.MemberLogClearHandler)
 			memberGroup.POST("/batch_delete", adminctl.MembersBatchDeleteHandler)

@@ -22,3 +22,10 @@ export const generateKey = (type: string) => {
     `/api/admin/settings/generate-key?type=${type}`
   );
 };
+
+/** 发送测试邮件，验证 SMTP 配置 */
+export const testMail = (data: object) => {
+  return http.request<SettingsResult>("post", "/api/admin/settings/test-mail", {
+    data
+  });
+};

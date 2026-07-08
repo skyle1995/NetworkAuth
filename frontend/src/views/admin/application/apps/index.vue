@@ -565,4 +565,11 @@ async function openRegisterConfigDialog(uuid: string) {
   display: flex;
   gap: 10px;
 }
+
+// 操作列“更多”：点击展开后触发按钮保留 :focus-visible，
+// 会残留一圈蓝色 outline（看起来像蓝色背景），这里去掉
+:deep(.el-dropdown:focus-visible),
+:deep(.el-dropdown .el-button:focus-visible) {
+  outline: none;
+}
 </style>

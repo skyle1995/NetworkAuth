@@ -269,32 +269,58 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 		if err := cleanStaleSessions(tx, member.UUID, app.CheckInterval); err != nil {
 			return err
 		}
-		// 多开数量控制
+		// 多开数量控制：按「多开范围」以设备/IP/会话为单位计数
 		maxOpen := app.MultiOpenCount
 		if maxOpen <= 0 {
 			maxOpen = 1
 		}
-		var active int64
-		if err := tx.Model(&models.MemberSession{}).Where("member_uuid = ?", member.UUID).Count(&active).Error; err != nil {
+		var sessions []models.MemberSession
+		if err := tx.Where("member_uuid = ?", member.UUID).
+			Order("last_active_at ASC").Find(&sessions).Error; err != nil {
 			return err
 		}
-		if active >= int64(maxOpen) {
-			if app.LoginType == 1 {
-				// 非顶号：已达上限则拒绝
-				return errors.New("已达最大同时在线数")
+
+		newKey := sessionOpenKey(app.MultiOpenScope, machineCode, ip, token)
+		// 同「开」重登（同一机器/IP）先清掉旧会话，保证一个开只占一个名额
+		var sameKey []uint
+		for _, s := range sessions {
+			if sessionOpenKey(app.MultiOpenScope, s.MachineCode, s.IP, s.Token) == newKey {
+				sameKey = append(sameKey, s.ID)
 			}
-			// 顶号：踢掉最早的会话直到腾出空位
-			over := int(active) - maxOpen + 1
-			var victims []uint
-			if err := tx.Model(&models.MemberSession{}).
-				Where("member_uuid = ?", member.UUID).
-				Order("last_active_at ASC").Limit(over).Pluck("id", &victims).Error; err != nil {
+		}
+		if len(sameKey) > 0 {
+			if err := tx.Delete(&models.MemberSession{}, sameKey).Error; err != nil {
 				return err
 			}
-			if len(victims) > 0 {
-				if err := tx.Delete(&models.MemberSession{}, victims).Error; err != nil {
+		}
+
+		// 统计剩余不同「开」的数量
+		distinct := map[string][]uint{}
+		var order []string
+		for _, s := range sessions {
+			k := sessionOpenKey(app.MultiOpenScope, s.MachineCode, s.IP, s.Token)
+			if k == newKey {
+				continue // 已在上面清除
+			}
+			if _, ok := distinct[k]; !ok {
+				order = append(order, k)
+			}
+			distinct[k] = append(distinct[k], s.ID)
+		}
+
+		if len(distinct) >= maxOpen {
+			if app.LoginType == 1 {
+				return errors.New("已达最大同时在线数")
+			}
+			// 顶号：踢掉最早的「开」(该机器/IP 的全部会话)直到腾出空位
+			for _, k := range order {
+				if len(distinct) < maxOpen {
+					break
+				}
+				if err := tx.Delete(&models.MemberSession{}, distinct[k]).Error; err != nil {
 					return err
 				}
+				delete(distinct, k)
 			}
 		}
 
@@ -334,6 +360,22 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 		ExpiredAt: member.ExpiredAt,
 		Points:    member.Points,
 	}, nil
+}
+
+// sessionOpenKey 依据多开范围计算一个会话属于哪个「开」：
+// 单电脑按机器码、单IP按IP；无法分组(空值)或全部电脑范围时按会话令牌(各自独立)。
+func sessionOpenKey(scope int, machineCode, ip, token string) string {
+	switch scope {
+	case models.MultiOpenScopeMachine:
+		if strings.TrimSpace(machineCode) != "" {
+			return "m:" + machineCode
+		}
+	case models.MultiOpenScopeIP:
+		if strings.TrimSpace(ip) != "" {
+			return "i:" + ip
+		}
+	}
+	return "t:" + token
 }
 
 // cleanStaleSessions 删除某用户超过 checkIntervalMin 分钟未活跃的会话。
@@ -386,32 +428,40 @@ func ensureIPBinding(db *gorm.DB, memberUUID, ip string, ipVerify, multiOpenCoun
 	if ip == "" {
 		return errors.New("登录IP不能为空")
 	}
-	var existing models.Binding
-	err := db.Where("member_uuid = ? AND type = ? AND value = ?",
-		memberUUID, models.BindingTypeIP, ip).First(&existing).Error
-	if err == nil {
-		return nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
+	province, city := ResolveIPRegion(ip)
+
+	var bindings []models.Binding
+	if err := db.Where("member_uuid = ? AND type = ?", memberUUID, models.BindingTypeIP).
+		Find(&bindings).Error; err != nil {
 		return err
 	}
 
-	var count int64
-	if err := db.Model(&models.Binding{}).
-		Where("member_uuid = ? AND type = ?", memberUUID, models.BindingTypeIP).
-		Count(&count).Error; err != nil {
-		return err
+	// 按验证级别判定是否已满足：3=同省，2=同市，其余=精确IP；
+	// 地区无法解析时统一退回精确IP匹配。
+	for _, b := range bindings {
+		if ipVerify == 3 && province != "" && b.Province == province {
+			return nil
+		}
+		if ipVerify == 2 && city != "" && b.City == city {
+			return nil
+		}
+		if b.Value == ip {
+			return nil
+		}
 	}
+
 	if multiOpenCount <= 0 {
 		multiOpenCount = 1
 	}
-	if int(count) >= multiOpenCount {
+	if len(bindings) >= multiOpenCount {
 		return errors.New("登录IP未绑定，请先进行IP转绑")
 	}
 	return db.Create(&models.Binding{
 		MemberUUID: memberUUID,
 		Type:       models.BindingTypeIP,
 		Value:      ip,
+		Province:   province,
+		City:       city,
 	}).Error
 }
 
@@ -515,7 +565,7 @@ func loadEnabledApp(db *gorm.DB, appUUID string) (*models.App, error) {
 }
 
 // registerInitialExpiry 注册账号的初始到期时间：注册后默认过期，需充值或独立领取试用。
-func registerInitialExpiry(app *models.App) time.Time {
+func registerInitialExpiry() time.Time {
 	return time.Now()
 }
 
@@ -614,7 +664,7 @@ func AccountRegister(appUUID, email, password, code, registerIP string) (*Status
 		// 点数模式：注册初始 0 点，需充值；ExpiredAt 留零值
 		member.Points = 0
 	} else {
-		member.ExpiredAt = registerInitialExpiry(app)
+		member.ExpiredAt = registerInitialExpiry()
 	}
 	if err := db.Create(&member).Error; err != nil {
 		return nil, errors.New("注册失败")

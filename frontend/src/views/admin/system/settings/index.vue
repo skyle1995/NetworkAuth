@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
-import { ElMessage } from "element-plus";
-import { getSettings, updateSettings, generateKey } from "@/api/admin/settings";
+import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  getSettings,
+  updateSettings,
+  generateKey,
+  testMail
+} from "@/api/admin/settings";
 import { useUserStoreHook } from "@/store/modules/user";
 
 defineOptions({
@@ -44,6 +49,11 @@ const form = ref<Record<string, any>>({
   smtp_password: "",
   smtp_from: "",
   smtp_from_name: "NetworkAuth",
+
+  // IP 地区库
+  ip_region_provider: "ip2region",
+  ip2region_db: "data/ip2region.xdb",
+  ip2location_db: "data/IP2LOCATION-LITE.BIN",
 
   // 日志清理
   login_log_cleanup_days: 30,
@@ -188,6 +198,31 @@ const handleGenerateKey = async (type: string) => {
     }
   } catch (error: any) {
     ElMessage.error(error.response?.data?.message || "生成失败");
+  }
+};
+
+/** 发送测试邮件，验证 SMTP 配置 */
+const handleTestMail = async () => {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      "请输入接收测试邮件的邮箱地址（请先保存 SMTP 配置）",
+      "发送测试邮件",
+      {
+        confirmButtonText: "发送",
+        cancelButtonText: "取消",
+        inputPlaceholder: "you@example.com",
+        inputValidator: (v: string) =>
+          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? true : "邮箱格式不正确"
+      }
+    );
+    const res = await testMail({ to: value.trim() });
+    if (res.code === 0) {
+      ElMessage.success("测试邮件已发送，请查收");
+    } else {
+      ElMessage.error(res.msg || "发送失败");
+    }
+  } catch (e) {
+    // cancelled
   }
 };
 
@@ -339,6 +374,59 @@ onMounted(() => {
                   ])
                 "
                 >保存邮件配置</el-button
+              >
+              <el-button @click="handleTestMail">发送测试邮件</el-button>
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+
+        <!-- IP 地区库 -->
+        <el-tab-pane label="IP地区库" name="ipregion">
+          <el-form :model="form" label-width="140px">
+            <el-alert
+              class="mb-4"
+              type="info"
+              :closable="false"
+              show-icon
+              title="用于市级/省级 IP 验证。库缺失或关闭时，IP 验证自动退回精确 IP 匹配。保存后即时热重载生效。"
+            />
+            <el-form-item label="地区库">
+              <el-radio-group v-model="form.ip_region_provider">
+                <el-radio value="ip2region">ip2region(国内优)</el-radio>
+                <el-radio value="ip2location">IP2Location(全球)</el-radio>
+                <el-radio value="">关闭</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item
+              v-if="form.ip_region_provider === 'ip2region'"
+              label="ip2region 路径"
+            >
+              <el-input
+                v-model="form.ip2region_db"
+                placeholder="如 data/ip2region.xdb"
+              />
+            </el-form-item>
+            <el-form-item
+              v-if="form.ip_region_provider === 'ip2location'"
+              label="IP2Location 路径"
+            >
+              <el-input
+                v-model="form.ip2location_db"
+                placeholder="如 data/IP2LOCATION-LITE.BIN（LITE 库需从官网下载）"
+              />
+            </el-form-item>
+
+            <el-form-item class="mt-6">
+              <el-button
+                type="primary"
+                @click="
+                  handleSave([
+                    'ip_region_provider',
+                    'ip2region_db',
+                    'ip2location_db'
+                  ])
+                "
+                >保存地区库配置</el-button
               >
             </el-form-item>
           </el-form>

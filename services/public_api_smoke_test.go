@@ -694,6 +694,57 @@ func TestMultiOpenSessions(t *testing.T) {
 	}
 }
 
+func TestMultiOpenScopeMachine(t *testing.T) {
+	db := setupPublicTestDB(t)
+	// 单设备范围 + 多开1 + 非顶号
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
+		"multi_open_scope": models.MultiOpenScopeMachine,
+		"multi_open_count": 1,
+		"login_type":       1,
+	})
+	card := models.Card{CardNo: "KM-MS", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
+	db.Create(&card)
+
+	sessCount := func() int64 {
+		var n int64
+		db.Model(&models.MemberSession{}).Count(&n)
+		return n
+	}
+
+	// 机器 A 登录 → 1 个开
+	if _, err := CardLogin("APP-1", "KM-MS", "MC-A", "1.1.1.1"); err != nil {
+		t.Fatalf("login A: %v", err)
+	}
+	if sessCount() != 1 {
+		t.Fatalf("expected 1 session, got %d", sessCount())
+	}
+	// 同机器 A 再登录 → 仍是同一个开，会话数不增
+	if _, err := CardLogin("APP-1", "KM-MS", "MC-A", "2.2.2.2"); err != nil {
+		t.Fatalf("re-login A: %v", err)
+	}
+	if sessCount() != 1 {
+		t.Fatalf("same machine re-login should stay 1 session, got %d", sessCount())
+	}
+	// 不同机器 B（非顶号）→ 超出，拒绝
+	if _, err := CardLogin("APP-1", "KM-MS", "MC-B", "3.3.3.3"); err == nil {
+		t.Fatalf("second machine should be rejected (non-preempt, scope=machine, count=1)")
+	}
+
+	// 切顶号 → 机器 B 登录成功，踢掉机器 A
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("login_type", 0)
+	if _, err := CardLogin("APP-1", "KM-MS", "MC-B", "3.3.3.3"); err != nil {
+		t.Fatalf("preempt login B: %v", err)
+	}
+	if sessCount() != 1 {
+		t.Fatalf("preemption should keep 1 open, got %d sessions", sessCount())
+	}
+	var s models.MemberSession
+	db.First(&s)
+	if s.MachineCode != "MC-B" {
+		t.Fatalf("surviving open should be MC-B, got %s", s.MachineCode)
+	}
+}
+
 func TestRiskControl(t *testing.T) {
 	db := setupPublicTestDB(t)
 	card := models.Card{CardNo: "KM-RISK", AppUUID: "APP-1", Duration: 10 * 24 * 60, Status: models.CardStatusUnused}

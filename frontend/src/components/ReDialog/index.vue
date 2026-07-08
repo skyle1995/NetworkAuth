@@ -162,7 +162,7 @@ function handleClose(
         v-else
       />
     </template>
-    <div class="overflow-y-auto pr-2" style="max-height: calc(80vh - 120px)">
+    <div class="overflow-y-auto" style="max-height: calc(80vh - 120px)">
       <component
         v-bind="options?.props"
         :is="options.contentRenderer({ options, index })"

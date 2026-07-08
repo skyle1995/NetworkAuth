@@ -5,6 +5,8 @@ import { ElMessageBox, ElTag } from "element-plus";
 import type { PaginationProps } from "@pureadmin/table";
 import editForm from "./form.vue";
 import durationForm from "./durationForm.vue";
+import dataForm from "./dataForm.vue";
+import memberDetail from "./memberDetail.vue";
 import bindingsView from "./bindingsView.vue";
 import sessionsView from "./sessionsView.vue";
 import {
@@ -13,6 +15,9 @@ import {
   rechargeMember,
   deductMember,
   resetMemberPassword,
+  updateMemberRemark,
+  getMemberData,
+  updateMemberData,
   setMemberStatus,
   getMemberBindings,
   clearMemberBindings,
@@ -271,6 +276,33 @@ export function useMember() {
     }
   }
 
+  async function handleUpdateRemark(row: any) {
+    try {
+      const { value } = await ElMessageBox.prompt(
+        `修改用户 ${row.username} 的备注`,
+        "修改备注",
+        {
+          confirmButtonText: "保存",
+          cancelButtonText: "取消",
+          inputValue: row.remark || "",
+          inputType: "textarea"
+        }
+      );
+      const { code, msg } = await updateMemberRemark({
+        id: row.id,
+        remark: value ?? ""
+      });
+      if (code === 0) {
+        message("备注已更新", { type: "success" });
+        onSearch();
+      } else {
+        message(msg || "更新失败", { type: "error" });
+      }
+    } catch {
+      // cancelled
+    }
+  }
+
   async function handleSetStatus(row: any, status: number) {
     const { code, msg } = await setMemberStatus({ ids: [row.id], status });
     if (code === 0) {
@@ -320,6 +352,56 @@ export function useMember() {
               }
             } catch {
               // cancelled
+            }
+          }
+        }
+      ]
+    });
+  }
+
+  function openDetailDialog(row: any) {
+    addDialog({
+      title: `用户详情 - ${row.username}`,
+      width: "640px",
+      draggable: true,
+      closeOnClickModal: false,
+      hideFooter: true,
+      contentRenderer: () => h(memberDetail, { row })
+    });
+  }
+
+  async function openDataDialog(row: any) {
+    const { code, data } = await getMemberData({ id: row.id });
+    const dialogFormRef = ref();
+    addDialog({
+      title: `用户数据 - ${row.username}`,
+      props: { formInline: { data: code === 0 ? data?.data || "" : "" } },
+      width: "560px",
+      draggable: true,
+      closeOnClickModal: false,
+      contentRenderer: () => h(dataForm, { ref: dialogFormRef } as any),
+      footerButtons: [
+        {
+          label: "取消",
+          text: true,
+          bg: true,
+          btnClick: ({ dialog: { options } }) => (options.visible = false)
+        },
+        {
+          label: "保存",
+          type: "primary",
+          text: true,
+          bg: true,
+          btnClick: async ({ dialog: { options } }) => {
+            const { code, msg } = await updateMemberData({
+              id: row.id,
+              data: options.props.formInline.data
+            });
+            if (code === 0) {
+              message("已保存", { type: "success" });
+              options.visible = false;
+            } else {
+              message(msg || "保存失败", { type: "error" });
             }
           }
         }
@@ -425,9 +507,12 @@ export function useMember() {
     openCreateDialog,
     openDurationDialog,
     handleResetPassword,
+    handleUpdateRemark,
     handleSetStatus,
     openBindingsDialog,
     openSessionsDialog,
+    openDataDialog,
+    openDetailDialog,
     handleDelete,
     handleSizeChange,
     handleCurrentChange

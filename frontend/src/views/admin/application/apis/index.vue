@@ -3,12 +3,15 @@ import { ref } from "vue";
 import { useApi } from "./hook";
 import { PureTableBar } from "@/components/RePureTableBar";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
+import { ElMessage } from "element-plus";
+import { exportApiKeys } from "@/api/admin/api";
 
 defineOptions({
   name: "Apis"
 });
 
 const formRef = ref();
+const exporting = ref(false);
 const {
   form,
   loading,
@@ -23,6 +26,41 @@ const {
   handleSizeChange,
   handleCurrentChange
 } = useApi();
+
+// 导出所选应用的对接密钥为 JSON 文件
+async function handleExport() {
+  if (!form.app_uuid) {
+    ElMessage.warning("请先在上方选择要导出的应用");
+    return;
+  }
+  exporting.value = true;
+  try {
+    const { code, msg, data } = await exportApiKeys({
+      app_uuid: form.app_uuid
+    });
+    if (code !== 0) {
+      ElMessage.error(msg || "导出失败");
+      return;
+    }
+    const appName = data?.app?.name || "app";
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${appName}_对接密钥.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    ElMessage.success("已导出对接密钥");
+  } catch (e: any) {
+    ElMessage.error(e?.message || "导出失败");
+  } finally {
+    exporting.value = false;
+  }
+}
 </script>
 
 <template>
@@ -79,6 +117,15 @@ const {
           @click="resetForm(formRef)"
         >
           重置
+        </el-button>
+        <el-button
+          type="success"
+          :icon="useRenderIcon('ep:download')"
+          :loading="exporting"
+          :disabled="!form.app_uuid"
+          @click="handleExport"
+        >
+          导出密钥
         </el-button>
       </el-form-item>
     </el-form>

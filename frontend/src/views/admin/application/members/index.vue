@@ -25,9 +25,12 @@ const {
   openCreateDialog,
   openDurationDialog,
   handleResetPassword,
+  handleUpdateRemark,
   handleSetStatus,
   openBindingsDialog,
   openSessionsDialog,
+  openDataDialog,
+  openDetailDialog,
   handleDelete,
   handleSizeChange,
   handleCurrentChange
@@ -44,17 +47,26 @@ function handleSelectionChange(val: any[]) {
 // 行内“更多”下拉命令分发
 function onRowCommand(command: string, row: any) {
   switch (command) {
+    case "detail":
+      openDetailDialog(row);
+      break;
     case "deduct":
       openDurationDialog(row, "deduct");
       break;
     case "resetPwd":
       handleResetPassword(row);
       break;
+    case "remark":
+      handleUpdateRemark(row);
+      break;
     case "bindings":
       openBindingsDialog(row);
       break;
     case "sessions":
       openSessionsDialog(row);
+      break;
+    case "userData":
+      openDataDialog(row);
       break;
     case "normal":
       handleSetStatus(row, 1);
@@ -64,6 +76,9 @@ function onRowCommand(command: string, row: any) {
       break;
     case "black":
       handleSetStatus(row, 2);
+      break;
+    case "unblack":
+      handleSetStatus(row, 1);
       break;
     case "delete":
       handleDelete(row);
@@ -208,7 +223,7 @@ async function onBatchDel() {
             <el-dropdown-menu>
               <el-dropdown-item :command="1">设为正常</el-dropdown-item>
               <el-dropdown-item :command="0">封停</el-dropdown-item>
-              <el-dropdown-item :command="2">加入黑名单</el-dropdown-item>
+              <el-dropdown-item :command="2">拉黑账号</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -244,52 +259,76 @@ async function onBatchDel() {
             @selection-change="handleSelectionChange"
           >
             <template #operation="{ row }">
-              <el-button
-                class="reset-margin"
-                link
-                type="primary"
-                :size="size"
-                :icon="useRenderIcon('ep:wallet')"
-                @click="openDurationDialog(row, 'recharge')"
-              >
-                充值
-              </el-button>
-              <el-dropdown @command="cmd => onRowCommand(cmd, row)">
+              <div class="flex items-center justify-center">
                 <el-button
-                  class="reset-margin ml-2"
+                  class="reset-margin"
                   link
                   type="primary"
                   :size="size"
+                  :icon="useRenderIcon('ep:wallet')"
+                  @click="openDurationDialog(row, 'recharge')"
                 >
-                  更多<el-icon class="el-icon--right"
-                    ><component :is="useRenderIcon('ep:arrow-down')"
-                  /></el-icon>
+                  充值
                 </el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item command="deduct">扣减</el-dropdown-item>
-                    <el-dropdown-item command="resetPwd"
-                      >重置密码</el-dropdown-item
-                    >
-                    <el-dropdown-item command="bindings"
-                      >绑定信息</el-dropdown-item
-                    >
-                    <el-dropdown-item command="sessions"
-                      >在线会话</el-dropdown-item
-                    >
-                    <el-dropdown-item command="normal" divided
-                      >设为正常</el-dropdown-item
-                    >
-                    <el-dropdown-item command="disable">封停</el-dropdown-item>
-                    <el-dropdown-item command="black"
-                      >加入黑名单</el-dropdown-item
-                    >
-                    <el-dropdown-item command="delete" divided
-                      >删除</el-dropdown-item
-                    >
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
+                <el-dropdown
+                  class="ml-2"
+                  @command="cmd => onRowCommand(cmd, row)"
+                >
+                  <el-button
+                    class="reset-margin"
+                    link
+                    type="primary"
+                    :size="size"
+                  >
+                    更多
+                    <el-icon class="el-icon--right">
+                      <component :is="useRenderIcon('ep:arrow-down')" />
+                    </el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="detail">详情</el-dropdown-item>
+                      <el-dropdown-item command="deduct">扣减</el-dropdown-item>
+                      <el-dropdown-item command="resetPwd"
+                        >重置密码</el-dropdown-item
+                      >
+                      <el-dropdown-item command="remark"
+                        >修改备注</el-dropdown-item
+                      >
+                      <el-dropdown-item command="bindings"
+                        >绑定信息</el-dropdown-item
+                      >
+                      <el-dropdown-item command="sessions"
+                        >在线会话</el-dropdown-item
+                      >
+                      <el-dropdown-item command="userData"
+                        >用户数据</el-dropdown-item
+                      >
+                      <el-dropdown-item
+                        v-if="row.status === 0"
+                        command="normal"
+                        divided
+                        >设为正常</el-dropdown-item
+                      >
+                      <el-dropdown-item
+                        v-if="row.status === 1"
+                        command="disable"
+                        divided
+                        >封停</el-dropdown-item
+                      >
+                      <el-dropdown-item v-if="row.status !== 2" command="black"
+                        >拉黑账号</el-dropdown-item
+                      >
+                      <el-dropdown-item v-else command="unblack" divided
+                        >解除拉黑</el-dropdown-item
+                      >
+                      <el-dropdown-item command="delete" divided
+                        >删除</el-dropdown-item
+                      >
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
             </template>
           </pure-table>
           <div class="flex mt-4 w-full overflow-x-auto">
@@ -315,6 +354,13 @@ async function onBatchDel() {
 <style scoped lang="scss">
 :deep(.el-dropdown-menu__item i) {
   margin: 0;
+}
+
+// 操作列“更多”：点击展开后触发按钮保留 :focus-visible，
+// 会残留一圈蓝色 outline（看起来像蓝色背景），这里去掉
+:deep(.el-dropdown:focus-visible),
+:deep(.el-dropdown .el-button:focus-visible) {
+  outline: none;
 }
 
 .search-form {

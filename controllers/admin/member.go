@@ -113,22 +113,28 @@ func MemberListHandler(c *gin.Context) {
 	}
 
 	type MemberResponse struct {
-		ID          uint   `json:"id"`
-		UUID        string `json:"uuid"`
-		AppUUID     string `json:"app_uuid"`
-		Username    string `json:"username"`
-		Type        int    `json:"type"`
-		TypeText    string `json:"type_text"`
-		Status      int    `json:"status"`
-		StatusText  string `json:"status_text"`
-		Mode        int    `json:"mode"`
-		ExpiredAt   string `json:"expired_at"`
-		Points      int    `json:"points"`
-		CardUUID    string `json:"card_uuid"`
-		LastLoginAt string `json:"last_login_at"`
-		LastLoginIP string `json:"last_login_ip"`
-		Remark      string `json:"remark"`
-		CreatedAt   string `json:"created_at"`
+		ID                uint   `json:"id"`
+		UUID              string `json:"uuid"`
+		AppUUID           string `json:"app_uuid"`
+		Username          string `json:"username"`
+		Type              int    `json:"type"`
+		TypeText          string `json:"type_text"`
+		Status            int    `json:"status"`
+		StatusText        string `json:"status_text"`
+		Mode              int    `json:"mode"`
+		ExpiredAt         string `json:"expired_at"`
+		Points            int    `json:"points"`
+		Email             string `json:"email"`
+		CardUUID          string `json:"card_uuid"`
+		RegisterIP        string `json:"register_ip"`
+		MachineRebindUsed int    `json:"machine_rebind_used"`
+		IPRebindUsed      int    `json:"ip_rebind_used"`
+		TrialUsed         int    `json:"trial_used"`
+		TrialDate         string `json:"trial_date"`
+		LastLoginAt       string `json:"last_login_at"`
+		LastLoginIP       string `json:"last_login_ip"`
+		Remark            string `json:"remark"`
+		CreatedAt         string `json:"created_at"`
 	}
 
 	responseData := make([]MemberResponse, 0, len(members))
@@ -142,22 +148,28 @@ func MemberListHandler(c *gin.Context) {
 			lastLogin = m.LastLoginAt.Format("2006-01-02 15:04:05")
 		}
 		responseData = append(responseData, MemberResponse{
-			ID:          m.ID,
-			UUID:        m.UUID,
-			AppUUID:     m.AppUUID,
-			Username:    m.Username,
-			Type:        m.Type,
-			TypeText:    memberTypeText(m.Type),
-			Status:      m.Status,
-			StatusText:  memberStatusText(m.Status),
-			Mode:        modeByApp[m.AppUUID],
-			ExpiredAt:   expiredAt,
-			Points:      m.Points,
-			CardUUID:    m.CardUUID,
-			LastLoginAt: lastLogin,
-			LastLoginIP: m.LastLoginIP,
-			Remark:      m.Remark,
-			CreatedAt:   m.CreatedAt.Format("2006-01-02 15:04:05"),
+			ID:                m.ID,
+			UUID:              m.UUID,
+			AppUUID:           m.AppUUID,
+			Username:          m.Username,
+			Type:              m.Type,
+			TypeText:          memberTypeText(m.Type),
+			Status:            m.Status,
+			StatusText:        memberStatusText(m.Status),
+			Mode:              modeByApp[m.AppUUID],
+			ExpiredAt:         expiredAt,
+			Points:            m.Points,
+			Email:             m.Email,
+			CardUUID:          m.CardUUID,
+			RegisterIP:        m.RegisterIP,
+			MachineRebindUsed: m.MachineRebindUsed,
+			IPRebindUsed:      m.IPRebindUsed,
+			TrialUsed:         m.TrialUsed,
+			TrialDate:         m.TrialDate,
+			LastLoginAt:       lastLogin,
+			LastLoginIP:       m.LastLoginIP,
+			Remark:            m.Remark,
+			CreatedAt:         m.CreatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}
 
@@ -400,6 +412,51 @@ func MemberBindingsHandler(c *gin.Context) {
 		"msg":  "success",
 		"data": bindings,
 	})
+}
+
+// MemberGetDataHandler 获取终端用户的用户数据
+func MemberGetDataHandler(c *gin.Context) {
+	idStr := strings.TrimSpace(c.Query("id"))
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		memberBaseController.HandleValidationError(c, "用户ID无效")
+		return
+	}
+	db, ok := memberBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+	var member models.Member
+	if err := db.Select("id, data").First(&member, id).Error; err != nil {
+		memberBaseController.HandleNotFoundError(c, "终端用户")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "msg": "success", "data": gin.H{"data": member.Data}})
+}
+
+// MemberUpdateDataHandler 更新终端用户的用户数据
+func MemberUpdateDataHandler(c *gin.Context) {
+	var req struct {
+		ID   uint   `json:"id"`
+		Data string `json:"data"`
+	}
+	if !memberBaseController.BindJSON(c, &req) {
+		return
+	}
+	if req.ID == 0 {
+		memberBaseController.HandleValidationError(c, "用户ID不能为空")
+		return
+	}
+	db, ok := memberBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+	if err := db.Model(&models.Member{}).Where("id = ?", req.ID).Update("data", req.Data).Error; err != nil {
+		memberBaseController.HandleInternalError(c, "更新用户数据失败", err)
+		return
+	}
+	recordMemberLog(c, "更新用户数据", fmt.Sprintf("更新了用户ID %d 的用户数据", req.ID))
+	memberBaseController.HandleSuccess(c, "保存成功", nil)
 }
 
 // MemberSessionsHandler 查询终端用户的在线会话API处理器

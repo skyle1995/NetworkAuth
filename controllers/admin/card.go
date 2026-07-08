@@ -105,11 +105,33 @@ func CardListHandler(c *gin.Context) {
 		return
 	}
 
+	resp := toCardResponses(cards)
+
+	// 解析核销去向：把 used_by_member(UUID) 映射为用户名
+	memberUUIDs := make([]string, 0)
+	for _, r := range resp {
+		if r.UsedByMember != "" {
+			memberUUIDs = append(memberUUIDs, r.UsedByMember)
+		}
+	}
+	if len(memberUUIDs) > 0 {
+		var rows []struct{ UUID, Username string }
+		db.Model(&models.Member{}).Select("uuid, username").
+			Where("uuid IN ?", memberUUIDs).Find(&rows)
+		nameByUUID := make(map[string]string, len(rows))
+		for _, row := range rows {
+			nameByUUID[row.UUID] = row.Username
+		}
+		for i := range resp {
+			resp[i].UsedByName = nameByUUID[resp[i].UsedByMember]
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"code":  0,
 		"msg":   "success",
 		"count": total,
-		"data":  toCardResponses(cards),
+		"data":  resp,
 	})
 }
 
@@ -126,6 +148,7 @@ type cardResponse struct {
 	Status       int    `json:"status"`
 	StatusText   string `json:"status_text"`
 	UsedByMember string `json:"used_by_member"`
+	UsedByName   string `json:"used_by_name"`
 	UsedAt       string `json:"used_at"`
 	Remark       string `json:"remark"`
 	CreatedAt    string `json:"created_at"`

@@ -51,9 +51,10 @@ func riskSetStatus(appUUID, username string, status int) (any, error) {
 		return nil, err
 	}
 	riskAction := "封停"
-	if status == models.MemberStatusBlack {
+	switch status {
+	case models.MemberStatusBlack:
 		riskAction = "拉黑"
-	} else if status == models.MemberStatusNormal {
+	case models.MemberStatusNormal:
 		riskAction = "解封"
 	}
 	AddMemberLog(member.AppUUID, member.UUID, member.Username, riskAction, "", "")

@@ -90,11 +90,16 @@ func rebindCore(db *gorm.DB, app *models.App, member *models.Member, newValue st
 			Delete(&models.Binding{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Create(&models.Binding{
+		newBinding := models.Binding{
 			MemberUUID: member.UUID,
 			Type:       p.bindingType,
 			Value:      newValue,
-		}).Error; err != nil {
+		}
+		// IP 转绑时补充归属地，支撑后续省/市级验证
+		if p.bindingType == models.BindingTypeIP {
+			newBinding.Province, newBinding.City = ResolveIPRegion(newValue)
+		}
+		if err := tx.Create(&newBinding).Error; err != nil {
 			return err
 		}
 		// 更新计数与日期
