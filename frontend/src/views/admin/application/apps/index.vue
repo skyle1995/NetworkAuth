@@ -229,10 +229,10 @@ async function handleCommand(command: string, row: any) {
       openMultiConfigDialog(row.uuid);
       break;
     case "bind_config":
-      openBindConfigDialog(row.uuid);
+      openBindConfigDialog(row.uuid, row.operation_mode);
       break;
     case "register_config":
-      openRegisterConfigDialog(row.uuid);
+      openRegisterConfigDialog(row.uuid, row.operation_mode);
       break;
   }
 }
@@ -308,13 +308,14 @@ async function openMultiConfigDialog(uuid: string) {
   } catch (e) {}
 }
 
-async function openBindConfigDialog(uuid: string) {
+async function openBindConfigDialog(uuid: string, operationMode = 0) {
   try {
     const res = await getAppBindConfig({ uuid });
     if (res.code === 0) {
       addDialog({
         title: "绑定设置",
         props: {
+          operation_mode: operationMode,
           formInline: res.data || {
             machine_verify: 0,
             machine_rebind_enabled: 0,
@@ -348,13 +349,14 @@ async function openBindConfigDialog(uuid: string) {
   } catch (e) {}
 }
 
-async function openRegisterConfigDialog(uuid: string) {
+async function openRegisterConfigDialog(uuid: string, operationMode = 0) {
   try {
     const res = await getAppRegisterConfig({ uuid });
     if (res.code === 0) {
       addDialog({
         title: "注册设置",
         props: {
+          operation_mode: operationMode,
           formInline: res.data || {
             register_enabled: 0,
             email_verify_enabled: 0,

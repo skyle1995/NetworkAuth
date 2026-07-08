@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, computed } from "vue";
 
 export interface FormProps {
+  operation_mode?: number;
   formInline: {
     machine_verify: number;
     machine_rebind_enabled: number;
@@ -19,6 +20,7 @@ export interface FormProps {
 }
 
 const props = withDefaults(defineProps<FormProps>(), {
+  operation_mode: 0,
   formInline: () => ({
     machine_verify: 0,
     machine_rebind_enabled: 0,
@@ -36,6 +38,9 @@ const props = withDefaults(defineProps<FormProps>(), {
 });
 
 const newFormInline = ref(props.formInline);
+
+// 点数模式下转绑扣除的是点数，时长模式扣除的是分钟
+const deductUnit = computed(() => (props.operation_mode === 1 ? "点" : "分钟"));
 
 function getRef() {
   return formRef.value;
@@ -74,7 +79,7 @@ defineExpose({ getRef, newFormInline });
     </el-form-item>
     <el-form-item label="重绑扣除" prop="machine_rebind_deduct">
       <el-input-number v-model="newFormInline.machine_rebind_deduct" :min="0" />
-      <span class="ml-2">分钟/点数</span>
+      <span class="ml-2">{{ deductUnit }}</span>
     </el-form-item>
 
     <el-divider>IP验证设置</el-divider>
@@ -106,7 +111,7 @@ defineExpose({ getRef, newFormInline });
     </el-form-item>
     <el-form-item label="重绑扣除" prop="ip_rebind_deduct">
       <el-input-number v-model="newFormInline.ip_rebind_deduct" :min="0" />
-      <span class="ml-2">分钟/点数</span>
+      <span class="ml-2">{{ deductUnit }}</span>
     </el-form-item>
   </el-form>
 </template>

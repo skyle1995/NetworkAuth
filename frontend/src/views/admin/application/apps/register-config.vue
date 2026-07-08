@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, computed } from "vue";
 
 export interface FormProps {
+  operation_mode?: number;
   formInline: {
     register_enabled: number;
     email_verify_enabled: number;
@@ -15,6 +16,7 @@ export interface FormProps {
 }
 
 const props = withDefaults(defineProps<FormProps>(), {
+  operation_mode: 0,
   formInline: () => ({
     register_enabled: 0,
     email_verify_enabled: 0,
@@ -28,6 +30,9 @@ const props = withDefaults(defineProps<FormProps>(), {
 });
 
 const newFormInline = ref(props.formInline);
+
+// 点数模式不支持领取试用（试用按时长发放），后端会直接拒绝
+const isPoints = computed(() => props.operation_mode === 1);
 
 function getRef() {
   return formRef.value;
@@ -69,21 +74,31 @@ defineExpose({ getRef, newFormInline });
     </el-form-item>
 
     <el-divider>领取试用设置</el-divider>
-    <el-form-item label="领取试用" prop="trial_enabled">
-      <el-radio-group v-model="newFormInline.trial_enabled">
-        <el-radio :value="0">关闭</el-radio>
-        <el-radio :value="1">开启</el-radio>
-      </el-radio-group>
-    </el-form-item>
-    <el-form-item label="限制时间" prop="trial_limit_time">
-      <el-radio-group v-model="newFormInline.trial_limit_time">
-        <el-radio :value="0">每天</el-radio>
-        <el-radio :value="1">永久</el-radio>
-      </el-radio-group>
-    </el-form-item>
-    <el-form-item label="试用时长" prop="trial_duration">
-      <el-input-number v-model="newFormInline.trial_duration" :min="1" />
-      <span class="ml-2">分钟</span>
-    </el-form-item>
+    <el-alert
+      v-if="isPoints"
+      type="info"
+      :closable="false"
+      show-icon
+      title="当前为点数模式，不支持领取试用（试用按时长发放）"
+      class="mb-3"
+    />
+    <template v-else>
+      <el-form-item label="领取试用" prop="trial_enabled">
+        <el-radio-group v-model="newFormInline.trial_enabled">
+          <el-radio :value="0">关闭</el-radio>
+          <el-radio :value="1">开启</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="限制时间" prop="trial_limit_time">
+        <el-radio-group v-model="newFormInline.trial_limit_time">
+          <el-radio :value="0">每天</el-radio>
+          <el-radio :value="1">永久</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="试用时长" prop="trial_duration">
+        <el-input-number v-model="newFormInline.trial_duration" :min="1" />
+        <span class="ml-2">分钟</span>
+      </el-form-item>
+    </template>
   </el-form>
 </template>
