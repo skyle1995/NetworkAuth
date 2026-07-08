@@ -16,6 +16,7 @@ defineOptions({
 });
 
 type DialogMode = "create" | "edit";
+type PortalNavigationTableRow = Partial<PortalNavigationItem>;
 
 const loading = ref(false);
 const submitting = ref(false);
@@ -57,6 +58,24 @@ const formRules: FormRules = {
 const groupOptions = computed(() =>
   tableData.value.filter(item => item.type === "group" && item.id !== form.id)
 );
+
+/**
+ * 将表格插槽行转换为导航数据
+ * Element Plus 的插槽默认行类型较宽，运行时数据实际来自 tableData
+ */
+const toNavigationItem = (row: PortalNavigationTableRow): PortalNavigationItem => ({
+  id: Number(row.id || 0),
+  name: String(row.name || ""),
+  type: row.type === "group" ? "group" : "link",
+  parent_id: Number(row.parent_id || 0),
+  path: String(row.path || ""),
+  sort: Number(row.sort || 0),
+  is_home: Boolean(row.is_home),
+  is_hidden: Boolean(row.is_hidden),
+  is_external: Boolean(row.is_external),
+  created_at: row.created_at,
+  updated_at: row.updated_at
+});
 
 const dialogTitle = computed(() => {
   switch (dialogMode.value) {
@@ -159,17 +178,18 @@ const handleCreate = () => {
  * 打开编辑弹窗
  * 将当前行数据回填到表单中
  */
-const handleEdit = (row: PortalNavigationItem) => {
+const handleEdit = (row: PortalNavigationTableRow) => {
+  const item = toNavigationItem(row);
   dialogMode.value = "edit";
-  form.id = row.id;
-  form.name = row.name;
-  form.type = row.type || "link";
-  form.parent_id = row.parent_id || 0;
-  form.path = row.path;
-  form.sort = row.sort;
-  form.is_home = row.is_home;
-  form.is_hidden = row.is_hidden;
-  form.is_external = row.is_external;
+  form.id = item.id;
+  form.name = item.name;
+  form.type = item.type || "link";
+  form.parent_id = item.parent_id || 0;
+  form.path = item.path;
+  form.sort = item.sort;
+  form.is_home = item.is_home;
+  form.is_hidden = item.is_hidden;
+  form.is_external = item.is_external;
   dialogVisible.value = true;
 };
 
@@ -254,18 +274,19 @@ const handleSubmit = async () => {
  * 保存单行导航状态
  * 用于表格中的首页和隐藏开关即时更新
  */
-const saveRowState = async (row: PortalNavigationItem, successMessage: string) => {
+const saveRowState = async (row: PortalNavigationTableRow, successMessage: string) => {
+  const item = toNavigationItem(row);
   try {
     const res = await updatePortalNavigation({
-      id: row.id,
-      name: row.name,
-      type: row.type,
-      parent_id: row.parent_id,
-      path: row.path,
-      sort: row.sort,
-      is_home: row.is_home,
-      is_hidden: row.is_hidden,
-      is_external: row.is_external
+      id: item.id,
+      name: item.name,
+      type: item.type,
+      parent_id: item.parent_id,
+      path: item.path,
+      sort: item.sort,
+      is_home: item.is_home,
+      is_hidden: item.is_hidden,
+      is_external: item.is_external
     });
     switch (res.code) {
       case 0:
@@ -287,7 +308,7 @@ const saveRowState = async (row: PortalNavigationItem, successMessage: string) =
  * 切换首页开关
  * 表格内直接更新首页状态，同时自动取消隐藏
  */
-const handleHomeSwitch = async (row: PortalNavigationItem) => {
+const handleHomeSwitch = async (row: PortalNavigationTableRow) => {
   switch (row.is_home) {
     case true:
       row.is_hidden = false;
@@ -303,7 +324,7 @@ const handleHomeSwitch = async (row: PortalNavigationItem) => {
  * 切换隐藏开关
  * 首页导航禁止隐藏，普通导航允许即时切换
  */
-const handleHiddenSwitch = async (row: PortalNavigationItem) => {
+const handleHiddenSwitch = async (row: PortalNavigationTableRow) => {
   switch (row.is_home && row.is_hidden) {
     case true:
       row.is_hidden = false;
@@ -319,20 +340,20 @@ const handleHiddenSwitch = async (row: PortalNavigationItem) => {
  * 切换外部打开开关
  * 表格内直接更新外部打开状态
  */
-const handleExternalSwitch = async (row: PortalNavigationItem) => {
+const handleExternalSwitch = async (row: PortalNavigationTableRow) => {
   await saveRowState(row, "打开方式已更新");
 };
 
-const getTypeLabel = (row: PortalNavigationItem) => {
+const getTypeLabel = (row: PortalNavigationTableRow) => {
   return row.type === "group" ? "分组" : "链接";
 };
 
-const getParentGroupName = (row: PortalNavigationItem) => {
+const getParentGroupName = (row: PortalNavigationTableRow) => {
   if (!row.parent_id) return "-";
   return tableData.value.find(item => item.id === row.parent_id)?.name || "-";
 };
 
-const getDisplayName = (row: PortalNavigationItem) => {
+const getDisplayName = (row: PortalNavigationTableRow) => {
   return row.parent_id ? `└ ${row.name}` : row.name;
 };
 
@@ -417,7 +438,7 @@ const handleSortChange = async (oldIndex: number, newIndex: number) => {
  * 判断是否为系统保留导航
  * 管理员登录入口禁止修改名称、地址、排序和首页状态
  */
-const isLockedAdminEntry = (row: PortalNavigationItem) => {
+const isLockedAdminEntry = (row: PortalNavigationTableRow) => {
   switch (row.path) {
     case "admin":
       return true;
@@ -430,7 +451,8 @@ const isLockedAdminEntry = (row: PortalNavigationItem) => {
  * 删除门户导航
  * 二次确认后调用删除接口
  */
-const handleDelete = async (row: PortalNavigationItem) => {
+const handleDelete = async (row: PortalNavigationTableRow) => {
+  const item = toNavigationItem(row);
   switch (isLockedAdminEntry(row)) {
     case true:
       ElMessage.warning("管理员登录导航为系统保留项，不允许删除");
@@ -440,10 +462,10 @@ const handleDelete = async (row: PortalNavigationItem) => {
   }
 
   try {
-    await ElMessageBox.confirm(`确认删除导航“${row.name}”吗？`, "删除确认", {
+    await ElMessageBox.confirm(`确认删除导航“${item.name}”吗？`, "删除确认", {
       type: "warning"
     });
-    const res = await deletePortalNavigation(row.id);
+    const res = await deletePortalNavigation(item.id);
     switch (res.code) {
       case 0:
         ElMessage.success("删除成功");

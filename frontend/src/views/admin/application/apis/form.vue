@@ -44,6 +44,7 @@ const algorithms = [
   { value: 0, label: "不加密" },
   { value: 1, label: "RC4 加密" },
   { value: 2, label: "RSA 加密" },
+  { value: 3, label: "RSA 动态加密" },
   { value: 4, label: "易加密" }
 ];
 
@@ -110,7 +111,13 @@ defineExpose({ getRef });
       </el-col>
     </el-row>
 
-    <el-row v-if="newFormInline.submit_algorithm === 2" class="mt-4">
+    <el-row
+      v-if="
+        newFormInline.submit_algorithm === 2 ||
+        newFormInline.submit_algorithm === 3
+      "
+      class="mt-4"
+    >
       <el-col :span="24">
         <el-form-item label="公钥" prop="submit_public_key">
           <el-input
@@ -176,7 +183,13 @@ defineExpose({ getRef });
       </el-col>
     </el-row>
 
-    <el-row v-if="newFormInline.return_algorithm === 2" class="mt-4">
+    <el-row
+      v-if="
+        newFormInline.return_algorithm === 2 ||
+        newFormInline.return_algorithm === 3
+      "
+      class="mt-4"
+    >
       <el-col :span="24">
         <el-form-item label="公钥" prop="return_public_key">
           <el-input

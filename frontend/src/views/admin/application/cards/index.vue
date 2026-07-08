@@ -192,7 +192,7 @@ async function onBatchDel() {
           v-model="form.search"
           placeholder="精确卡号"
           clearable
-          class="!w-[180px]"
+          class="w-[180px]!"
           @keyup.enter="onSearch"
         />
       </el-form-item>
@@ -202,7 +202,7 @@ async function onBatchDel() {
           v-model="form.app_uuid"
           placeholder="请选择应用"
           clearable
-          class="!w-[180px]"
+          class="w-[180px]!"
           @change="onSearch"
         >
           <el-option label="全部" value="" />
@@ -220,7 +220,7 @@ async function onBatchDel() {
           v-model="form.status"
           placeholder="全部"
           clearable
-          class="!w-[140px]"
+          class="w-[140px]!"
           @change="onSearch"
         >
           <el-option label="全部" value="" />
@@ -235,7 +235,7 @@ async function onBatchDel() {
           v-model="form.batch_no"
           placeholder="批次号"
           clearable
-          class="!w-[160px]"
+          class="w-[160px]!"
           @keyup.enter="onSearch"
         />
       </el-form-item>
@@ -315,6 +315,8 @@ async function onBatchDel() {
           <pure-table
             ref="tableRef"
             row-key="id"
+            align-whole="center"
+            header-align="center"
             table-layout="auto"
             show-overflow-tooltip
             border

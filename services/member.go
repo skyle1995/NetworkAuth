@@ -20,7 +20,9 @@ import (
 
 // CreateMember 后台手动创建一个注册型终端用户。
 // durationMinutes 为初始时长（分钟），models.CardDurationPermanent(-1) 表示永久。
-func CreateMember(appUUID, username, password string, durationMinutes int, remark string) (*models.Member, error) {
+// CreateMember 后台创建注册型终端用户。
+// 时长模式用 durationMinutes 设初始到期；点数模式用 points 设初始点数。
+func CreateMember(appUUID, username, password string, durationMinutes, points int, remark string) (*models.Member, error) {
 	appUUID = strings.TrimSpace(appUUID)
 	username = strings.TrimSpace(username)
 	if appUUID == "" || username == "" {
@@ -35,12 +37,9 @@ func CreateMember(appUUID, username, password string, durationMinutes int, remar
 		return nil, err
 	}
 
-	// 校验应用存在
-	var appCount int64
-	if err := db.Model(&models.App{}).Where("uuid = ?", appUUID).Count(&appCount).Error; err != nil {
-		return nil, err
-	}
-	if appCount == 0 {
+	// 校验应用存在并读取运营模式
+	var app models.App
+	if err := db.Where("uuid = ?", appUUID).First(&app).Error; err != nil {
 		return nil, errors.New("应用不存在")
 	}
 
@@ -69,13 +68,70 @@ func CreateMember(appUUID, username, password string, durationMinutes int, remar
 		Password:     hashed,
 		PasswordSalt: salt,
 		Status:       models.MemberStatusNormal,
-		ExpiredAt:    expiryFromDuration(durationMinutes),
 		Remark:       remark,
+	}
+	if app.OperationMode == models.OperationModePoints {
+		member.Points = points
+	} else {
+		member.ExpiredAt = expiryFromDuration(durationMinutes)
 	}
 	if err := db.Create(&member).Error; err != nil {
 		return nil, err
 	}
 	return &member, nil
+}
+
+// RechargeMemberPoints 后台为终端用户增加点数余额。
+func RechargeMemberPoints(id uint, points int) error {
+	if points <= 0 {
+		return errors.New("充值点数必须大于0")
+	}
+	db, err := database.GetDB()
+	if err != nil {
+		return err
+	}
+	var member models.Member
+	if err := db.First(&member, id).Error; err != nil {
+		return errors.New("终端用户不存在")
+	}
+	return db.Model(&member).Update("points", member.Points+points).Error
+}
+
+// DeductMemberPoints 后台扣除终端用户点数余额（不低于0）。
+func DeductMemberPoints(id uint, points int) error {
+	if points <= 0 {
+		return errors.New("扣除点数必须大于0")
+	}
+	db, err := database.GetDB()
+	if err != nil {
+		return err
+	}
+	var member models.Member
+	if err := db.First(&member, id).Error; err != nil {
+		return errors.New("终端用户不存在")
+	}
+	newPoints := member.Points - points
+	if newPoints < 0 {
+		newPoints = 0
+	}
+	return db.Model(&member).Update("points", newPoints).Error
+}
+
+// GetMemberAppMode 返回某终端用户所属应用的运营模式（供后台按模式分支）。
+func GetMemberAppMode(id uint) (int, error) {
+	db, err := database.GetDB()
+	if err != nil {
+		return 0, err
+	}
+	var member models.Member
+	if err := db.First(&member, id).Error; err != nil {
+		return 0, errors.New("终端用户不存在")
+	}
+	var app models.App
+	if err := db.Where("uuid = ?", member.AppUUID).First(&app).Error; err != nil {
+		return 0, errors.New("应用不存在")
+	}
+	return app.OperationMode, nil
 }
 
 // expiryFromDuration 由初始时长计算到期时间：永久返回 PermanentTime，否则 now + 时长。

@@ -5,17 +5,22 @@ export interface FormProps {
   formInline: {
     duration_value: number;
     duration_unit: string;
+    points: number;
   };
   /** 是否提供“永久”选项（充值可设永久，扣时不可） */
   allowPermanent: boolean;
+  /** 点数模式：填点数而非时长 */
+  pointsMode: boolean;
 }
 
 const props = withDefaults(defineProps<FormProps>(), {
   formInline: () => ({
     duration_value: 30,
-    duration_unit: "day"
+    duration_unit: "day",
+    points: 10
   }),
-  allowPermanent: false
+  allowPermanent: false,
+  pointsMode: false
 });
 
 const ruleFormRef = ref();
@@ -30,7 +35,14 @@ defineExpose({ getRef });
 
 <template>
   <el-form ref="ruleFormRef" :model="newFormInline" label-width="90px">
-    <el-row :gutter="16">
+    <el-form-item v-if="pointsMode" label="点数" prop="points">
+      <el-input-number
+        v-model="newFormInline.points"
+        :min="1"
+        class="!w-full"
+      />
+    </el-form-item>
+    <el-row v-else :gutter="16">
       <el-col :span="12">
         <el-form-item label="时长数值" prop="duration_value">
           <el-input-number

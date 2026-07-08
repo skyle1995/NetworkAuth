@@ -122,6 +122,7 @@ type cardResponse struct {
 	BatchNo      string `json:"batch_no"`
 	Duration     int    `json:"duration"`
 	DurationText string `json:"duration_text"`
+	Points       int    `json:"points"`
 	Status       int    `json:"status"`
 	StatusText   string `json:"status_text"`
 	UsedByMember string `json:"used_by_member"`
@@ -146,6 +147,7 @@ func toCardResponses(cards []models.Card) []cardResponse {
 			BatchNo:      card.BatchNo,
 			Duration:     card.Duration,
 			DurationText: formatCardDuration(card.Duration),
+			Points:       card.Points,
 			Status:       card.Status,
 			StatusText:   cardStatusText(card.Status),
 			UsedByMember: card.UsedByMember,
@@ -220,6 +222,7 @@ func CardCreateHandler(c *gin.Context) {
 		Count         int    `json:"count"`
 		DurationValue int    `json:"duration_value"`
 		DurationUnit  string `json:"duration_unit"`
+		Points        int    `json:"points"`
 		Remark        string `json:"remark"`
 	}
 
@@ -241,10 +244,15 @@ func CardCreateHandler(c *gin.Context) {
 		req.Length = 16
 	}
 
-	durationMinutes, err := services.CardDurationToMinutes(req.DurationValue, req.DurationUnit)
-	if err != nil {
-		cardBaseController.HandleValidationError(c, err.Error())
-		return
+	// 时长模式换算面值时长；点数模式不传时长单位，durationMinutes 置 0
+	durationMinutes := 0
+	if req.DurationUnit != "" {
+		var err error
+		durationMinutes, err = services.CardDurationToMinutes(req.DurationValue, req.DurationUnit)
+		if err != nil {
+			cardBaseController.HandleValidationError(c, err.Error())
+			return
+		}
 	}
 
 	cards, batchNo, err := services.BatchCreateCards(
@@ -253,6 +261,7 @@ func CardCreateHandler(c *gin.Context) {
 		req.Length,
 		req.Count,
 		durationMinutes,
+		req.Points,
 		strings.TrimSpace(req.Remark),
 	)
 	if err != nil {

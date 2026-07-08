@@ -7,6 +7,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+
+	"gorm.io/gorm"
 )
 
 // ============================================================================
@@ -21,7 +23,7 @@ func GetAppData(appUUID, token string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := authActiveMember(db, appUUID, token); err != nil {
+	if _, _, err := authActiveMember(db, appUUID, token); err != nil {
 		return nil, err
 	}
 	var app models.App
@@ -45,7 +47,7 @@ func GetVariable(appUUID, token, alias string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := authActiveMember(db, appUUID, token); err != nil {
+	if _, _, err := authActiveMember(db, appUUID, token); err != nil {
 		return nil, err
 	}
 	// 别名全局唯一，限定属于本应用或全局("0")
@@ -57,7 +59,7 @@ func GetVariable(appUUID, token, alias string) (any, error) {
 	return map[string]any{"alias": variable.Alias, "data": variable.Data}, nil
 }
 
-// GetFunction 执行/获取远程函数（type 44）：按别名返回本应用或全局函数的代码。
+// GetFunction 获取远程函数代码（type 44）：按别名返回本应用或全局函数的代码。
 func GetFunction(appUUID, token, alias string) (any, error) {
 	alias = strings.TrimSpace(alias)
 	if alias == "" {
@@ -67,7 +69,7 @@ func GetFunction(appUUID, token, alias string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := authActiveMember(db, appUUID, token); err != nil {
+	if _, _, err := authActiveMember(db, appUUID, token); err != nil {
 		return nil, err
 	}
 	var function models.Function
@@ -88,7 +90,7 @@ func ChangeMemberPassword(appUUID, token, oldPassword, newPassword string) (any,
 	if err != nil {
 		return nil, err
 	}
-	member, err := authActiveMember(db, appUUID, token)
+	member, _, err := authActiveMember(db, appUUID, token)
 	if err != nil {
 		return nil, err
 	}
@@ -107,11 +109,17 @@ func ChangeMemberPassword(appUUID, token, oldPassword, newPassword string) (any,
 	if err != nil {
 		return nil, err
 	}
-	if err := db.Model(member).Updates(map[string]interface{}{
-		"password":      hashed,
-		"password_salt": salt,
-		"login_token":   "", // 改密后强制重新登录
-	}).Error; err != nil {
+	err = db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(member).Updates(map[string]interface{}{
+			"password":      hashed,
+			"password_salt": salt,
+		}).Error; err != nil {
+			return err
+		}
+		// 改密后清除全部会话，强制重新登录
+		return tx.Where("member_uuid = ?", member.UUID).Delete(&models.MemberSession{}).Error
+	})
+	if err != nil {
 		return nil, err
 	}
 	return map[string]any{"message": "密码修改成功，请重新登录"}, nil

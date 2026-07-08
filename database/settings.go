@@ -180,6 +180,50 @@ func SeedDefaultSettings() error {
 		},
 	}...)
 
+	// ===== SMTP 邮件相关默认项（用于注册邮箱验证）=====
+	defaultSettings = append(defaultSettings, []models.Settings{
+		{
+			Name:        "smtp_enabled",
+			Value:       "0",
+			Description: "SMTP邮件开关，0=关闭，1=开启",
+		},
+		{
+			Name:        "smtp_host",
+			Value:       "",
+			Description: "SMTP服务器地址，如 smtp.qq.com",
+		},
+		{
+			Name:        "smtp_port",
+			Value:       "465",
+			Description: "SMTP端口，465=SSL，587=STARTTLS，25=明文",
+		},
+		{
+			Name:        "smtp_ssl",
+			Value:       "1",
+			Description: "是否使用SSL(隐式TLS)，1=是(465端口)，0=否",
+		},
+		{
+			Name:        "smtp_username",
+			Value:       "",
+			Description: "SMTP登录账号",
+		},
+		{
+			Name:        "smtp_password",
+			Value:       "",
+			Description: "SMTP登录密码/授权码（敏感，仅超级管理员可读写）",
+		},
+		{
+			Name:        "smtp_from",
+			Value:       "",
+			Description: "发件人邮箱地址，通常与登录账号一致",
+		},
+		{
+			Name:        "smtp_from_name",
+			Value:       "NetworkAuth",
+			Description: "发件人显示名称",
+		},
+	}...)
+
 	// ===== 页脚与备案相关默认项 =====
 	defaultSettings = append(defaultSettings, []models.Settings{
 		{

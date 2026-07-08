@@ -24,9 +24,11 @@ const (
 	APITypeSingleLogin = 10 // 卡密登录
 
 	// 账号管理
-	APITypeUserLogin    = 20 // 字系统登录
-	APITypeUserRegin    = 21 // 字系统注册
-	APITypeUserRecharge = 22 // 用户充值
+	APITypeUserLogin     = 20 // 字系统登录
+	APITypeUserRegin     = 21 // 字系统注册
+	APITypeUserRecharge  = 22 // 用户充值
+	APITypeSendEmailCode = 23 // 发送注册验证码
+	APITypeClaimTrial    = 24 // 领取试用
 
 	// 登出操作
 	APITypeLogOut = 30 // 退出登录
@@ -36,12 +38,13 @@ const (
 	APITypeCheckUserStatus = 41 // 检测账号状态
 	APITypeGetAppData      = 42 // 获取程序数据
 	APITypeGetVariable     = 43 // 获取变量数据
-	APITypeExecuteFunction = 44 // 执行远程函数
+	APITypeExecuteFunction = 44 // 执行远程函数（服务端沙箱执行）
 
 	// 用户操作
 	APITypeUpdatePwd     = 50 // 修改账号密码
 	APITypeMacChangeBind = 51 // 机器码转绑
 	APITypeIPChangeBind  = 52 // IP转绑
+	APITypeDeductPoints  = 53 // 功能扣点（点数模式）
 
 	// 风控操作
 	APITypeDisableUser      = 60 // 封停用户
@@ -191,6 +194,8 @@ func GetAPITypes(categorized bool) interface{} {
 				{Type: APITypeUserLogin, Name: "子系统登录"},
 				{Type: APITypeUserRegin, Name: "子系统注册"},
 				{Type: APITypeUserRecharge, Name: "用户充值"},
+				{Type: APITypeSendEmailCode, Name: "发送注册验证码"},
+				{Type: APITypeClaimTrial, Name: "领取试用"},
 			},
 		},
 		{
@@ -215,6 +220,7 @@ func GetAPITypes(categorized bool) interface{} {
 				{Type: APITypeUpdatePwd, Name: "修改账号密码"},
 				{Type: APITypeMacChangeBind, Name: "机器码转绑"},
 				{Type: APITypeIPChangeBind, Name: "IP转绑"},
+				{Type: APITypeDeductPoints, Name: "功能扣点"},
 			},
 		},
 		{

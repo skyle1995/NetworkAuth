@@ -42,7 +42,7 @@ export function useCard() {
     {
       type: "selection",
       width: 55,
-      align: "left"
+      align: "center"
     },
     {
       label: "ID",
@@ -64,9 +64,11 @@ export function useCard() {
       }
     },
     {
-      label: "面值时长",
+      label: "面值",
       prop: "duration_text",
-      minWidth: 100
+      minWidth: 100,
+      cellRenderer: ({ row }) =>
+        row.points > 0 ? `${row.points} 点` : row.duration_text
     },
     {
       label: "状态",
@@ -157,6 +159,7 @@ export function useCard() {
           count: 10,
           duration_value: 30,
           duration_unit: "day",
+          points: 10,
           remark: ""
         },
         apps: apps.value

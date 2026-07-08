@@ -4,6 +4,7 @@ import { ref } from "vue";
 export interface FormProps {
   formInline: {
     register_enabled: number;
+    email_verify_enabled: number;
     register_limit_enabled: number;
     register_limit_time: number;
     register_count: number;
@@ -16,6 +17,7 @@ export interface FormProps {
 const props = withDefaults(defineProps<FormProps>(), {
   formInline: () => ({
     register_enabled: 0,
+    email_verify_enabled: 0,
     register_limit_enabled: 0,
     register_limit_time: 0,
     register_count: 1,
@@ -40,6 +42,12 @@ defineExpose({ getRef, newFormInline });
     <el-divider>账号注册设置</el-divider>
     <el-form-item label="账号注册" prop="register_enabled">
       <el-radio-group v-model="newFormInline.register_enabled">
+        <el-radio :value="0">关闭</el-radio>
+        <el-radio :value="1">开启</el-radio>
+      </el-radio-group>
+    </el-form-item>
+    <el-form-item label="邮箱验证" prop="email_verify_enabled">
+      <el-radio-group v-model="newFormInline.email_verify_enabled">
         <el-radio :value="0">关闭</el-radio>
         <el-radio :value="1">开启</el-radio>
       </el-radio-group>

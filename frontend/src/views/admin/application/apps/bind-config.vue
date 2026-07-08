@@ -74,16 +74,16 @@ defineExpose({ getRef, newFormInline });
     </el-form-item>
     <el-form-item label="重绑扣除" prop="machine_rebind_deduct">
       <el-input-number v-model="newFormInline.machine_rebind_deduct" :min="0" />
-      <span class="ml-2">分钟</span>
+      <span class="ml-2">分钟/点数</span>
     </el-form-item>
 
     <el-divider>IP验证设置</el-divider>
     <el-form-item label="IP地址验证" prop="ip_verify">
       <el-select v-model="newFormInline.ip_verify" class="w-full">
         <el-option label="关闭" :value="0" />
-        <el-option label="仅验证不扣除" :value="1" />
-        <el-option label="验证并扣除时长" :value="2" />
-        <el-option label="验证并扣除点数" :value="3" />
+        <el-option label="开启(精确IP)" :value="1" />
+        <el-option label="开启(同市)" :value="2" />
+        <el-option label="开启(同省)" :value="3" />
       </el-select>
     </el-form-item>
     <el-form-item label="IP地址重绑" prop="ip_rebind_enabled">

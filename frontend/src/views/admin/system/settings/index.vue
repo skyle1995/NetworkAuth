@@ -11,7 +11,9 @@ defineOptions({
 const activeTab = ref("basic");
 
 // 仅超级管理员可读写安全关键键（jwt_secret/encryption_key）；普通管理员只读+部分掩码，相关控件禁用
-const isSuperAdmin = computed(() => useUserStoreHook().roles.includes("super_admin"));
+const isSuperAdmin = computed(() =>
+  useUserStoreHook().roles.includes("super_admin")
+);
 
 const form = ref<Record<string, any>>({
   // 基本信息
@@ -32,6 +34,16 @@ const form = ref<Record<string, any>>({
   refresh_advance_seconds: 60,
   max_upload_size: 10,
   max_upload_size_unit: "MB",
+
+  // 邮件服务 (SMTP)
+  smtp_enabled: "0",
+  smtp_host: "",
+  smtp_port: 465,
+  smtp_ssl: "1",
+  smtp_username: "",
+  smtp_password: "",
+  smtp_from: "",
+  smtp_from_name: "NetworkAuth",
 
   // 日志清理
   login_log_cleanup_days: 30,
@@ -252,8 +264,88 @@ onMounted(() => {
           </el-form>
         </el-tab-pane>
 
+        <!-- 邮件服务 (SMTP) -->
+        <el-tab-pane label="邮件服务" name="smtp">
+          <el-form :model="form" label-width="140px">
+            <el-alert
+              class="mb-4"
+              type="info"
+              :closable="false"
+              show-icon
+              title="用于「账号注册邮箱验证」发送验证码。开启邮箱验证的应用依赖此处配置。"
+            />
+            <el-form-item label="启用邮件服务">
+              <el-radio-group v-model="form.smtp_enabled">
+                <el-radio value="0">关闭</el-radio>
+                <el-radio value="1">开启</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="SMTP 服务器">
+              <el-input v-model="form.smtp_host" placeholder="如 smtp.qq.com" />
+            </el-form-item>
+            <el-form-item label="端口">
+              <el-input-number v-model="form.smtp_port" :min="1" :max="65535" />
+              <span class="ml-2 text-xs text-gray-400"
+                >465=SSL，587=STARTTLS，25=明文</span
+              >
+            </el-form-item>
+            <el-form-item label="使用 SSL">
+              <el-radio-group v-model="form.smtp_ssl">
+                <el-radio value="1">是 (465)</el-radio>
+                <el-radio value="0">否 (587/25)</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="登录账号">
+              <el-input
+                v-model="form.smtp_username"
+                placeholder="SMTP 登录邮箱账号"
+              />
+            </el-form-item>
+            <el-form-item label="登录密码">
+              <el-input
+                v-model="form.smtp_password"
+                type="password"
+                show-password
+                :disabled="!isSuperAdmin"
+                placeholder="密码/授权码（仅超级管理员可读写）"
+              />
+            </el-form-item>
+            <el-form-item label="发件人邮箱">
+              <el-input
+                v-model="form.smtp_from"
+                placeholder="留空则用登录账号"
+              />
+            </el-form-item>
+            <el-form-item label="发件人名称">
+              <el-input
+                v-model="form.smtp_from_name"
+                placeholder="如 NetworkAuth"
+              />
+            </el-form-item>
+
+            <el-form-item class="mt-6">
+              <el-button
+                type="primary"
+                @click="
+                  handleSave([
+                    'smtp_enabled',
+                    'smtp_host',
+                    'smtp_port',
+                    'smtp_ssl',
+                    'smtp_username',
+                    'smtp_password',
+                    'smtp_from',
+                    'smtp_from_name'
+                  ])
+                "
+                >保存邮件配置</el-button
+              >
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+
         <!-- 系统和安全设置 -->
-                <el-tab-pane label="系统和安全" name="security">
+        <el-tab-pane label="系统和安全" name="security">
           <el-form
             :model="form"
             label-width="180px"
@@ -294,7 +386,9 @@ onMounted(() => {
                   :disabled="!isSuperAdmin"
                   placeholder="请输入数据加密密钥"
                 />
-                <el-button @click="handleGenerateKey('encryption')" :disabled="!isSuperAdmin"
+                <el-button
+                  :disabled="!isSuperAdmin"
+                  @click="handleGenerateKey('encryption')"
                   >随机生成</el-button
                 >
               </div>
@@ -307,7 +401,9 @@ onMounted(() => {
                   :disabled="!isSuperAdmin"
                   placeholder="请输入 JWT 密钥"
                 />
-                <el-button @click="handleGenerateKey('jwt')" :disabled="!isSuperAdmin"
+                <el-button
+                  :disabled="!isSuperAdmin"
+                  @click="handleGenerateKey('jwt')"
                   >随机生成</el-button
                 >
               </div>
@@ -315,11 +411,7 @@ onMounted(() => {
 
             <el-divider content-position="left">会话与令牌</el-divider>
             <el-form-item label="认证令牌有效期">
-              <el-input-number
-                v-model="form.jwt_expire"
-                :min="1"
-                :max="720"
-              />
+              <el-input-number v-model="form.jwt_expire" :min="1" :max="720" />
               <div class="text-gray-400 text-xs ml-3">
                 单位：小时；建议 1~2，最大 720（30 天）
               </div>

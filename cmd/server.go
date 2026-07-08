@@ -112,6 +112,9 @@ func runServer(cmd *cobra.Command, args []string) {
 
 			// 启动日志清理定时任务
 			services.StartLogCleanupTask()
+
+			// 启动在线会话清理定时任务（按各应用 CleanInterval/CheckInterval）
+			services.StartSessionCleanupTask()
 		} else {
 			logrus.Info("系统处于未安装状态，跳过数据库自动迁移和核心组件初始化")
 		}

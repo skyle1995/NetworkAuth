@@ -222,10 +222,10 @@ func APIGetTypesHandler(c *gin.Context) {
 	validTypes := []int{
 		models.APITypeGetBulletin, models.APITypeGetUpdateUrl, models.APITypeCheckAppVersion, models.APITypeGetCardInfo,
 		models.APITypeSingleLogin,
-		models.APITypeUserLogin, models.APITypeUserRegin, models.APITypeUserRecharge,
+		models.APITypeUserLogin, models.APITypeUserRegin, models.APITypeUserRecharge, models.APITypeSendEmailCode,
 		models.APITypeLogOut,
 		models.APITypeGetExpired, models.APITypeCheckUserStatus, models.APITypeGetAppData, models.APITypeGetVariable,
-		models.APITypeUpdatePwd, models.APITypeMacChangeBind, models.APITypeIPChangeBind,
+		models.APITypeUpdatePwd, models.APITypeMacChangeBind, models.APITypeIPChangeBind, models.APITypeDeductPoints,
 		models.APITypeDisableUser, models.APITypeBlackUser, models.APITypeUserDeductedTime,
 	}
 

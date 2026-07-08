@@ -11,6 +11,22 @@ import (
 )
 
 // ============================================================================
+// 常量定义
+// ============================================================================
+
+// 运营模式
+const (
+	OperationModeTime   = 0 // 时长模式（按到期时间）
+	OperationModePoints = 1 // 点数模式（按点数余额）
+)
+
+// 点数扣费方式
+const (
+	PointsChargePerCount = 0 // 按次（登录扣点）
+	PointsChargePerTime  = 1 // 按时（预扣费）
+)
+
+// ============================================================================
 // 结构体定义
 // ============================================================================
 
@@ -82,6 +98,17 @@ type App struct {
 	// IPRebindDeduct：IP地址重绑扣除（默认0，单位：分钟）
 	IPRebindDeduct int `gorm:"default:0;not null;comment:IP地址重绑扣除，单位分钟" json:"ip_rebind_deduct"`
 
+	// OperationMode：运营模式（0=时长模式，1=点数模式）
+	OperationMode int `gorm:"default:0;not null;comment:运营模式，0=时长模式，1=点数模式" json:"operation_mode"`
+	// PointsChargeMode：点数扣费方式（0=按次，1=按时/预扣费）
+	PointsChargeMode int `gorm:"default:0;not null;comment:点数扣费方式，0=按次，1=按时" json:"points_charge_mode"`
+	// PointsPerLogin：按次模式每次登录扣除的点数
+	PointsPerLogin int `gorm:"default:1;not null;comment:按次模式每次登录扣点" json:"points_per_login"`
+	// PointsPeriodMinutes：按时模式的计费周期（分钟）
+	PointsPeriodMinutes int `gorm:"default:60;not null;comment:按时模式计费周期，分钟" json:"points_period_minutes"`
+	// PointsPerPeriod：按时模式每周期扣除的点数
+	PointsPerPeriod int `gorm:"default:1;not null;comment:按时模式每周期扣点" json:"points_per_period"`
+
 	// 登录方式开关字段
 	// CardLoginEnabled：卡密登录开关（0=关闭，1=开启）。开启后卡密可直接登录并自动创建绑定账号
 	CardLoginEnabled int `gorm:"default:1;not null;comment:卡密登录开关，0=关闭，1=开启" json:"card_login_enabled"`
@@ -91,6 +118,8 @@ type App struct {
 	// 账号注册相关字段
 	// RegisterEnabled：账号注册开关（0=关闭，1=开启）
 	RegisterEnabled int `gorm:"default:1;not null;comment:账号注册开关，0=关闭，1=开启" json:"register_enabled"`
+	// EmailVerifyEnabled：注册邮箱验证开关（0=关闭，1=开启）。开启后注册须校验邮箱验证码，依赖系统SMTP配置
+	EmailVerifyEnabled int `gorm:"default:0;not null;comment:注册邮箱验证开关，0=关闭，1=开启" json:"email_verify_enabled"`
 	// RegisterLimitEnabled：注册限制开关（0=关闭，1=开启）
 	RegisterLimitEnabled int `gorm:"default:0;not null;comment:注册限制开关，0=关闭，1=开启" json:"register_limit_enabled"`
 	// RegisterLimitTime：限制时间（0=每天，1=永久）

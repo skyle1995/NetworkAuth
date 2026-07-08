@@ -50,8 +50,11 @@ type Member struct {
 	// AppUUID：归属应用UUID，与 Username 联合唯一（不同应用的用户互相隔离）
 	AppUUID string `gorm:"size:36;not null;index;uniqueIndex:idx_member_app_username;comment:归属应用UUID" json:"app_uuid"`
 
-	// Username：用户名。注册账号为用户填写，卡密账号为卡号
-	Username string `gorm:"size:64;not null;uniqueIndex:idx_member_app_username;comment:用户名，卡密账号为卡号" json:"username"`
+	// Username：用户名。邮箱注册账号为邮箱，卡密账号为卡号
+	Username string `gorm:"size:64;not null;uniqueIndex:idx_member_app_username;comment:用户名，邮箱注册为邮箱、卡密为卡号" json:"username"`
+
+	// Email：注册邮箱（邮箱注册时等于 Username；卡密账号为空）
+	Email string `gorm:"size:128;index;comment:注册邮箱" json:"email"`
 
 	// Type：来源类型（0=注册账号，1=卡密账号）
 	Type int `gorm:"default:0;not null;comment:来源类型，0=注册账号，1=卡密账号" json:"type"`
@@ -68,8 +71,19 @@ type Member struct {
 	// Status：状态（0=封停，1=正常，2=黑名单）
 	Status int `gorm:"default:1;not null;comment:状态，0=封停，1=正常，2=黑名单" json:"status"`
 
-	// ExpiredAt：到期时间。永久有效使用 PermanentTime 标记
+	// ExpiredAt：到期时间（时长模式）。永久有效使用 PermanentTime 标记
 	ExpiredAt time.Time `gorm:"comment:到期时间，永久有效为2099年" json:"expired_at"`
+
+	// Points：点数余额（点数模式）。显式功能扣点消耗，余额>0 方可使用
+	Points int `gorm:"default:0;not null;comment:点数余额，点数模式使用" json:"points"`
+
+	// RegisterIP：注册时的客户端IP，用于应用注册次数限制
+	RegisterIP string `gorm:"size:50;index;comment:注册IP" json:"register_ip"`
+
+	// TrialUsed：已领取试用次数，用于永久限制
+	TrialUsed int `gorm:"default:0;not null;comment:已领取试用次数" json:"trial_used"`
+	// TrialDate：最近领取试用日期，用于每日限制
+	TrialDate string `gorm:"size:10;comment:试用领取日期，格式YYYY-MM-DD" json:"trial_date"`
 
 	// 机器码转绑计数（配合 App 的重绑限制“每天/永久”做重置）
 	// MachineRebindUsed：机器码已用转绑次数
@@ -83,8 +97,6 @@ type Member struct {
 	// IPRebindDate：IP转绑计数日期
 	IPRebindDate string `gorm:"size:10;comment:IP转绑计数日期，格式YYYY-MM-DD" json:"ip_rebind_date"`
 
-	// LoginToken：当前会话令牌（单会话/顶号模型；登出或新登录时更新）
-	LoginToken string `gorm:"size:64;index;comment:当前会话令牌" json:"-"`
 	// LastLoginAt：最近登录时间
 	LastLoginAt *time.Time `gorm:"comment:最近登录时间" json:"last_login_at"`
 	// LastLoginIP：最近登录IP

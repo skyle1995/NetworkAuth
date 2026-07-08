@@ -28,6 +28,15 @@ export default {
         icon: "ep:avatar",
         title: "登录日志"
       }
+    },
+    {
+      path: "/admin/logs/member",
+      name: "MemberLog",
+      component: () => import("@/views/admin/logs/member/index.vue"),
+      meta: {
+        icon: "ep:tickets",
+        title: "调用审计"
+      }
     }
   ]
 } satisfies RouteConfigsTable;

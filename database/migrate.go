@@ -40,5 +40,7 @@ func AllModels() []any {
 		&models.Card{},
 		&models.Member{},
 		&models.Binding{},
+		&models.MemberSession{},
+		&models.MemberLog{},
 	}
 }

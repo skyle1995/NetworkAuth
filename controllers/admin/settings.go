@@ -28,6 +28,7 @@ func SubAccountSimpleListHandler(c *gin.Context) {
 var sensitiveSettingKeys = map[string]struct{}{
 	"jwt_secret":     {},
 	"encryption_key": {},
+	"smtp_password":  {},
 }
 
 // maskSensitiveValue 对安全关键键的值做部分掩码：保留首尾各 4 位，中间以 * 占位；

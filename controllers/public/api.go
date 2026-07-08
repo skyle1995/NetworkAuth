@@ -33,9 +33,11 @@ func fail(c *gin.Context, msg string) {
 // OpenAPIHandler 公开 API 分发入口
 func OpenAPIHandler(c *gin.Context) {
 	var envelope struct {
-		AppUUID string `json:"app_uuid"`
-		APIType int    `json:"api_type"`
-		Data    string `json:"data"`
+		AppUUID   string `json:"app_uuid"`
+		APIType   int    `json:"api_type"`
+		Data      string `json:"data"`
+		Timestamp int64  `json:"timestamp"`
+		Sign      string `json:"sign"`
 	}
 	if err := c.ShouldBindJSON(&envelope); err != nil {
 		fail(c, "请求参数错误")
@@ -60,6 +62,12 @@ func OpenAPIHandler(c *gin.Context) {
 	}
 	if app.Status != 1 {
 		fail(c, "应用已停用")
+		return
+	}
+
+	// 校验请求签名（防重放 + 完整性 + 应用鉴权）
+	if err := services.VerifyOpenSign(envelope.AppUUID, envelope.APIType, envelope.Data, envelope.Timestamp, envelope.Sign, app.Secret); err != nil {
+		fail(c, err.Error())
 		return
 	}
 
@@ -99,12 +107,22 @@ func dispatch(c *gin.Context, app *models.App, apiType int, plainParams string) 
 	switch apiType {
 	case models.APITypeGetBulletin:
 		return handleBulletin(app)
+	case models.APITypeGetUpdateUrl:
+		return services.GetUpdateInfo(app.UUID)
+	case models.APITypeCheckAppVersion:
+		return handleCheckVersion(app, plainParams)
+	case models.APITypeGetCardInfo:
+		return handleGetCardInfo(app, plainParams)
 	case models.APITypeSingleLogin:
 		return handleCardLogin(c, app, plainParams)
 	case models.APITypeUserLogin:
 		return handleAccountLogin(c, app, plainParams)
 	case models.APITypeUserRegin:
-		return handleAccountRegister(app, plainParams)
+		return handleAccountRegister(c, app, plainParams)
+	case models.APITypeSendEmailCode:
+		return handleSendEmailCode(app, plainParams)
+	case models.APITypeClaimTrial:
+		return handleClaimTrial(app, plainParams)
 	case models.APITypeUserRecharge:
 		return handleRecharge(app, plainParams)
 	case models.APITypeCheckUserStatus:
@@ -119,6 +137,18 @@ func dispatch(c *gin.Context, app *models.App, apiType int, plainParams string) 
 		return handleExecuteFunction(app, plainParams)
 	case models.APITypeUpdatePwd:
 		return handleUpdatePassword(app, plainParams)
+	case models.APITypeMacChangeBind:
+		return handleRebindMachine(app, plainParams)
+	case models.APITypeIPChangeBind:
+		return handleRebindIP(c, app, plainParams)
+	case models.APITypeDeductPoints:
+		return handleDeductPoints(app, plainParams)
+	case models.APITypeDisableUser:
+		return handleRiskAction(app, plainParams, models.APITypeDisableUser)
+	case models.APITypeBlackUser:
+		return handleRiskAction(app, plainParams, models.APITypeBlackUser)
+	case models.APITypeUserDeductedTime:
+		return handleRiskDeduct(app, plainParams)
 	case models.APITypeLogOut:
 		return handleLogout(app, plainParams)
 	default:
@@ -193,8 +223,32 @@ func handleAccountLogin(c *gin.Context, app *models.App, plainParams string) (an
 	return services.AccountLogin(app.UUID, params.Username, params.Password, params.MachineCode, c.ClientIP())
 }
 
-// handleAccountRegister 账号注册（type 21）
-func handleAccountRegister(app *models.App, plainParams string) (any, error) {
+// handleAccountRegister 账号注册（type 21，邮箱即账号）
+func handleAccountRegister(c *gin.Context, app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Code     string `json:"code"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	return services.AccountRegister(app.UUID, params.Email, params.Password, params.Code, c.ClientIP())
+}
+
+// handleSendEmailCode 发送注册验证码（type 23）
+func handleSendEmailCode(app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Email string `json:"email"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	return services.SendRegisterCode(app.UUID, params.Email)
+}
+
+// handleClaimTrial 领取试用（type 24）
+func handleClaimTrial(app *models.App, plainParams string) (any, error) {
 	var params struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -202,7 +256,7 @@ func handleAccountRegister(app *models.App, plainParams string) (any, error) {
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.AccountRegister(app.UUID, params.Username, params.Password)
+	return services.ClaimTrial(app.UUID, params.Username, params.Password)
 }
 
 // handleRecharge 用户充值（type 22）：用一张卡为账号充值
@@ -262,16 +316,21 @@ func handleGetVariable(app *models.App, plainParams string) (any, error) {
 	return services.GetVariable(app.UUID, params.Token, params.Alias)
 }
 
-// handleExecuteFunction 执行/获取远程函数（type 44）
+// handleExecuteFunction 执行远程函数（type 44）：服务端 goja 沙箱执行，返回结果
 func handleExecuteFunction(app *models.App, plainParams string) (any, error) {
 	var params struct {
-		Token string `json:"token"`
-		Alias string `json:"alias"`
+		Token  string `json:"token"`
+		Alias  string `json:"alias"`
+		Params any    `json:"params"`
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.GetFunction(app.UUID, params.Token, params.Alias)
+	result, err := services.ExecuteFunction(app.UUID, params.Token, params.Alias, params.Params)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"result": result}, nil
 }
 
 // handleUpdatePassword 修改账号密码（type 50）
@@ -285,6 +344,89 @@ func handleUpdatePassword(app *models.App, plainParams string) (any, error) {
 		return nil, errBadParams
 	}
 	return services.ChangeMemberPassword(app.UUID, params.Token, params.OldPassword, params.NewPassword)
+}
+
+// handleCheckVersion 检测最新版本（type 3）
+func handleCheckVersion(app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Version string `json:"version"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	return services.CheckVersion(app.UUID, params.Version)
+}
+
+// handleGetCardInfo 获取卡密信息（type 4）
+func handleGetCardInfo(app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Card string `json:"card"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	return services.GetCardInfo(app.UUID, params.Card)
+}
+
+// handleRebindMachine 机器码转绑（type 51）
+func handleRebindMachine(app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Token       string `json:"token"`
+		MachineCode string `json:"machine_code"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	return services.RebindMachine(app.UUID, params.Token, params.MachineCode)
+}
+
+// handleRebindIP IP转绑（type 52），以服务端识别的客户端 IP 为准。
+func handleRebindIP(c *gin.Context, app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Token string `json:"token"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	return services.RebindIP(app.UUID, params.Token, c.ClientIP())
+}
+
+// handleDeductPoints 功能扣点（type 53，点数模式）
+func handleDeductPoints(app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Token  string `json:"token"`
+		Points int    `json:"points"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	return services.DeductPoints(app.UUID, params.Token, params.Points)
+}
+
+// handleRiskAction 封停/拉黑（type 60/61）：按用户名操作
+func handleRiskAction(app *models.App, plainParams string, apiType int) (any, error) {
+	var params struct {
+		Username string `json:"username"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	if apiType == models.APITypeBlackUser {
+		return services.RiskBlacklistMember(app.UUID, params.Username)
+	}
+	return services.RiskDisableMember(app.UUID, params.Username)
+}
+
+// handleRiskDeduct 扣除时间（type 62）：按用户名扣除分钟数
+func handleRiskDeduct(app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Username string `json:"username"`
+		Minutes  int    `json:"minutes"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	return services.RiskDeductMember(app.UUID, params.Username, params.Minutes)
 }
 
 // handleLogout 退出登录（type 30）

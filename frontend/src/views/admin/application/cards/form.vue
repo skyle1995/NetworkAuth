@@ -10,9 +10,15 @@ export interface FormProps {
     count: number;
     duration_value: number;
     duration_unit: string;
+    points: number;
     remark: string;
   };
-  apps: Array<{ id: number; uuid: string; name: string }>;
+  apps: Array<{
+    id: number;
+    uuid: string;
+    name: string;
+    operation_mode?: number;
+  }>;
 }
 
 const props = withDefaults(defineProps<FormProps>(), {
@@ -23,6 +29,7 @@ const props = withDefaults(defineProps<FormProps>(), {
     count: 10,
     duration_value: 30,
     duration_unit: "day",
+    points: 10,
     remark: ""
   }),
   apps: () => []
@@ -35,6 +42,12 @@ const newFormInline = ref(props.formInline);
 const isPermanent = computed(
   () => newFormInline.value.duration_unit === "permanent"
 );
+
+// 依所选应用的运营模式决定面值填时长还是点数
+const isPoints = computed(() => {
+  const app = props.apps.find(a => a.uuid === newFormInline.value.app_uuid);
+  return app?.operation_mode === 1;
+});
 
 function getRef() {
   return ruleFormRef.value;
@@ -105,7 +118,24 @@ defineExpose({ getRef });
       </el-col>
     </el-row>
 
-    <el-row :gutter="16">
+    <!-- 点数模式：面值点数 -->
+    <el-row v-if="isPoints">
+      <el-col :span="24">
+        <el-form-item label="面值点数" prop="points">
+          <el-input-number
+            v-model="newFormInline.points"
+            :min="1"
+            class="!w-full"
+          />
+          <span class="ml-2 text-xs text-gray-400"
+            >当前应用为点数模式，卡面值为点数</span
+          >
+        </el-form-item>
+      </el-col>
+    </el-row>
+
+    <!-- 时长模式：面值时长 -->
+    <el-row v-else :gutter="16">
       <el-col :span="12">
         <el-form-item label="卡密时长" prop="duration_value">
           <el-input-number

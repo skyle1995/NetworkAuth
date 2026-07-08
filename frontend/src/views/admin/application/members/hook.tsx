@@ -6,6 +6,7 @@ import type { PaginationProps } from "@pureadmin/table";
 import editForm from "./form.vue";
 import durationForm from "./durationForm.vue";
 import bindingsView from "./bindingsView.vue";
+import sessionsView from "./sessionsView.vue";
 import {
   getMembers,
   createMember,
@@ -15,6 +16,8 @@ import {
   setMemberStatus,
   getMemberBindings,
   clearMemberBindings,
+  getMemberSessions,
+  kickMemberSession,
   batchDeleteMembers
 } from "@/api/admin/member";
 import { getAppsSimple } from "@/api/admin/app";
@@ -51,7 +54,7 @@ export function useMember() {
   });
 
   const columns: TableColumnList = [
-    { type: "selection", width: 55, align: "left" },
+    { type: "selection", width: 55, align: "center" },
     { label: "ID", prop: "id", width: 70 },
     { label: "用户名", prop: "username", minWidth: 140 },
     {
@@ -81,7 +84,13 @@ export function useMember() {
         return h(ElTag, { type: meta.type, effect: "light" }, () => meta.text);
       }
     },
-    { label: "到期时间", prop: "expired_at", minWidth: 160 },
+    {
+      label: "额度(到期/余额)",
+      prop: "expired_at",
+      minWidth: 160,
+      cellRenderer: ({ row }) =>
+        row.mode === 1 ? `${row.points} 点` : row.expired_at
+    },
     {
       label: "最近登录",
       prop: "last_login_at",
@@ -143,6 +152,7 @@ export function useMember() {
           password: "",
           duration_value: 30,
           duration_unit: "day",
+          points: 10,
           remark: ""
         },
         apps: apps.value
@@ -185,15 +195,18 @@ export function useMember() {
     });
   }
 
-  // 充值 / 扣时共用一个时长弹窗；mode 决定调用哪个接口与是否允许永久
+  // 充值 / 扣减共用弹窗；按运营模式切换时长/点数输入
   function openDurationDialog(row: any, mode: "recharge" | "deduct") {
     const dialogFormRef = ref();
     const isRecharge = mode === "recharge";
+    const pointsMode = row.mode === 1;
+    const deductLabel = pointsMode ? "扣点" : "扣时";
     addDialog({
-      title: `${isRecharge ? "充值" : "扣时"} - ${row.username}`,
+      title: `${isRecharge ? "充值" : deductLabel} - ${row.username}`,
       props: {
-        formInline: { duration_value: 30, duration_unit: "day" },
-        allowPermanent: isRecharge
+        formInline: { duration_value: 30, duration_unit: "day", points: 10 },
+        allowPermanent: isRecharge && !pointsMode,
+        pointsMode
       },
       width: "420px",
       draggable: true,
@@ -217,7 +230,7 @@ export function useMember() {
               ? await rechargeMember(payload)
               : await deductMember(payload);
             if (code === 0) {
-              message(isRecharge ? "充值成功" : "扣时成功", {
+              message(isRecharge ? "充值成功" : `${deductLabel}成功`, {
                 type: "success"
               });
               options.visible = false;
@@ -314,6 +327,58 @@ export function useMember() {
     });
   }
 
+  async function openSessionsDialog(row: any) {
+    const load = async () =>
+      getMemberSessions({ member_uuid: row.uuid }).then(r =>
+        r.code === 0 ? r.data || [] : []
+      );
+    const sessions = ref(await load());
+    addDialog({
+      title: `在线会话 - ${row.username}`,
+      width: "620px",
+      draggable: true,
+      closeOnClickModal: false,
+      contentRenderer: () =>
+        h(sessionsView, {
+          sessions: sessions.value,
+          onKick: async (id: number) => {
+            const { code, msg } = await kickMemberSession({ id });
+            if (code === 0) {
+              message("已踢下线", { type: "success" });
+              sessions.value = await load();
+            } else {
+              message(msg || "操作失败", { type: "error" });
+            }
+          }
+        }),
+      footerButtons: [
+        {
+          label: "关闭",
+          text: true,
+          bg: true,
+          btnClick: ({ dialog: { options } }) => (options.visible = false)
+        },
+        {
+          label: "全部踢下线",
+          type: "danger",
+          text: true,
+          bg: true,
+          btnClick: async ({ dialog: { options } }) => {
+            const { code, msg } = await kickMemberSession({
+              member_uuid: row.uuid
+            });
+            if (code === 0) {
+              message("已全部踢下线", { type: "success" });
+              options.visible = false;
+            } else {
+              message(msg || "操作失败", { type: "error" });
+            }
+          }
+        }
+      ]
+    });
+  }
+
   async function handleDelete(row: any) {
     try {
       await ElMessageBox.confirm(
@@ -362,6 +427,7 @@ export function useMember() {
     handleResetPassword,
     handleSetStatus,
     openBindingsDialog,
+    openSessionsDialog,
     handleDelete,
     handleSizeChange,
     handleCurrentChange

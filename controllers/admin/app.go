@@ -13,7 +13,45 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
+
+// cascadeDeleteAppData 在事务内删除一批应用的所有衍生关联数据：
+// 接口、卡密、终端用户及其绑定/会话、调用审计日志、以及应用级变量/函数。
+// 全局变量/函数(app_uuid="0")不受影响。
+func cascadeDeleteAppData(tx *gorm.DB, appUUIDs []string) error {
+	if len(appUUIDs) == 0 {
+		return nil
+	}
+	// 绑定表仅有 member_uuid，需先取出这些应用下的终端用户 UUID
+	var memberUUIDs []string
+	if err := tx.Model(&models.Member{}).Where("app_uuid IN ?", appUUIDs).
+		Pluck("uuid", &memberUUIDs).Error; err != nil {
+		return err
+	}
+	if len(memberUUIDs) > 0 {
+		if err := tx.Where("member_uuid IN ?", memberUUIDs).
+			Delete(&models.Binding{}).Error; err != nil {
+			return err
+		}
+	}
+	// 其余均带 app_uuid，直接按应用删除
+	derived := []any{
+		&models.MemberSession{},
+		&models.MemberLog{},
+		&models.Member{},
+		&models.Card{},
+		&models.API{},
+		&models.Variable{},
+		&models.Function{},
+	}
+	for _, m := range derived {
+		if err := tx.Where("app_uuid IN ?", appUUIDs).Delete(m).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // ============================================================================
 // 全局变量
@@ -233,12 +271,19 @@ func AppResetSecretHandler(c *gin.Context) {
 // AppCreateHandler 创建应用API处理器
 func AppCreateHandler(c *gin.Context) {
 	var req struct {
-		Name         string `json:"name"`
-		Version      string `json:"version"`
-		Status       int    `json:"status"`
-		DownloadType int    `json:"download_type"`
-		ForceUpdate  int    `json:"force_update"`
-		DownloadURL  string `json:"download_url"`
+		Name                string `json:"name"`
+		Version             string `json:"version"`
+		Status              int    `json:"status"`
+		DownloadType        int    `json:"download_type"`
+		ForceUpdate         int    `json:"force_update"`
+		DownloadURL         string `json:"download_url"`
+		OperationMode       int    `json:"operation_mode"`
+		PointsChargeMode    int    `json:"points_charge_mode"`
+		PointsPerLogin      int    `json:"points_per_login"`
+		PointsPeriodMinutes int    `json:"points_period_minutes"`
+		PointsPerPeriod     int    `json:"points_per_period"`
+		CardLoginEnabled    int    `json:"card_login_enabled"`
+		RechargeEnabled     int    `json:"recharge_enabled"`
 	}
 
 	if !appBaseController.BindJSON(c, &req) {
@@ -271,12 +316,19 @@ func AppCreateHandler(c *gin.Context) {
 
 	// 创建应用
 	app := models.App{
-		Name:         strings.TrimSpace(req.Name),
-		Version:      req.Version,
-		Status:       req.Status,
-		DownloadType: req.DownloadType,
-		DownloadURL:  strings.TrimSpace(req.DownloadURL),
-		ForceUpdate:  req.ForceUpdate,
+		Name:                strings.TrimSpace(req.Name),
+		Version:             req.Version,
+		Status:              req.Status,
+		DownloadType:        req.DownloadType,
+		DownloadURL:         strings.TrimSpace(req.DownloadURL),
+		ForceUpdate:         req.ForceUpdate,
+		OperationMode:       req.OperationMode,
+		PointsChargeMode:    req.PointsChargeMode,
+		PointsPerLogin:      req.PointsPerLogin,
+		PointsPeriodMinutes: req.PointsPeriodMinutes,
+		PointsPerPeriod:     req.PointsPerPeriod,
+		CardLoginEnabled:    req.CardLoginEnabled,
+		RechargeEnabled:     req.RechargeEnabled,
 	}
 
 	// 确保UUID和Secret被设置（虽然BeforeCreate钩子应该处理这些，但为了保险起见）
@@ -384,13 +436,20 @@ func AppCreateHandler(c *gin.Context) {
 // AppUpdateHandler 更新应用API处理器
 func AppUpdateHandler(c *gin.Context) {
 	var req struct {
-		ID           uint   `json:"id"`
-		Name         string `json:"name"`
-		Version      string `json:"version"`
-		Status       int    `json:"status"`
-		DownloadType int    `json:"download_type"`
-		DownloadURL  string `json:"download_url"`
-		ForceUpdate  int    `json:"force_update"`
+		ID                  uint   `json:"id"`
+		Name                string `json:"name"`
+		Version             string `json:"version"`
+		Status              int    `json:"status"`
+		DownloadType        int    `json:"download_type"`
+		DownloadURL         string `json:"download_url"`
+		ForceUpdate         int    `json:"force_update"`
+		OperationMode       int    `json:"operation_mode"`
+		PointsChargeMode    int    `json:"points_charge_mode"`
+		PointsPerLogin      int    `json:"points_per_login"`
+		PointsPeriodMinutes int    `json:"points_period_minutes"`
+		PointsPerPeriod     int    `json:"points_per_period"`
+		CardLoginEnabled    int    `json:"card_login_enabled"`
+		RechargeEnabled     int    `json:"recharge_enabled"`
 	}
 
 	if !appBaseController.BindJSON(c, &req) {
@@ -438,6 +497,13 @@ func AppUpdateHandler(c *gin.Context) {
 	app.DownloadType = req.DownloadType
 	app.DownloadURL = strings.TrimSpace(req.DownloadURL)
 	app.ForceUpdate = req.ForceUpdate
+	app.OperationMode = req.OperationMode
+	app.PointsChargeMode = req.PointsChargeMode
+	app.PointsPerLogin = req.PointsPerLogin
+	app.PointsPeriodMinutes = req.PointsPeriodMinutes
+	app.PointsPerPeriod = req.PointsPerPeriod
+	app.CardLoginEnabled = req.CardLoginEnabled
+	app.RechargeEnabled = req.RechargeEnabled
 
 	if err := db.Save(&app).Error; err != nil {
 		logrus.WithError(err).Error("Failed to update app")
@@ -510,53 +576,13 @@ func AppDeleteHandler(c *gin.Context) {
 		}
 	}()
 
-	// 删除相关的API记录
-	if err := tx.Where("app_uuid = ?", app.UUID).Delete(&models.API{}).Error; err != nil {
+	// 级联删除该应用的所有衍生关联数据（接口/卡密/用户/绑定/会话/审计日志/变量/函数）
+	if err := cascadeDeleteAppData(tx, []string{app.UUID}); err != nil {
 		tx.Rollback()
-		logrus.WithError(err).Error("Failed to delete related APIs")
+		logrus.WithError(err).Error("Failed to cascade delete app data")
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 1,
-			"msg":  "删除相关接口失败",
-		})
-		return
-	}
-
-	// 检查是否有关联的变量
-	var varCount int64
-	if err := tx.Model(&models.Variable{}).Where("app_uuid = ?", app.UUID).Count(&varCount).Error; err != nil {
-		tx.Rollback()
-		logrus.WithError(err).Error("Failed to count related variables")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 1,
-			"msg":  "检查关联变量失败",
-		})
-		return
-	}
-	if varCount > 0 {
-		tx.Rollback()
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 1,
-			"msg":  "该应用下存在关联变量，禁止删除",
-		})
-		return
-	}
-
-	// 检查是否有关联的函数
-	var funcCount int64
-	if err := tx.Model(&models.Function{}).Where("app_uuid = ?", app.UUID).Count(&funcCount).Error; err != nil {
-		tx.Rollback()
-		logrus.WithError(err).Error("Failed to count related functions")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 1,
-			"msg":  "检查关联函数失败",
-		})
-		return
-	}
-	if funcCount > 0 {
-		tx.Rollback()
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 1,
-			"msg":  "该应用下存在关联函数，禁止删除",
+			"msg":  "删除关联数据失败",
 		})
 		return
 	}
@@ -1116,6 +1142,7 @@ func AppGetRegisterConfigHandler(c *gin.Context) {
 		"msg":  "获取注册配置成功",
 		"data": gin.H{
 			"register_enabled":       app.RegisterEnabled,
+			"email_verify_enabled":   app.EmailVerifyEnabled,
 			"register_limit_enabled": app.RegisterLimitEnabled,
 			"register_limit_time":    app.RegisterLimitTime,
 			"register_count":         app.RegisterCount,
@@ -1132,6 +1159,7 @@ func AppUpdateRegisterConfigHandler(c *gin.Context) {
 	var req struct {
 		UUID                 string `json:"uuid"`
 		RegisterEnabled      int    `json:"register_enabled"`
+		EmailVerifyEnabled   int    `json:"email_verify_enabled"`
 		RegisterLimitEnabled int    `json:"register_limit_enabled"`
 		RegisterLimitTime    int    `json:"register_limit_time"`
 		RegisterCount        int    `json:"register_count"`
@@ -1183,6 +1211,7 @@ func AppUpdateRegisterConfigHandler(c *gin.Context) {
 	// 更新注册配置
 	updates := map[string]interface{}{
 		"register_enabled":       req.RegisterEnabled,
+		"email_verify_enabled":   req.EmailVerifyEnabled,
 		"register_limit_enabled": req.RegisterLimitEnabled,
 		"register_limit_time":    req.RegisterLimitTime,
 		"register_count":         req.RegisterCount,
@@ -1270,57 +1299,15 @@ func AppsBatchDeleteHandler(c *gin.Context) {
 		appUUIDs = append(appUUIDs, app.UUID)
 	}
 
-	// 删除这些应用的所有相关接口
-	if len(appUUIDs) > 0 {
-		// 检查是否有关联的变量
-		var varCount int64
-		if err := tx.Model(&models.Variable{}).Where("app_uuid IN ?", appUUIDs).Count(&varCount).Error; err != nil {
-			tx.Rollback()
-			logrus.WithError(err).Error("Failed to count related variables")
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 1,
-				"msg":  "检查关联变量失败",
-			})
-			return
-		}
-		if varCount > 0 {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{
-				"code": 1,
-				"msg":  "所选应用中存在关联变量，禁止删除",
-			})
-			return
-		}
-
-		// 检查是否有关联的函数
-		var funcCount int64
-		if err := tx.Model(&models.Function{}).Where("app_uuid IN ?", appUUIDs).Count(&funcCount).Error; err != nil {
-			tx.Rollback()
-			logrus.WithError(err).Error("Failed to count related functions")
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 1,
-				"msg":  "检查关联函数失败",
-			})
-			return
-		}
-		if funcCount > 0 {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{
-				"code": 1,
-				"msg":  "所选应用中存在关联函数，禁止删除",
-			})
-			return
-		}
-
-		if err := tx.Where("app_uuid IN ?", appUUIDs).Delete(&models.API{}).Error; err != nil {
-			tx.Rollback()
-			logrus.WithError(err).Error("Failed to delete related APIs")
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 1,
-				"msg":  "删除相关接口失败",
-			})
-			return
-		}
+	// 级联删除这些应用的所有衍生关联数据
+	if err := cascadeDeleteAppData(tx, appUUIDs); err != nil {
+		tx.Rollback()
+		logrus.WithError(err).Error("Failed to cascade delete apps data")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": 1,
+			"msg":  "删除关联数据失败",
+		})
+		return
 	}
 
 	// 批量删除应用
@@ -1483,13 +1470,14 @@ func AppsSimpleListHandler(c *gin.Context) {
 
 	// 查询所有启用的应用，只获取必要字段
 	var apps []struct {
-		ID   uint   `json:"id"`
-		UUID string `json:"uuid"`
-		Name string `json:"name"`
+		ID            uint   `json:"id"`
+		UUID          string `json:"uuid"`
+		Name          string `json:"name"`
+		OperationMode int    `json:"operation_mode"`
 	}
 
 	if err := db.Model(&models.App{}).
-		Select("id, uuid, name").
+		Select("id, uuid, name, operation_mode").
 		Where("status = ?", 1). // 只获取启用的应用
 		Order("name ASC").
 		Find(&apps).Error; err != nil {

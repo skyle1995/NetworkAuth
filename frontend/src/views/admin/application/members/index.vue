@@ -27,6 +27,7 @@ const {
   handleResetPassword,
   handleSetStatus,
   openBindingsDialog,
+  openSessionsDialog,
   handleDelete,
   handleSizeChange,
   handleCurrentChange
@@ -51,6 +52,9 @@ function onRowCommand(command: string, row: any) {
       break;
     case "bindings":
       openBindingsDialog(row);
+      break;
+    case "sessions":
+      openSessionsDialog(row);
       break;
     case "normal":
       handleSetStatus(row, 1);
@@ -115,7 +119,7 @@ async function onBatchDel() {
           v-model="form.search"
           placeholder="精确用户名"
           clearable
-          class="!w-[160px]"
+          class="w-[160px]!"
           @keyup.enter="onSearch"
         />
       </el-form-item>
@@ -125,7 +129,7 @@ async function onBatchDel() {
           v-model="form.app_uuid"
           placeholder="请选择应用"
           clearable
-          class="!w-[160px]"
+          class="w-[160px]!"
           @change="onSearch"
         >
           <el-option label="全部" value="" />
@@ -143,7 +147,7 @@ async function onBatchDel() {
           v-model="form.type"
           placeholder="全部"
           clearable
-          class="!w-[130px]"
+          class="w-[130px]!"
           @change="onSearch"
         >
           <el-option label="全部" value="" />
@@ -157,7 +161,7 @@ async function onBatchDel() {
           v-model="form.status"
           placeholder="全部"
           clearable
-          class="!w-[130px]"
+          class="w-[130px]!"
           @change="onSearch"
         >
           <el-option label="全部" value="" />
@@ -223,6 +227,8 @@ async function onBatchDel() {
           <pure-table
             ref="tableRef"
             row-key="id"
+            align-whole="center"
+            header-align="center"
             table-layout="auto"
             show-overflow-tooltip
             border
@@ -261,12 +267,15 @@ async function onBatchDel() {
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item command="deduct">扣时</el-dropdown-item>
+                    <el-dropdown-item command="deduct">扣减</el-dropdown-item>
                     <el-dropdown-item command="resetPwd"
                       >重置密码</el-dropdown-item
                     >
                     <el-dropdown-item command="bindings"
                       >绑定信息</el-dropdown-item
+                    >
+                    <el-dropdown-item command="sessions"
+                      >在线会话</el-dropdown-item
                     >
                     <el-dropdown-item command="normal" divided
                       >设为正常</el-dropdown-item

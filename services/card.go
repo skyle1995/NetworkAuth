@@ -42,9 +42,9 @@ func CardDurationToMinutes(value int, unit string) (int, error) {
 }
 
 // BatchCreateCards 为指定应用批量制卡。
-// prefix/randomLen 决定卡号格式，durationMinutes 为面值时长（-1 表示永久）。
+// durationMinutes 为面值时长（-1 表示永久，时长模式用）；points 为面值点数（点数模式用）。
 // 返回生成的卡密记录及本次批次号。
-func BatchCreateCards(appUUID, prefix string, randomLen, count, durationMinutes int, remark string) ([]models.Card, string, error) {
+func BatchCreateCards(appUUID, prefix string, randomLen, count, durationMinutes, points int, remark string) ([]models.Card, string, error) {
 	if count <= 0 {
 		return nil, "", errors.New("生成数量必须大于0")
 	}
@@ -77,6 +77,7 @@ func BatchCreateCards(appUUID, prefix string, randomLen, count, durationMinutes 
 			AppUUID:  appUUID,
 			BatchNo:  batchNo,
 			Duration: durationMinutes,
+			Points:   points,
 			Status:   models.CardStatusUnused,
 			Remark:   remark,
 		})

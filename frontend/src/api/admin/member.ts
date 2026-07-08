@@ -58,6 +58,26 @@ export const clearMemberBindings = (data?: object) => {
   });
 };
 
+/** 查询终端用户在线会话 */
+export const getMemberSessions = (params?: object) => {
+  return http.request<Result>("get", "/api/admin/member/sessions", { params });
+};
+
+/** 踢下线（会话ID或用户UUID全部） */
+export const kickMemberSession = (data?: object) => {
+  return http.request<Result>("post", "/api/admin/member/kick", { data });
+};
+
+/** 终端用户调用审计日志列表 */
+export const getMemberLogs = (params?: object) => {
+  return http.request<Result>("get", "/api/admin/member/logs", { params });
+};
+
+/** 清空审计日志 */
+export const clearMemberLogs = (data?: object) => {
+  return http.request<Result>("post", "/api/admin/member/logs/clear", { data });
+};
+
 /** 批量删除终端用户 */
 export const batchDeleteMembers = (data?: object) => {
   return http.request<Result>("post", "/api/admin/member/batch_delete", {

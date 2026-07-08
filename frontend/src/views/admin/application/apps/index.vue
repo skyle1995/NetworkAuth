@@ -72,7 +72,14 @@ function openDialog(title = "新增", row?: any) {
         status: row?.status ?? 1,
         force_update: row?.force_update ?? 0,
         download_type: row?.download_type ?? 0,
-        download_url: row?.download_url ?? ""
+        download_url: row?.download_url ?? "",
+        operation_mode: row?.operation_mode ?? 0,
+        points_charge_mode: row?.points_charge_mode ?? 0,
+        points_per_login: row?.points_per_login ?? 1,
+        points_period_minutes: row?.points_period_minutes ?? 60,
+        points_per_period: row?.points_per_period ?? 1,
+        card_login_enabled: row?.card_login_enabled ?? 1,
+        recharge_enabled: row?.recharge_enabled ?? 1
       }
     },
     width: "460px",
@@ -273,7 +280,7 @@ async function openMultiConfigDialog(uuid: string) {
     const res = await getAppMultiConfig({ uuid });
     if (res.code === 0) {
       addDialog({
-        title: "多开配置",
+        title: "登录配置",
         props: {
           formInline: res.data || {
             login_type: 0,
@@ -350,6 +357,7 @@ async function openRegisterConfigDialog(uuid: string) {
         props: {
           formInline: res.data || {
             register_enabled: 0,
+            email_verify_enabled: 0,
             register_limit_enabled: 0,
             register_limit_time: 0,
             register_count: 1,
@@ -402,7 +410,10 @@ async function openRegisterConfigDialog(uuid: string) {
         >
           查询
         </el-button>
-        <el-button :icon="useRenderIcon('ep:refresh')" @click="resetForm(formRef)">
+        <el-button
+          :icon="useRenderIcon('ep:refresh')"
+          @click="resetForm(formRef)"
+        >
           重置
         </el-button>
       </el-form-item>
@@ -444,101 +455,101 @@ async function openRegisterConfigDialog(uuid: string) {
       </div>
 
       <PureTableBar title="应用列表" :columns="columns" @refresh="onSearch">
-      <template v-slot="{ size, dynamicColumns }">
-        <pure-table
-          ref="tableRef"
-          row-key="id"
-          table-layout="auto"
-          show-overflow-tooltip
-          border
-          :loading="loading"
-          :size="size"
-          :data="dataList"
-          :columns="dynamicColumns"
-          :header-cell-style="{
-            background: 'var(--el-fill-color-light)',
-            color: 'var(--el-text-color-primary)'
-          }"
-          class="w-full"
-          @selection-change="handleSelectionChangeVue"
-        >
-          <template #operation="{ row }">
-            <div class="flex items-center justify-center">
-              <el-button
-                class="reset-margin"
-                link
-                type="primary"
-                :size="size"
-                @click="openDialog('编辑', row)"
-              >
-                编辑
-              </el-button>
-              <el-button
-                class="reset-margin ml-2"
-                link
-                type="danger"
-                :size="size"
-                @click="handleDelete(row)"
-              >
-                删除
-              </el-button>
-              <el-dropdown
-                class="ml-2"
-                @command="command => handleCommand(command, row)"
-              >
+        <template v-slot="{ size, dynamicColumns }">
+          <pure-table
+            ref="tableRef"
+            row-key="id"
+            table-layout="auto"
+            show-overflow-tooltip
+            border
+            :loading="loading"
+            :size="size"
+            :data="dataList"
+            :columns="dynamicColumns"
+            :header-cell-style="{
+              background: 'var(--el-fill-color-light)',
+              color: 'var(--el-text-color-primary)'
+            }"
+            class="w-full"
+            @selection-change="handleSelectionChangeVue"
+          >
+            <template #operation="{ row }">
+              <div class="flex items-center justify-center">
                 <el-button
                   class="reset-margin"
                   link
                   type="primary"
                   :size="size"
+                  @click="openDialog('编辑', row)"
                 >
-                  更多
-                  <el-icon class="el-icon--right">
-                    <component :is="useRenderIcon('ep:arrow-down')" />
-                  </el-icon>
+                  编辑
                 </el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                  <el-dropdown-item command="reset_secret"
-                    >重置密钥</el-dropdown-item
+                <el-button
+                  class="reset-margin ml-2"
+                  link
+                  type="danger"
+                  :size="size"
+                  @click="handleDelete(row)"
+                >
+                  删除
+                </el-button>
+                <el-dropdown
+                  class="ml-2"
+                  @command="command => handleCommand(command, row)"
+                >
+                  <el-button
+                    class="reset-margin"
+                    link
+                    type="primary"
+                    :size="size"
                   >
-                  <el-dropdown-item command="app_data"
-                    >应用数据</el-dropdown-item
-                  >
-                  <el-dropdown-item command="announcement"
-                    >应用公告</el-dropdown-item
-                  >
-                  <el-dropdown-item divided command="multi_config"
-                    >多开配置</el-dropdown-item
-                  >
-                  <el-dropdown-item command="bind_config"
-                    >绑定设置</el-dropdown-item
-                  >
-                  <el-dropdown-item command="register_config"
-                    >注册设置</el-dropdown-item
-                  >
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+                    更多
+                    <el-icon class="el-icon--right">
+                      <component :is="useRenderIcon('ep:arrow-down')" />
+                    </el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="reset_secret"
+                        >重置密钥</el-dropdown-item
+                      >
+                      <el-dropdown-item command="app_data"
+                        >应用数据</el-dropdown-item
+                      >
+                      <el-dropdown-item command="announcement"
+                        >应用公告</el-dropdown-item
+                      >
+                      <el-dropdown-item divided command="multi_config"
+                        >登录配置</el-dropdown-item
+                      >
+                      <el-dropdown-item command="bind_config"
+                        >绑定设置</el-dropdown-item
+                      >
+                      <el-dropdown-item command="register_config"
+                        >注册设置</el-dropdown-item
+                      >
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
+            </template>
+          </pure-table>
+          <div class="flex mt-4 w-full overflow-x-auto">
+            <div class="ml-auto shrink-0">
+              <el-pagination
+                v-model:current-page="pagination.currentPage"
+                v-model:page-size="pagination.pageSize"
+                :page-sizes="[10, 20, 30, 50, 100, 200, 500, 1000]"
+                :background="true"
+                layout="total, sizes, prev, pager, next, jumper"
+                :total="pagination.total"
+                @size-change="handleSizeChange"
+                @current-change="handleCurrentChange"
+              />
             </div>
-          </template>
-        </pure-table>
-        <div class="flex mt-4 w-full overflow-x-auto">
-          <div class="ml-auto shrink-0">
-            <el-pagination
-              v-model:current-page="pagination.currentPage"
-              v-model:page-size="pagination.pageSize"
-              :page-sizes="[10, 20, 30, 50, 100, 200, 500, 1000]"
-              :background="true"
-              layout="total, sizes, prev, pager, next, jumper"
-              :total="pagination.total"
-              @size-change="handleSizeChange"
-              @current-change="handleCurrentChange"
-            />
           </div>
-        </div>
-      </template>
-    </PureTableBar>
+        </template>
+      </PureTableBar>
     </el-card>
   </div>
 </template>

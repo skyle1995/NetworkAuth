@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,16 +27,20 @@ type LoginResult struct {
 	Token     string    `json:"token"`
 	Username  string    `json:"username"`
 	Type      int       `json:"type"`
+	Mode      int       `json:"mode"` // 运营模式：0时长/1点数
 	Permanent bool      `json:"permanent"`
-	ExpiredAt time.Time `json:"expired_at"`
+	ExpiredAt time.Time `json:"expired_at"` // 时长模式有效
+	Points    int       `json:"points"`     // 点数模式有效
 }
 
 // StatusResult 账号状态查询返回的信息
 type StatusResult struct {
 	Username  string    `json:"username"`
 	Status    int       `json:"status"`
+	Mode      int       `json:"mode"`
 	Permanent bool      `json:"permanent"`
 	ExpiredAt time.Time `json:"expired_at"`
+	Points    int       `json:"points"`
 }
 
 // generateSessionToken 生成 32 字节随机会话令牌（64 位十六进制）
@@ -50,6 +55,109 @@ func generateSessionToken() (string, error) {
 // isPermanent 判断到期时间是否为永久
 func isPermanent(expiredAt time.Time) bool {
 	return expiredAt.Equal(models.PermanentTime)
+}
+
+// checkMemberUsable 按运营模式校验账号是否可用（时长：未到期；点数：余额>0）。
+func checkMemberUsable(app *models.App, m *models.Member) error {
+	if app.OperationMode == models.OperationModePoints {
+		if app.PointsChargeMode == models.PointsChargePerTime {
+			// 按时：仍在已预扣周期内，或余额够买下一个周期
+			if time.Now().Before(m.ExpiredAt) {
+				return nil
+			}
+			if m.Points >= pointsPerPeriod(app) {
+				return nil
+			}
+			return errors.New("点数不足")
+		}
+		// 按次：登录时已扣费，会话内不再以点数拦截
+		return nil
+	}
+	if !isPermanent(m.ExpiredAt) && m.ExpiredAt.Before(time.Now()) {
+		return errors.New("账号已到期")
+	}
+	return nil
+}
+
+// pointsPerPeriod 按时模式每周期扣点（至少1）
+func pointsPerPeriod(app *models.App) int {
+	if app.PointsPerPeriod <= 0 {
+		return 1
+	}
+	return app.PointsPerPeriod
+}
+
+// pointsPeriodMinutes 按时模式周期分钟数（至少1）
+func pointsPeriodMinutes(app *models.App) int {
+	if app.PointsPeriodMinutes <= 0 {
+		return 60
+	}
+	return app.PointsPeriodMinutes
+}
+
+// applyLoginCharge 登录时的点数扣费（在事务内调用）。
+//   - 时长模式：无扣费
+//   - 按次：登录扣 PointsPerLogin，不足则拒绝
+//   - 按时：若已过预扣周期，扣一个周期并顺延到期时间，不足则拒绝
+func applyLoginCharge(tx *gorm.DB, app *models.App, m *models.Member) error {
+	if app.OperationMode != models.OperationModePoints {
+		return nil
+	}
+	if app.PointsChargeMode == models.PointsChargePerTime {
+		return settlePointsTime(tx, app, m)
+	}
+	// 按次
+	cost := app.PointsPerLogin
+	if cost <= 0 {
+		return nil // 登录免费，点数仅由显式扣点消耗
+	}
+	if m.Points < cost {
+		return errors.New("点数不足")
+	}
+	newPoints := m.Points - cost
+	if err := tx.Model(m).Update("points", newPoints).Error; err != nil {
+		return err
+	}
+	m.Points = newPoints
+	return nil
+}
+
+// settlePointsTime 按时预扣费结算：过了预扣周期则扣一个周期并顺延（离线不补扣）。
+func settlePointsTime(tx *gorm.DB, app *models.App, m *models.Member) error {
+	if app.OperationMode != models.OperationModePoints || app.PointsChargeMode != models.PointsChargePerTime {
+		return nil
+	}
+	now := time.Now()
+	if now.Before(m.ExpiredAt) {
+		return nil // 仍在已付周期内
+	}
+	cost := pointsPerPeriod(app)
+	if m.Points < cost {
+		return errors.New("点数不足")
+	}
+	newPoints := m.Points - cost
+	newExpiry := now.Add(time.Duration(pointsPeriodMinutes(app)) * time.Minute)
+	if err := tx.Model(m).Updates(map[string]interface{}{
+		"points":     newPoints,
+		"expired_at": newExpiry,
+	}).Error; err != nil {
+		return err
+	}
+	m.Points = newPoints
+	m.ExpiredAt = newExpiry
+	return nil
+}
+
+// buildStatusResult 依据运营模式构造状态返回
+func buildStatusResult(app *models.App, m *models.Member) *StatusResult {
+	return &StatusResult{
+		Username:  m.Username,
+		Status:    m.Status,
+		Mode:      app.OperationMode,
+		Permanent: isPermanent(m.ExpiredAt),
+		ExpiredAt: m.ExpiredAt,
+		Points:    m.Points,
+	}
 }
 
 // CardLogin 卡密登录：卡号即身份。
@@ -91,12 +199,17 @@ func CardLogin(appUUID, cardNo, machineCode, ip string) (*LoginResult, error) {
 		if card.Status == models.CardStatusUnused {
 			// 首次使用：激活并创建绑定该卡的终端用户
 			member = models.Member{
-				AppUUID:   appUUID,
-				Username:  cardNo,
-				Type:      models.MemberTypeCard,
-				CardUUID:  card.UUID,
-				Status:    models.MemberStatusNormal,
-				ExpiredAt: expiryFromDuration(card.Duration),
+				AppUUID:  appUUID,
+				Username: cardNo,
+				Type:     models.MemberTypeCard,
+				CardUUID: card.UUID,
+				Status:   models.MemberStatusNormal,
+			}
+			if app.OperationMode == models.OperationModePoints {
+				// 点数模式：卡面值为点数；ExpiredAt 留零值——按次不参与、按时首登即购一个周期
+				member.Points = card.Points
+			} else {
+				member.ExpiredAt = expiryFromDuration(card.Duration)
 			}
 			if err := tx.Create(&member).Error; err != nil {
 				return errors.New("激活卡密失败")
@@ -120,7 +233,7 @@ func CardLogin(appUUID, cardNo, machineCode, ip string) (*LoginResult, error) {
 	return finishMemberLogin(db, &app, &member, machineCode, ip)
 }
 
-// finishMemberLogin 完成登录的公共收尾：状态/到期校验、机器码绑定、颁发令牌。
+// finishMemberLogin 完成登录的公共收尾：状态/到期校验、机器码绑定、多开会话管理、颁发令牌。
 func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, machineCode, ip string) (*LoginResult, error) {
 	if member.Status == models.MemberStatusBlack {
 		return nil, errors.New("账号已被拉黑")
@@ -128,8 +241,8 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 	if member.Status == models.MemberStatusDisabled {
 		return nil, errors.New("账号已被封停")
 	}
-	if !isPermanent(member.ExpiredAt) && member.ExpiredAt.Before(time.Now()) {
-		return nil, errors.New("账号已到期")
+	if err := checkMemberUsable(app, member); err != nil {
+		return nil, err
 	}
 
 	// 机器码绑定（开启机器验证时）：已绑定则放行，未绑定且未超多开则新增，超出则拒绝
@@ -138,27 +251,99 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 			return nil, err
 		}
 	}
+	if err := ensureIPBinding(db, member.UUID, ip, app.IPVerify, app.MultiOpenCount); err != nil {
+		return nil, err
+	}
 
 	token, err := generateSessionToken()
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
-	if err := db.Model(member).Updates(map[string]interface{}{
-		"login_token":   token,
-		"last_login_at": &now,
-		"last_login_ip": ip,
-	}).Error; err != nil {
+
+	err = db.Transaction(func(tx *gorm.DB) error {
+		// 点数模式登录扣费（按次扣点 / 按时预扣一个周期）
+		if err := applyLoginCharge(tx, app, member); err != nil {
+			return err
+		}
+		// 清理该用户的失效会话（超过校验间隔未活跃）
+		if err := cleanStaleSessions(tx, member.UUID, app.CheckInterval); err != nil {
+			return err
+		}
+		// 多开数量控制
+		maxOpen := app.MultiOpenCount
+		if maxOpen <= 0 {
+			maxOpen = 1
+		}
+		var active int64
+		if err := tx.Model(&models.MemberSession{}).Where("member_uuid = ?", member.UUID).Count(&active).Error; err != nil {
+			return err
+		}
+		if active >= int64(maxOpen) {
+			if app.LoginType == 1 {
+				// 非顶号：已达上限则拒绝
+				return errors.New("已达最大同时在线数")
+			}
+			// 顶号：踢掉最早的会话直到腾出空位
+			over := int(active) - maxOpen + 1
+			var victims []uint
+			if err := tx.Model(&models.MemberSession{}).
+				Where("member_uuid = ?", member.UUID).
+				Order("last_active_at ASC").Limit(over).Pluck("id", &victims).Error; err != nil {
+				return err
+			}
+			if len(victims) > 0 {
+				if err := tx.Delete(&models.MemberSession{}, victims).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		now := time.Now()
+		session := models.MemberSession{
+			Token:        token,
+			MemberUUID:   member.UUID,
+			AppUUID:      member.AppUUID,
+			MachineCode:  machineCode,
+			IP:           ip,
+			LastActiveAt: now,
+		}
+		if err := tx.Create(&session).Error; err != nil {
+			return err
+		}
+		return tx.Model(member).Updates(map[string]interface{}{
+			"last_login_at": &now,
+			"last_login_ip": ip,
+		}).Error
+	})
+	if err != nil {
 		return nil, err
 	}
+
+	loginAction := "账号登录"
+	if member.Type == models.MemberTypeCard {
+		loginAction = "卡密登录"
+	}
+	AddMemberLog(member.AppUUID, member.UUID, member.Username, loginAction, machineCode, ip)
 
 	return &LoginResult{
 		Token:     token,
 		Username:  member.Username,
 		Type:      member.Type,
+		Mode:      app.OperationMode,
 		Permanent: isPermanent(member.ExpiredAt),
 		ExpiredAt: member.ExpiredAt,
+		Points:    member.Points,
 	}, nil
+}
+
+// cleanStaleSessions 删除某用户超过 checkIntervalMin 分钟未活跃的会话。
+func cleanStaleSessions(tx *gorm.DB, memberUUID string, checkIntervalMin int) error {
+	if checkIntervalMin <= 0 {
+		checkIntervalMin = 10
+	}
+	deadline := time.Now().Add(-time.Duration(checkIntervalMin) * time.Minute)
+	return tx.Where("member_uuid = ? AND last_active_at < ?", memberUUID, deadline).
+		Delete(&models.MemberSession{}).Error
 }
 
 // ensureMachineBinding 确保机器码已绑定；未绑定时在多开数量内新增，超出则拒绝。
@@ -192,22 +377,90 @@ func ensureMachineBinding(db *gorm.DB, memberUUID, machineCode string, multiOpen
 	}).Error
 }
 
-// authMemberByToken 按应用与令牌定位有效终端用户
+// ensureIPBinding 确保登录 IP 满足应用 IP 验证配置；首次登录会自动绑定当前 IP。
+func ensureIPBinding(db *gorm.DB, memberUUID, ip string, ipVerify, multiOpenCount int) error {
+	if ipVerify == 0 {
+		return nil
+	}
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return errors.New("登录IP不能为空")
+	}
+	var existing models.Binding
+	err := db.Where("member_uuid = ? AND type = ? AND value = ?",
+		memberUUID, models.BindingTypeIP, ip).First(&existing).Error
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+
+	var count int64
+	if err := db.Model(&models.Binding{}).
+		Where("member_uuid = ? AND type = ?", memberUUID, models.BindingTypeIP).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if multiOpenCount <= 0 {
+		multiOpenCount = 1
+	}
+	if int(count) >= multiOpenCount {
+		return errors.New("登录IP未绑定，请先进行IP转绑")
+	}
+	return db.Create(&models.Binding{
+		MemberUUID: memberUUID,
+		Type:       models.BindingTypeIP,
+		Value:      ip,
+	}).Error
+}
+
+// authMemberByToken 按应用与会话令牌定位有效终端用户，并刷新会话活跃时间。
 func authMemberByToken(db *gorm.DB, appUUID, token string) (*models.Member, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
 		return nil, errors.New("令牌不能为空")
 	}
-	var member models.Member
-	if err := db.Where("app_uuid = ? AND login_token = ?", strings.TrimSpace(appUUID), token).First(&member).Error; err != nil {
+	var session models.MemberSession
+	if err := db.Where("app_uuid = ? AND token = ?", strings.TrimSpace(appUUID), token).First(&session).Error; err != nil {
 		return nil, errors.New("会话无效或已被顶号")
 	}
+	var member models.Member
+	if err := db.Where("uuid = ?", session.MemberUUID).First(&member).Error; err != nil {
+		return nil, errors.New("账号不存在")
+	}
+	// 刷新会话活跃时间（心跳）
+	db.Model(&models.MemberSession{}).Where("id = ?", session.ID).Update("last_active_at", time.Now())
 	return &member, nil
 }
 
-// authActiveMember 校验令牌并要求账号正常且未到期，返回有效终端用户。
-// 供需要“已登录且可用”前提的接口（数据获取、改密、转绑等）复用。
-func authActiveMember(db *gorm.DB, appUUID, token string) (*models.Member, error) {
+// authActiveMember 校验令牌并要求账号正常且可用（按运营模式），返回有效终端用户及其应用。
+// 供需要“已登录且可用”前提的接口（数据获取、改密、转绑、扣点等）复用。
+func authActiveMember(db *gorm.DB, appUUID, token string) (*models.Member, *models.App, error) {
+	member, err := authMemberByToken(db, appUUID, token)
+	if err != nil {
+		return nil, nil, err
+	}
+	if member.Status != models.MemberStatusNormal {
+		return nil, nil, errors.New("账号状态异常")
+	}
+	app, err := loadEnabledApp(db, appUUID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := checkMemberUsable(app, member); err != nil {
+		return nil, nil, err
+	}
+	return member, app, nil
+}
+
+// CheckMemberStatus 心跳/状态查询：校验令牌有效、账号正常且可用。
+// 按时点数模式在心跳时结算：过了预扣周期则自动续扣下一周期。
+func CheckMemberStatus(appUUID, token string) (*StatusResult, error) {
+	db, err := database.GetDB()
+	if err != nil {
+		return nil, err
+	}
 	member, err := authMemberByToken(db, appUUID, token)
 	if err != nil {
 		return nil, err
@@ -215,41 +468,34 @@ func authActiveMember(db *gorm.DB, appUUID, token string) (*models.Member, error
 	if member.Status != models.MemberStatusNormal {
 		return nil, errors.New("账号状态异常")
 	}
-	if !isPermanent(member.ExpiredAt) && member.ExpiredAt.Before(time.Now()) {
-		return nil, errors.New("账号已到期")
-	}
-	return member, nil
-}
-
-// CheckMemberStatus 心跳/状态查询：校验令牌有效、账号正常且未到期。
-func CheckMemberStatus(appUUID, token string) (*StatusResult, error) {
-	db, err := database.GetDB()
+	app, err := loadEnabledApp(db, appUUID)
 	if err != nil {
 		return nil, err
 	}
-	member, err := authActiveMember(db, appUUID, token)
-	if err != nil {
+	// 按时预扣费结算（尽力续期，忽略无法续期的错误，交由 usable 判定）
+	_ = settlePointsTime(db, app, member)
+	if err := checkMemberUsable(app, member); err != nil {
 		return nil, err
 	}
-	return &StatusResult{
-		Username:  member.Username,
-		Status:    member.Status,
-		Permanent: isPermanent(member.ExpiredAt),
-		ExpiredAt: member.ExpiredAt,
-	}, nil
+	return buildStatusResult(app, member), nil
 }
 
-// MemberLogout 登出：清空当前会话令牌。
+// MemberLogout 登出：删除当前会话。
 func MemberLogout(appUUID, token string) error {
 	db, err := database.GetDB()
 	if err != nil {
 		return err
 	}
-	member, err := authMemberByToken(db, appUUID, token)
-	if err != nil {
-		return err
+	token = strings.TrimSpace(token)
+	res := db.Where("app_uuid = ? AND token = ?", strings.TrimSpace(appUUID), token).
+		Delete(&models.MemberSession{})
+	if res.Error != nil {
+		return res.Error
 	}
-	return db.Model(member).Update("login_token", "").Error
+	if res.RowsAffected == 0 {
+		return errors.New("会话无效")
+	}
+	return nil
 }
 
 // ============================================================================
@@ -268,20 +514,51 @@ func loadEnabledApp(db *gorm.DB, appUUID string) (*models.App, error) {
 	return &app, nil
 }
 
-// registerInitialExpiry 注册账号的初始到期时间：开启试用则给试用时长，否则注册即过期需充值。
+// registerInitialExpiry 注册账号的初始到期时间：注册后默认过期，需充值或独立领取试用。
 func registerInitialExpiry(app *models.App) time.Time {
-	if app.TrialEnabled == 1 && app.TrialDuration > 0 {
-		return time.Now().Add(time.Duration(app.TrialDuration) * time.Minute)
-	}
 	return time.Now()
 }
 
-// AccountRegister 账号注册：创建注册型终端用户并返回账号信息。
-// 不颁发会话令牌——注册账号在无试用时初始即过期，需登录（或先充值）后方可使用。
-func AccountRegister(appUUID, username, password string) (*StatusResult, error) {
-	username = strings.TrimSpace(username)
-	if username == "" || password == "" {
-		return nil, errors.New("用户名与密码不能为空")
+// enforceRegisterLimit 按应用和注册 IP 校验每天/永久注册次数限制。
+func enforceRegisterLimit(db *gorm.DB, app *models.App, registerIP string) error {
+	if app.RegisterLimitEnabled != 1 {
+		return nil
+	}
+	registerIP = strings.TrimSpace(registerIP)
+	if registerIP == "" {
+		return errors.New("注册IP不能为空")
+	}
+	limit := app.RegisterCount
+	if limit <= 0 {
+		limit = 1
+	}
+	query := db.Model(&models.Member{}).
+		Where("app_uuid = ? AND register_ip = ?", app.UUID, registerIP)
+	if app.RegisterLimitTime == 0 {
+		today := time.Now()
+		startOfDay := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
+		query = query.Where("created_at >= ?", startOfDay)
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return err
+	}
+	if count >= int64(limit) {
+		return errors.New("注册次数已达上限")
+	}
+	return nil
+}
+
+// AccountRegister 账号注册（邮箱即账号）：邮箱作为登录名创建注册型终端用户。
+// 应用开启邮箱验证时须校验验证码。不颁发会话令牌——注册账号在无试用时初始即过期，
+// 需登录（或先充值）后方可使用。
+func AccountRegister(appUUID, email, password, code, registerIP string) (*StatusResult, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" || password == "" {
+		return nil, errors.New("邮箱与密码不能为空")
+	}
+	if !IsValidEmail(email) {
+		return nil, errors.New("邮箱格式不正确")
 	}
 
 	db, err := database.GetDB()
@@ -295,13 +572,23 @@ func AccountRegister(appUUID, username, password string) (*StatusResult, error) 
 	if app.RegisterEnabled != 1 {
 		return nil, errors.New("该应用未开启账号注册")
 	}
+	if err := enforceRegisterLimit(db, app, registerIP); err != nil {
+		return nil, err
+	}
+
+	// 开启邮箱验证则校验验证码
+	if app.EmailVerifyEnabled == 1 {
+		if err := VerifyRegisterCode(app.UUID, email, code); err != nil {
+			return nil, err
+		}
+	}
 
 	var dup int64
-	if err := db.Model(&models.Member{}).Where("app_uuid = ? AND username = ?", app.UUID, username).Count(&dup).Error; err != nil {
+	if err := db.Model(&models.Member{}).Where("app_uuid = ? AND username = ?", app.UUID, email).Count(&dup).Error; err != nil {
 		return nil, err
 	}
 	if dup > 0 {
-		return nil, errors.New("用户名已存在")
+		return nil, errors.New("该邮箱已注册")
 	}
 
 	salt, err := utils.GenerateRandomSalt()
@@ -315,23 +602,84 @@ func AccountRegister(appUUID, username, password string) (*StatusResult, error) 
 
 	member := models.Member{
 		AppUUID:      app.UUID,
-		Username:     username,
+		Username:     email,
+		Email:        email,
 		Type:         models.MemberTypeRegister,
 		Password:     hashed,
 		PasswordSalt: salt,
 		Status:       models.MemberStatusNormal,
-		ExpiredAt:    registerInitialExpiry(app),
+		RegisterIP:   strings.TrimSpace(registerIP),
+	}
+	if app.OperationMode == models.OperationModePoints {
+		// 点数模式：注册初始 0 点，需充值；ExpiredAt 留零值
+		member.Points = 0
+	} else {
+		member.ExpiredAt = registerInitialExpiry(app)
 	}
 	if err := db.Create(&member).Error; err != nil {
 		return nil, errors.New("注册失败")
 	}
 
-	return &StatusResult{
-		Username:  member.Username,
-		Status:    member.Status,
-		Permanent: isPermanent(member.ExpiredAt),
-		ExpiredAt: member.ExpiredAt,
-	}, nil
+	AddMemberLog(app.UUID, member.UUID, member.Username, "注册", "", "")
+	return buildStatusResult(app, &member), nil
+}
+
+// ClaimTrial 领取试用时长：按应用配置限制账号每天/永久领取次数。
+func ClaimTrial(appUUID, username, password string) (*StatusResult, error) {
+	username = strings.TrimSpace(username)
+	if username == "" || password == "" {
+		return nil, errors.New("用户名与密码不能为空")
+	}
+	db, err := database.GetDB()
+	if err != nil {
+		return nil, err
+	}
+	app, err := loadEnabledApp(db, appUUID)
+	if err != nil {
+		return nil, err
+	}
+	if app.TrialEnabled != 1 || app.TrialDuration <= 0 {
+		return nil, errors.New("该应用未开启试用领取")
+	}
+	if app.OperationMode == models.OperationModePoints {
+		return nil, errors.New("点数模式不支持领取试用")
+	}
+
+	var member models.Member
+	if err := db.Where("app_uuid = ? AND username = ?", app.UUID, username).First(&member).Error; err != nil {
+		return nil, errors.New("账号或密码错误")
+	}
+	if member.Type != models.MemberTypeRegister || !utils.VerifyPasswordWithSalt(password, member.PasswordSalt, member.Password) {
+		return nil, errors.New("账号或密码错误")
+	}
+	if member.Status != models.MemberStatusNormal {
+		return nil, errors.New("账号状态异常")
+	}
+
+	today := time.Now().Format("2006-01-02")
+	used := member.TrialUsed
+	if app.TrialLimitTime == 0 && member.TrialDate != today {
+		used = 0
+	}
+	if used > 0 {
+		return nil, errors.New("试用领取次数已达上限")
+	}
+
+	base := member.ExpiredAt
+	if base.Before(time.Now()) || base.IsZero() {
+		base = time.Now()
+	}
+	member.ExpiredAt = base.Add(time.Duration(app.TrialDuration) * time.Minute)
+	member.TrialUsed = used + 1
+	member.TrialDate = today
+	if err := db.Model(&member).Updates(map[string]interface{}{
+		"expired_at": member.ExpiredAt,
+		"trial_used": member.TrialUsed,
+		"trial_date": member.TrialDate,
+	}).Error; err != nil {
+		return nil, err
+	}
+	return buildStatusResult(app, &member), nil
 }
 
 // AccountLogin 账号登录：校验用户名密码后颁发令牌。
@@ -395,7 +743,17 @@ func RechargeByCard(appUUID, username, cardNo string) (*StatusResult, error) {
 			return errors.New("该卡已被使用或冻结")
 		}
 
-		// 计算充值后的到期时间
+		if app.OperationMode == models.OperationModePoints {
+			// 点数模式：卡面值为点数，累加到余额
+			newPoints := member.Points + card.Points
+			if err := tx.Model(&member).Update("points", newPoints).Error; err != nil {
+				return err
+			}
+			member.Points = newPoints
+			return MarkCardUsed(tx, card.ID, member.UUID)
+		}
+
+		// 时长模式：把卡面值加到到期时间
 		var newExpiry time.Time
 		if isPermanent(member.ExpiredAt) {
 			return errors.New("账号已是永久，无需充值")
@@ -420,15 +778,11 @@ func RechargeByCard(appUUID, username, cardNo string) (*StatusResult, error) {
 		return nil, err
 	}
 
-	return &StatusResult{
-		Username:  member.Username,
-		Status:    member.Status,
-		Permanent: isPermanent(member.ExpiredAt),
-		ExpiredAt: member.ExpiredAt,
-	}, nil
+	AddMemberLog(app.UUID, member.UUID, member.Username, "充值", "卡号 "+cardNo, "")
+	return buildStatusResult(app, &member), nil
 }
 
-// GetMemberExpiry 获取到期时间（type 40）：校验令牌有效，返回到期信息（不因已过期而报错）。
+// GetMemberExpiry 获取到期/余额（type 40）：校验令牌有效，返回资源信息（不因已到期/点数耗尽而报错）。
 func GetMemberExpiry(appUUID, token string) (*StatusResult, error) {
 	db, err := database.GetDB()
 	if err != nil {
@@ -438,10 +792,37 @@ func GetMemberExpiry(appUUID, token string) (*StatusResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &StatusResult{
-		Username:  member.Username,
-		Status:    member.Status,
-		Permanent: isPermanent(member.ExpiredAt),
-		ExpiredAt: member.ExpiredAt,
-	}, nil
+	app, err := loadEnabledApp(db, appUUID)
+	if err != nil {
+		return nil, err
+	}
+	return buildStatusResult(app, member), nil
+}
+
+// DeductPoints 显式功能扣点（点数模式）：从余额扣除 amount 点，不足则拒绝。
+func DeductPoints(appUUID, token string, amount int) (*StatusResult, error) {
+	if amount <= 0 {
+		return nil, errors.New("扣除点数必须大于0")
+	}
+	db, err := database.GetDB()
+	if err != nil {
+		return nil, err
+	}
+	member, app, err := authActiveMember(db, appUUID, token)
+	if err != nil {
+		return nil, err
+	}
+	if app.OperationMode != models.OperationModePoints {
+		return nil, errors.New("当前应用非点数模式")
+	}
+	if member.Points < amount {
+		return nil, errors.New("点数不足")
+	}
+	newPoints := member.Points - amount
+	if err := db.Model(member).Update("points", newPoints).Error; err != nil {
+		return nil, err
+	}
+	member.Points = newPoints
+	AddMemberLog(app.UUID, member.UUID, member.Username, "扣点", "扣"+strconv.Itoa(amount)+"点", "")
+	return buildStatusResult(app, member), nil
 }

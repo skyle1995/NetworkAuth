@@ -150,6 +150,10 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			memberGroup.POST("/update_remark", adminctl.MemberUpdateRemarkHandler)
 			memberGroup.GET("/bindings", adminctl.MemberBindingsHandler)
 			memberGroup.POST("/clear_bindings", adminctl.MemberClearBindingsHandler)
+			memberGroup.GET("/sessions", adminctl.MemberSessionsHandler)
+			memberGroup.POST("/kick", adminctl.MemberKickSessionHandler)
+			memberGroup.GET("/logs", adminctl.MemberLogListHandler)
+			memberGroup.POST("/logs/clear", adminctl.MemberLogClearHandler)
 			memberGroup.POST("/batch_delete", adminctl.MembersBatchDeleteHandler)
 		}
 	}

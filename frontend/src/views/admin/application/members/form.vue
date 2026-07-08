@@ -9,9 +9,15 @@ export interface FormProps {
     password: string;
     duration_value: number;
     duration_unit: string;
+    points: number;
     remark: string;
   };
-  apps: Array<{ id: number; uuid: string; name: string }>;
+  apps: Array<{
+    id: number;
+    uuid: string;
+    name: string;
+    operation_mode?: number;
+  }>;
 }
 
 const props = withDefaults(defineProps<FormProps>(), {
@@ -21,6 +27,7 @@ const props = withDefaults(defineProps<FormProps>(), {
     password: "",
     duration_value: 30,
     duration_unit: "day",
+    points: 10,
     remark: ""
   }),
   apps: () => []
@@ -31,6 +38,13 @@ const newFormInline = ref(props.formInline);
 
 const isPermanent = computed(
   () => newFormInline.value.duration_unit === "permanent"
+);
+
+// 依所选应用运营模式：点数模式填初始点数，时长模式填初始时长
+const isPoints = computed(
+  () =>
+    props.apps.find(a => a.uuid === newFormInline.value.app_uuid)
+      ?.operation_mode === 1
 );
 
 function getRef() {
@@ -76,7 +90,15 @@ defineExpose({ getRef });
       />
     </el-form-item>
 
-    <el-row :gutter="16">
+    <el-form-item v-if="isPoints" label="初始点数" prop="points">
+      <el-input-number
+        v-model="newFormInline.points"
+        :min="0"
+        class="!w-full"
+      />
+    </el-form-item>
+
+    <el-row v-else :gutter="16">
       <el-col :span="12">
         <el-form-item label="初始时长" prop="duration_value">
           <el-input-number

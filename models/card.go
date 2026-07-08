@@ -52,8 +52,11 @@ type Card struct {
 	// BatchNo：制卡批次号，用于批量导出/删除/统计
 	BatchNo string `gorm:"size:32;index;comment:制卡批次号" json:"batch_no"`
 
-	// Duration：面值时长（单位：分钟），-1 表示永久
+	// Duration：面值时长（单位：分钟，时长模式），-1 表示永久
 	Duration int `gorm:"not null;default:0;comment:面值时长，单位分钟，-1为永久" json:"duration"`
+
+	// Points：面值点数（点数模式）
+	Points int `gorm:"not null;default:0;comment:面值点数，点数模式使用" json:"points"`
 
 	// Status：卡密状态（0=未使用，1=已使用，2=已冻结）
 	Status int `gorm:"default:0;not null;comment:卡密状态，0=未使用，1=已使用，2=已冻结" json:"status"`

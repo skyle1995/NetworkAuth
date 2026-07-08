@@ -94,6 +94,24 @@ func MemberListHandler(c *gin.Context) {
 		return
 	}
 
+	// 批量取这些用户所属应用的运营模式，用于前端展示到期/点数
+	modeByApp := make(map[string]int)
+	if len(members) > 0 {
+		appUUIDs := make([]string, 0, len(members))
+		for _, m := range members {
+			appUUIDs = append(appUUIDs, m.AppUUID)
+		}
+		var appModes []struct {
+			UUID          string
+			OperationMode int
+		}
+		db.Model(&models.App{}).Select("uuid, operation_mode").
+			Where("uuid IN ?", appUUIDs).Find(&appModes)
+		for _, a := range appModes {
+			modeByApp[a.UUID] = a.OperationMode
+		}
+	}
+
 	type MemberResponse struct {
 		ID          uint   `json:"id"`
 		UUID        string `json:"uuid"`
@@ -103,7 +121,9 @@ func MemberListHandler(c *gin.Context) {
 		TypeText    string `json:"type_text"`
 		Status      int    `json:"status"`
 		StatusText  string `json:"status_text"`
+		Mode        int    `json:"mode"`
 		ExpiredAt   string `json:"expired_at"`
+		Points      int    `json:"points"`
 		CardUUID    string `json:"card_uuid"`
 		LastLoginAt string `json:"last_login_at"`
 		LastLoginIP string `json:"last_login_ip"`
@@ -130,7 +150,9 @@ func MemberListHandler(c *gin.Context) {
 			TypeText:    memberTypeText(m.Type),
 			Status:      m.Status,
 			StatusText:  memberStatusText(m.Status),
+			Mode:        modeByApp[m.AppUUID],
 			ExpiredAt:   expiredAt,
+			Points:      m.Points,
 			CardUUID:    m.CardUUID,
 			LastLoginAt: lastLogin,
 			LastLoginIP: m.LastLoginIP,
@@ -155,6 +177,7 @@ func MemberCreateHandler(c *gin.Context) {
 		Password      string `json:"password"`
 		DurationValue int    `json:"duration_value"`
 		DurationUnit  string `json:"duration_unit"`
+		Points        int    `json:"points"`
 		Remark        string `json:"remark"`
 	}
 	if !memberBaseController.BindJSON(c, &req) {
@@ -168,13 +191,18 @@ func MemberCreateHandler(c *gin.Context) {
 		return
 	}
 
-	durationMinutes, err := services.CardDurationToMinutes(req.DurationValue, req.DurationUnit)
-	if err != nil {
-		memberBaseController.HandleValidationError(c, err.Error())
-		return
+	// 时长模式换算初始时长；点数模式不传单位，durationMinutes 置 0
+	durationMinutes := 0
+	if req.DurationUnit != "" {
+		var err error
+		durationMinutes, err = services.CardDurationToMinutes(req.DurationValue, req.DurationUnit)
+		if err != nil {
+			memberBaseController.HandleValidationError(c, err.Error())
+			return
+		}
 	}
 
-	member, err := services.CreateMember(req.AppUUID, req.Username, req.Password, durationMinutes, strings.TrimSpace(req.Remark))
+	member, err := services.CreateMember(req.AppUUID, req.Username, req.Password, durationMinutes, req.Points, strings.TrimSpace(req.Remark))
 	if err != nil {
 		logrus.WithError(err).Error("Failed to create member")
 		memberBaseController.HandleValidationError(c, err.Error())
@@ -209,18 +237,30 @@ func MemberSetStatusHandler(c *gin.Context) {
 	memberBaseController.HandleSuccess(c, "操作成功", nil)
 }
 
-// MemberRechargeHandler 终端用户充值时长API处理器（单位为 permanent 时设为永久）
+// MemberRechargeHandler 终端用户充值API处理器（时长模式加时长/永久，点数模式加点数）
 func MemberRechargeHandler(c *gin.Context) {
 	var req struct {
 		ID            uint   `json:"id"`
 		DurationValue int    `json:"duration_value"`
 		DurationUnit  string `json:"duration_unit"`
+		Points        int    `json:"points"`
 	}
 	if !memberBaseController.BindJSON(c, &req) {
 		return
 	}
 	if req.ID == 0 {
 		memberBaseController.HandleValidationError(c, "用户ID不能为空")
+		return
+	}
+
+	// 点数模式：加点数
+	if mode, err := services.GetMemberAppMode(req.ID); err == nil && mode == models.OperationModePoints {
+		if err := services.RechargeMemberPoints(req.ID, req.Points); err != nil {
+			memberBaseController.HandleValidationError(c, err.Error())
+			return
+		}
+		recordMemberLog(c, "用户充值", fmt.Sprintf("为用户ID %d 充值 %d 点", req.ID, req.Points))
+		memberBaseController.HandleSuccess(c, "充值成功", nil)
 		return
 	}
 
@@ -248,18 +288,30 @@ func MemberRechargeHandler(c *gin.Context) {
 	memberBaseController.HandleSuccess(c, "充值成功", nil)
 }
 
-// MemberDeductHandler 终端用户扣时API处理器
+// MemberDeductHandler 终端用户扣减API处理器（时长模式扣时长，点数模式扣点数）
 func MemberDeductHandler(c *gin.Context) {
 	var req struct {
 		ID            uint   `json:"id"`
 		DurationValue int    `json:"duration_value"`
 		DurationUnit  string `json:"duration_unit"`
+		Points        int    `json:"points"`
 	}
 	if !memberBaseController.BindJSON(c, &req) {
 		return
 	}
 	if req.ID == 0 {
 		memberBaseController.HandleValidationError(c, "用户ID不能为空")
+		return
+	}
+
+	// 点数模式：扣点数
+	if mode, err := services.GetMemberAppMode(req.ID); err == nil && mode == models.OperationModePoints {
+		if err := services.DeductMemberPoints(req.ID, req.Points); err != nil {
+			memberBaseController.HandleValidationError(c, err.Error())
+			return
+		}
+		recordMemberLog(c, "用户扣减", fmt.Sprintf("为用户ID %d 扣除 %d 点", req.ID, req.Points))
+		memberBaseController.HandleSuccess(c, "扣减成功", nil)
 		return
 	}
 
@@ -348,6 +400,81 @@ func MemberBindingsHandler(c *gin.Context) {
 		"msg":  "success",
 		"data": bindings,
 	})
+}
+
+// MemberSessionsHandler 查询终端用户的在线会话API处理器
+func MemberSessionsHandler(c *gin.Context) {
+	memberUUID := strings.TrimSpace(c.Query("member_uuid"))
+	if memberUUID == "" {
+		memberBaseController.HandleValidationError(c, "终端用户UUID不能为空")
+		return
+	}
+
+	db, ok := memberBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+
+	var sessions []models.MemberSession
+	if err := db.Where("member_uuid = ?", memberUUID).Order("last_active_at DESC").Find(&sessions).Error; err != nil {
+		memberBaseController.HandleInternalError(c, "查询会话列表失败", err)
+		return
+	}
+
+	type SessionResponse struct {
+		ID           uint   `json:"id"`
+		MachineCode  string `json:"machine_code"`
+		IP           string `json:"ip"`
+		LastActiveAt string `json:"last_active_at"`
+		CreatedAt    string `json:"created_at"`
+	}
+	list := make([]SessionResponse, 0, len(sessions))
+	for _, s := range sessions {
+		list = append(list, SessionResponse{
+			ID:           s.ID,
+			MachineCode:  s.MachineCode,
+			IP:           s.IP,
+			LastActiveAt: s.LastActiveAt.Format("2006-01-02 15:04:05"),
+			CreatedAt:    s.CreatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "msg": "success", "data": list})
+}
+
+// MemberKickSessionHandler 踢下线：删除指定会话（id）或某用户全部会话（member_uuid）
+func MemberKickSessionHandler(c *gin.Context) {
+	var req struct {
+		ID         uint   `json:"id"`
+		MemberUUID string `json:"member_uuid"`
+	}
+	if !memberBaseController.BindJSON(c, &req) {
+		return
+	}
+
+	db, ok := memberBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+
+	q := db.Model(&models.MemberSession{})
+	if req.ID > 0 {
+		q = q.Where("id = ?", req.ID)
+	} else if strings.TrimSpace(req.MemberUUID) != "" {
+		q = q.Where("member_uuid = ?", strings.TrimSpace(req.MemberUUID))
+	} else {
+		memberBaseController.HandleValidationError(c, "请指定会话ID或用户UUID")
+		return
+	}
+
+	res := q.Delete(&models.MemberSession{})
+	if res.Error != nil {
+		memberBaseController.HandleInternalError(c, "踢下线失败", res.Error)
+		return
+	}
+
+	recordMemberLog(c, "踢下线", fmt.Sprintf("下线了 %d 个会话", res.RowsAffected))
+	memberBaseController.HandleSuccess(c, "操作成功", gin.H{"count": res.RowsAffected})
 }
 
 // MemberClearBindingsHandler 清空终端用户绑定API处理器（后台解绑）
