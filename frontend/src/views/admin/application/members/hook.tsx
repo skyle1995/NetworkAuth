@@ -162,7 +162,7 @@ export function useMember() {
         },
         apps: apps.value
       },
-      width: "480px",
+      width: "600px",
       draggable: true,
       closeOnClickModal: false,
       contentRenderer: () => h(editForm, { ref: dialogFormRef } as any),

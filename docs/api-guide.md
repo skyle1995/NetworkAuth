@@ -133,7 +133,7 @@ sign      = HEX_UPPER( SHA256(raw) )
 - 请求：`{ username, password }`
 - 返回（`StatusResult`）：`{ username, status, mode, permanent, expired_at, points }`
 
-#### `22` 用户充值（用卡为账号充值）
+#### `22` 账号充值（用卡为账号充值）
 - 触发条件：应用「卡密充值」开启。按运营模式给账号加时长或加点数。
 - 请求：`{ username, card }`
 - 返回（`StatusResult`）
