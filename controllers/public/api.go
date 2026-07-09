@@ -123,6 +123,10 @@ func dispatch(c *gin.Context, app *models.App, apiType int, plainParams string) 
 		return handleSendEmailCode(app, plainParams)
 	case models.APITypeClaimTrial:
 		return handleClaimTrial(app, plainParams)
+	case models.APITypeSendResetCode:
+		return handleSendResetCode(app, plainParams)
+	case models.APITypeResetPassword:
+		return handleResetPassword(app, plainParams)
 	case models.APITypeUserRecharge:
 		return handleRecharge(app, plainParams)
 	case models.APITypeCheckUserStatus:
@@ -280,6 +284,30 @@ func handleClaimTrial(app *models.App, plainParams string) (any, error) {
 		return nil, errBadParams
 	}
 	return services.ClaimTrial(app.UUID, params.Username, params.Password)
+}
+
+// handleSendResetCode 发送找回密码验证码（type 25）
+func handleSendResetCode(app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Email string `json:"email"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	return services.SendResetCode(app.UUID, params.Email)
+}
+
+// handleResetPassword 找回密码（type 26）：邮箱验证码校验后重设密码，无需登录
+func handleResetPassword(app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Email       string `json:"email"`
+		Code        string `json:"code"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	return services.ResetPasswordByCode(app.UUID, params.Email, params.Code, params.NewPassword)
 }
 
 // handleRecharge 用户充值（type 22）：用一张卡为账号充值

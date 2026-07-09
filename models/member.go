@@ -117,10 +117,15 @@ type Member struct {
 // 结构体方法
 // ============================================================================
 
-// BeforeCreate 在创建记录前自动生成UUID
+// BeforeCreate 在创建记录前自动生成UUID，并兜底 ExpiredAt。
+// 点数模式建号会留 ExpiredAt 零值，Go 零时间写入 MySQL 会变 '0000-00-00' 被严格模式拒绝；
+// 这里置为当前时间（点数-按次忽略到期；点数-按时视为"周期已过"，首次计费心跳即购周期）。
 func (member *Member) BeforeCreate(tx *gorm.DB) error {
 	if member.UUID == "" {
 		member.UUID = strings.ToUpper(uuid.New().String())
+	}
+	if member.ExpiredAt.IsZero() {
+		member.ExpiredAt = time.Now()
 	}
 	return nil
 }

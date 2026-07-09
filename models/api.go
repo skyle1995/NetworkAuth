@@ -29,6 +29,8 @@ const (
 	APITypeUserRecharge  = 22 // 账号充值
 	APITypeSendEmailCode = 23 // 发送注册验证码
 	APITypeClaimTrial    = 24 // 领取试用
+	APITypeSendResetCode = 25 // 发送找回密码验证码
+	APITypeResetPassword = 26 // 找回密码
 
 	// 登出操作
 	APITypeLogOut = 30 // 退出登录
@@ -198,6 +200,8 @@ func GetAPITypes(categorized bool) interface{} {
 				{Type: APITypeUserRecharge, Name: "账号充值"},
 				{Type: APITypeSendEmailCode, Name: "发送注册验证码"},
 				{Type: APITypeClaimTrial, Name: "领取试用"},
+				{Type: APITypeSendResetCode, Name: "发送找回密码验证码"},
+				{Type: APITypeResetPassword, Name: "找回密码"},
 			},
 		},
 		{

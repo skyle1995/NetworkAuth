@@ -124,6 +124,99 @@ func SendRegisterCode(appUUID, email string) (any, error) {
 	return map[string]any{"message": "验证码已发送，请查收邮箱"}, nil
 }
 
+func emailResetCodeKey(appUUID, email string) string {
+	return fmt.Sprintf("email_reset_code:%s:%s", appUUID, strings.ToLower(email))
+}
+
+func emailResetCooldownKey(appUUID, email string) string {
+	return fmt.Sprintf("email_reset_cd:%s:%s", appUUID, strings.ToLower(email))
+}
+
+// SendResetCode 发送找回密码验证码到指定邮箱（邮箱必须为本应用已注册账号）。
+func SendResetCode(appUUID, email string) (any, error) {
+	appUUID = strings.TrimSpace(appUUID)
+	email = strings.TrimSpace(email)
+	if !IsValidEmail(email) {
+		return nil, errors.New("邮箱格式不正确")
+	}
+	if !utils.IsRedisAvailable() {
+		return nil, errors.New("验证码服务暂不可用")
+	}
+
+	db, err := database.GetDB()
+	if err != nil {
+		return nil, err
+	}
+	app, err := loadEnabledApp(db, appUUID)
+	if err != nil {
+		return nil, err
+	}
+	// 找回密码要求邮箱为已注册的注册型账号
+	var member models.Member
+	if err := db.Where("app_uuid = ? AND username = ?", app.UUID, email).First(&member).Error; err != nil {
+		return nil, errors.New("该邮箱未注册")
+	}
+	if member.Type != models.MemberTypeRegister || member.PasswordSalt == "" {
+		return nil, errors.New("该账号不支持找回密码")
+	}
+
+	ctx := context.Background()
+	rdb := utils.GetRedis()
+	if exists, _ := rdb.Exists(ctx, emailResetCooldownKey(appUUID, email)).Result(); exists > 0 {
+		return nil, errors.New("发送过于频繁，请稍后再试")
+	}
+
+	code, err := genNumericCode(6)
+	if err != nil {
+		return nil, err
+	}
+	if err := rdb.Set(ctx, emailResetCodeKey(appUUID, email), code, emailCodeTTL).Err(); err != nil {
+		return nil, errors.New("验证码存储失败")
+	}
+	rdb.Set(ctx, emailResetCooldownKey(appUUID, email), "1", emailCodeCooldown)
+
+	subject := fmt.Sprintf("【%s】找回密码验证码", app.Name)
+	body := fmt.Sprintf(
+		`<div style="font-family:sans-serif;font-size:14px;color:#333">`+
+			`<p>您正在找回 <b>%s</b> 的账号密码，验证码为：</p>`+
+			`<p style="font-size:24px;font-weight:bold;letter-spacing:4px;color:#409eff">%s</p>`+
+			`<p style="color:#888">验证码 10 分钟内有效，请勿泄露给他人。若非本人操作请忽略。</p></div>`,
+		app.Name, code)
+
+	if err := SendMail(email, subject, body); err != nil {
+		rdb.Del(ctx, emailResetCodeKey(appUUID, email), emailResetCooldownKey(appUUID, email))
+		return nil, errors.New("邮件发送失败: " + err.Error())
+	}
+
+	return map[string]any{"message": "验证码已发送，请查收邮箱"}, nil
+}
+
+// VerifyResetCode 校验找回密码验证码；成功后删除，防止复用。
+func VerifyResetCode(appUUID, email, code string) error {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return errors.New("验证码不能为空")
+	}
+	if !utils.IsRedisAvailable() {
+		return errors.New("验证码服务暂不可用")
+	}
+	ctx := context.Background()
+	rdb := utils.GetRedis()
+	key := emailResetCodeKey(appUUID, email)
+	stored, err := rdb.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return errors.New("验证码不存在或已过期")
+	}
+	if err != nil {
+		return errors.New("验证码校验失败")
+	}
+	if stored != code {
+		return errors.New("验证码错误")
+	}
+	rdb.Del(ctx, key)
+	return nil
+}
+
 // VerifyRegisterCode 校验注册验证码；成功后删除，防止复用。
 func VerifyRegisterCode(appUUID, email, code string) error {
 	code = strings.TrimSpace(code)

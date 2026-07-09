@@ -530,7 +530,7 @@ onUnmounted(() => {
             <el-table-column
               prop="message"
               label="登录信息"
-              width="150"
+              width="240"
               :formatter="emptyFormatter"
             />
             <el-table-column

@@ -152,6 +152,15 @@ sign      = HEX_UPPER( SHA256(raw) )
 - 请求：`{ username, password }`
 - 返回（`StatusResult`）：`{ username, status, mode, permanent, expired_at, points }`
 
+#### `25` 发送找回密码验证码
+- 请求：`{ email }`（邮箱须为本应用**已注册**账号）
+- 返回：`{ message }`；依赖 SMTP 配置 + Redis。验证码 10 分钟有效、60 秒冷却。
+
+#### `26` 找回密码（忘记密码，无需登录）
+- 请求：`{ email, code, new_password }`
+- 返回：`{ message: "密码重置成功，请用新密码登录" }`
+- 说明：先调 `25` 取码,再带 `code` + 新密码重置。**不需要 token/旧密码**,专供忘记密码的用户;重置成功后该账号全部会话被清空。
+
 #### `22` 账号充值（用卡为账号充值）
 - 触发条件：应用「卡密充值」开启。按运营模式给账号加时长或加点数。
 - 请求：`{ username, card }`

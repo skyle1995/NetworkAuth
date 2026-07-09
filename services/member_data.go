@@ -161,3 +161,54 @@ func ChangeMemberPassword(appUUID, token, oldPassword, newPassword string) (any,
 	}
 	return map[string]any{"message": "密码修改成功，请重新登录"}, nil
 }
+
+// ResetPasswordByCode 找回密码（type 26）：邮箱验证码校验通过后重设密码，无需登录/旧密码。
+// 仅注册账号支持；重置后清空该账号全部会话。
+func ResetPasswordByCode(appUUID, email, code, newPassword string) (any, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if strings.TrimSpace(newPassword) == "" {
+		return nil, errors.New("新密码不能为空")
+	}
+	db, err := database.GetDB()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := loadEnabledApp(db, appUUID); err != nil {
+		return nil, err
+	}
+	// 先校验验证码
+	if err := VerifyResetCode(appUUID, email, code); err != nil {
+		return nil, err
+	}
+
+	var member models.Member
+	if err := db.Where("app_uuid = ? AND username = ?", strings.TrimSpace(appUUID), email).First(&member).Error; err != nil {
+		return nil, errors.New("该邮箱未注册")
+	}
+	if member.Type != models.MemberTypeRegister || member.PasswordSalt == "" {
+		return nil, errors.New("该账号不支持找回密码")
+	}
+
+	salt, err := utils.GenerateRandomSalt()
+	if err != nil {
+		return nil, err
+	}
+	hashed, err := utils.HashPasswordWithSalt(newPassword, salt)
+	if err != nil {
+		return nil, err
+	}
+	err = db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&member).Updates(map[string]interface{}{
+			"password":      hashed,
+			"password_salt": salt,
+		}).Error; err != nil {
+			return err
+		}
+		// 重置后清除全部会话
+		return tx.Where("member_uuid = ?", member.UUID).Delete(&models.MemberSession{}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"message": "密码重置成功，请用新密码登录"}, nil
+}
