@@ -620,9 +620,11 @@ func toFloat(v any) float64 {
 func TestSessionCleanupSweep(t *testing.T) {
 	db := setupPublicTestDB(t)
 	delete(lastSessionSweep, "APP-1") // 确保本次会执行清理
+	// 自动离线时长设为 10 分钟，用于验证按 OfflineTimeout 清理
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("offline_timeout", 10)
 
 	now := time.Now()
-	// 失效会话（超过 CheckInterval=10 分钟未活跃）
+	// 失效会话（超过 OfflineTimeout=10 分钟未心跳）
 	db.Create(&models.MemberSession{
 		Token: "stale", MemberUUID: "m1", AppUUID: "APP-1",
 		LastActiveAt: now.Add(-20 * time.Minute),

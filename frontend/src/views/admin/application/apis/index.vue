@@ -20,6 +20,9 @@ const {
   appList,
   apiTypes,
   pagination,
+  selectedIds,
+  handleSelectionChange,
+  openBatchDialog,
   onSearch,
   resetForm,
   openDialog,
@@ -132,6 +135,18 @@ async function handleExport() {
 
     <el-card shadow="never" class="table-wrapper mt-4">
       <PureTableBar title="接口设置" :columns="columns" @refresh="onSearch">
+        <template #buttons>
+          <el-button
+            type="primary"
+            :icon="useRenderIcon('ep:lock')"
+            :disabled="selectedIds.length === 0"
+            @click="openBatchDialog"
+          >
+            批量设置算法{{
+              selectedIds.length ? `(${selectedIds.length})` : ""
+            }}
+          </el-button>
+        </template>
         <template v-slot="{ size, dynamicColumns }">
           <pure-table
             ref="tableRef"
@@ -148,6 +163,7 @@ async function handleExport() {
               color: 'var(--el-text-color-primary)'
             }"
             class="w-full"
+            @selection-change="handleSelectionChange"
           >
             <template #operation="{ row }">
               <el-button

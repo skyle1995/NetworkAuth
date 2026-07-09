@@ -117,6 +117,7 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			apisGroup.GET("/types", adminctl.APIGetTypesHandler)
 			apisGroup.GET("/export", adminctl.SuperAdminRequired(), adminctl.APIExportKeysHandler)
 			apisGroup.POST("/generate_keys", adminctl.APIGenerateKeysHandler)
+			apisGroup.POST("/batch_set", adminctl.APIBatchSetAlgorithmHandler)
 		}
 
 		// 变量管理API

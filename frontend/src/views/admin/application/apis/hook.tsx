@@ -5,7 +5,8 @@ import {
   updateApi,
   updateApiStatus,
   getApiTypes,
-  generateApiKeys
+  generateApiKeys,
+  batchSetApiAlgorithm
 } from "@/api/admin/api";
 import { getAppsList } from "@/api/admin/app";
 import type { PaginationProps } from "@pureadmin/table";
@@ -13,6 +14,7 @@ import { reactive, ref, onMounted, toRaw, h } from "vue";
 import { ElMessageBox } from "element-plus";
 import { addDialog } from "@/components/ReDialog";
 import editForm from "./form.vue";
+import batchForm from "./batchForm.vue";
 
 export function useApi() {
   const form = reactive({
@@ -32,7 +34,18 @@ export function useApi() {
     background: true
   });
 
+  // 选中的接口 ID（用于批量设置）
+  const selectedIds = ref<number[]>([]);
+  function handleSelectionChange(rows: any[]) {
+    selectedIds.value = rows.map(r => r.id);
+  }
+
   const columns: TableColumnList = [
+    {
+      type: "selection",
+      width: 55,
+      align: "center"
+    },
     {
       label: "ID",
       prop: "id",
@@ -307,6 +320,49 @@ export function useApi() {
     });
   }
 
+  // 批量设置加密方式 + 自动重新生成密钥
+  function openBatchDialog() {
+    if (selectedIds.value.length === 0) {
+      message("请先勾选要设置的接口", { type: "warning" });
+      return;
+    }
+    addDialog({
+      title: "批量设置算法",
+      props: {
+        formInline: {
+          submit_algorithm: 0,
+          return_algorithm: 0,
+          count: selectedIds.value.length
+        }
+      },
+      width: "460px",
+      draggable: true,
+      closeOnClickModal: false,
+      contentRenderer: () => h(batchForm),
+      beforeSure: async (done, { options }) => {
+        const cur = options.props.formInline as any;
+        try {
+          const { code, msg } = await batchSetApiAlgorithm({
+            ids: selectedIds.value,
+            submit_algorithm: cur.submit_algorithm,
+            return_algorithm: cur.return_algorithm
+          });
+          if (code === 0) {
+            message("批量设置成功，密钥已重新生成", { type: "success" });
+            done();
+            selectedIds.value = [];
+            onSearch();
+          } else {
+            message(msg || "设置失败", { type: "error" });
+          }
+        } catch (e) {
+          console.error(e);
+          message("设置失败", { type: "error" });
+        }
+      }
+    });
+  }
+
   onMounted(() => {
     fetchApps();
     fetchApiTypes();
@@ -321,6 +377,9 @@ export function useApi() {
     appList,
     apiTypes,
     pagination,
+    selectedIds,
+    handleSelectionChange,
+    openBatchDialog,
     onSearch,
     resetForm,
     openDialog,

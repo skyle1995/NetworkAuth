@@ -823,6 +823,7 @@ func AppGetMultiConfigHandler(c *gin.Context) {
 			"multi_open_scope": app.MultiOpenScope,
 			"clean_interval":   app.CleanInterval,
 			"check_interval":   app.CheckInterval,
+			"offline_timeout":  app.OfflineTimeout,
 			"multi_open_count": app.MultiOpenCount,
 		},
 	})
@@ -837,6 +838,7 @@ func AppUpdateMultiConfigHandler(c *gin.Context) {
 		MultiOpenScope int    `json:"multi_open_scope"`
 		CleanInterval  int    `json:"clean_interval"`
 		CheckInterval  int    `json:"check_interval"`
+		OfflineTimeout int    `json:"offline_timeout"`
 		MultiOpenCount int    `json:"multi_open_count"`
 	}
 
@@ -888,7 +890,21 @@ func AppUpdateMultiConfigHandler(c *gin.Context) {
 	if req.CheckInterval < 1 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code": 1,
-			"msg":  "校验间隔必须大于0",
+			"msg":  "心跳间隔必须大于0",
+		})
+		return
+	}
+	if req.OfflineTimeout < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 1,
+			"msg":  "自动离线时长必须大于0",
+		})
+		return
+	}
+	if req.OfflineTimeout < req.CheckInterval {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 1,
+			"msg":  "自动离线时长应不小于心跳间隔",
 		})
 		return
 	}
@@ -923,6 +939,7 @@ func AppUpdateMultiConfigHandler(c *gin.Context) {
 		"multi_open_scope": req.MultiOpenScope,
 		"clean_interval":   req.CleanInterval,
 		"check_interval":   req.CheckInterval,
+		"offline_timeout":  req.OfflineTimeout,
 		"multi_open_count": req.MultiOpenCount,
 	}
 

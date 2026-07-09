@@ -39,12 +39,14 @@ const (
 	APITypeGetAppData      = 42 // 获取程序数据
 	APITypeGetVariable     = 43 // 获取变量数据
 	APITypeExecuteFunction = 44 // 执行远程函数（服务端沙箱执行）
+	APITypeGetUserData     = 45 // 获取账号数据（当前用户独有数据）
 
 	// 用户操作
 	APITypeUpdatePwd     = 50 // 修改账号密码
 	APITypeMacChangeBind = 51 // 机器码转绑
 	APITypeIPChangeBind  = 52 // IP转绑
 	APITypeDeductPoints  = 53 // 功能扣点（点数模式）
+	APITypeSetUserData   = 54 // 设置账号数据（当前用户独有数据）
 
 	// 风控操作
 	APITypeDisableUser      = 60 // 封停用户
@@ -212,6 +214,7 @@ func GetAPITypes(categorized bool) interface{} {
 				{Type: APITypeGetAppData, Name: "获取程序数据"},
 				{Type: APITypeGetVariable, Name: "获取变量数据"},
 				{Type: APITypeExecuteFunction, Name: "执行远程函数"},
+				{Type: APITypeGetUserData, Name: "获取账号数据"},
 			},
 		},
 		{
@@ -221,6 +224,7 @@ func GetAPITypes(categorized bool) interface{} {
 				{Type: APITypeMacChangeBind, Name: "机器码转绑"},
 				{Type: APITypeIPChangeBind, Name: "IP转绑"},
 				{Type: APITypeDeductPoints, Name: "功能扣点"},
+				{Type: APITypeSetUserData, Name: "设置账号数据"},
 			},
 		},
 		{

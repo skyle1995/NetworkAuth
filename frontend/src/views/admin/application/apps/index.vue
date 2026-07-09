@@ -286,7 +286,8 @@ async function openMultiConfigDialog(uuid: string) {
             login_type: 0,
             multi_open_scope: 0,
             clean_interval: 1,
-            check_interval: 1,
+            check_interval: 10,
+            offline_timeout: 30,
             multi_open_count: 1
           }
         },

@@ -24,13 +24,14 @@ import (
 
 // LoginResult 登录成功返回的信息
 type LoginResult struct {
-	Token     string    `json:"token"`
-	Username  string    `json:"username"`
-	Type      int       `json:"type"`
-	Mode      int       `json:"mode"` // 运营模式：0时长/1点数
-	Permanent bool      `json:"permanent"`
-	ExpiredAt time.Time `json:"expired_at"` // 时长模式有效
-	Points    int       `json:"points"`     // 点数模式有效
+	Token             string    `json:"token"`
+	Username          string    `json:"username"`
+	Type              int       `json:"type"`
+	Mode              int       `json:"mode"` // 运营模式：0时长/1点数
+	Permanent         bool      `json:"permanent"`
+	ExpiredAt         time.Time `json:"expired_at"`         // 时长模式有效
+	Points            int       `json:"points"`             // 点数模式有效
+	HeartbeatInterval int       `json:"heartbeat_interval"` // 心跳间隔（分钟），客户端据此周期心跳
 }
 
 // StatusResult 账号状态查询返回的信息
@@ -266,7 +267,7 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 			return err
 		}
 		// 清理该用户的失效会话（超过校验间隔未活跃）
-		if err := cleanStaleSessions(tx, member.UUID, app.CheckInterval); err != nil {
+		if err := cleanStaleSessions(tx, member.UUID, offlineTimeoutMinutes(app)); err != nil {
 			return err
 		}
 		// 多开数量控制：按「多开范围」以设备/IP/会话为单位计数
@@ -352,14 +353,31 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 	AddMemberLog(member.AppUUID, member.UUID, member.Username, loginAction, machineCode, ip)
 
 	return &LoginResult{
-		Token:     token,
-		Username:  member.Username,
-		Type:      member.Type,
-		Mode:      app.OperationMode,
-		Permanent: isPermanent(member.ExpiredAt),
-		ExpiredAt: member.ExpiredAt,
-		Points:    member.Points,
+		Token:             token,
+		Username:          member.Username,
+		Type:              member.Type,
+		Mode:              app.OperationMode,
+		Permanent:         isPermanent(member.ExpiredAt),
+		ExpiredAt:         member.ExpiredAt,
+		Points:            member.Points,
+		HeartbeatInterval: heartbeatMinutes(app),
 	}, nil
+}
+
+// heartbeatMinutes 返回应用的心跳间隔（分钟），未配置时回退默认 10。
+func heartbeatMinutes(app *models.App) int {
+	if app.CheckInterval <= 0 {
+		return 10
+	}
+	return app.CheckInterval
+}
+
+// offlineTimeoutMinutes 返回应用的自动离线时长（分钟），未配置时回退默认 30。
+func offlineTimeoutMinutes(app *models.App) int {
+	if app.OfflineTimeout <= 0 {
+		return 30
+	}
+	return app.OfflineTimeout
 }
 
 // sessionOpenKey 依据多开范围计算一个会话属于哪个「开」：
@@ -674,7 +692,8 @@ func AccountRegister(appUUID, email, password, code, registerIP string) (*Status
 	return buildStatusResult(app, &member), nil
 }
 
-// ClaimTrial 领取试用时长：按应用配置限制账号每天/永久领取次数。
+// ClaimTrial 领取试用：按应用配置限制账号每天/永久领取次数。
+// trial_duration 按运营模式解释——时长模式为分钟数，点数模式为点数。
 func ClaimTrial(appUUID, username, password string) (*StatusResult, error) {
 	username = strings.TrimSpace(username)
 	if username == "" || password == "" {
@@ -690,9 +709,6 @@ func ClaimTrial(appUUID, username, password string) (*StatusResult, error) {
 	}
 	if app.TrialEnabled != 1 || app.TrialDuration <= 0 {
 		return nil, errors.New("该应用未开启试用领取")
-	}
-	if app.OperationMode == models.OperationModePoints {
-		return nil, errors.New("点数模式不支持领取试用")
 	}
 
 	var member models.Member
@@ -715,18 +731,26 @@ func ClaimTrial(appUUID, username, password string) (*StatusResult, error) {
 		return nil, errors.New("试用领取次数已达上限")
 	}
 
-	base := member.ExpiredAt
-	if base.Before(time.Now()) || base.IsZero() {
-		base = time.Now()
-	}
-	member.ExpiredAt = base.Add(time.Duration(app.TrialDuration) * time.Minute)
 	member.TrialUsed = used + 1
 	member.TrialDate = today
-	if err := db.Model(&member).Updates(map[string]interface{}{
-		"expired_at": member.ExpiredAt,
+	updates := map[string]interface{}{
 		"trial_used": member.TrialUsed,
 		"trial_date": member.TrialDate,
-	}).Error; err != nil {
+	}
+	if app.OperationMode == models.OperationModePoints {
+		// 点数模式：发放试用点数
+		member.Points += app.TrialDuration
+		updates["points"] = member.Points
+	} else {
+		// 时长模式：在当前到期时间（或现在）基础上顺延试用时长
+		base := member.ExpiredAt
+		if base.Before(time.Now()) || base.IsZero() {
+			base = time.Now()
+		}
+		member.ExpiredAt = base.Add(time.Duration(app.TrialDuration) * time.Minute)
+		updates["expired_at"] = member.ExpiredAt
+	}
+	if err := db.Model(&member).Updates(updates).Error; err != nil {
 		return nil, err
 	}
 	return buildStatusResult(app, &member), nil

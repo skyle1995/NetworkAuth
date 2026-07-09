@@ -39,6 +39,41 @@ func GetAppData(appUUID, token string) (any, error) {
 	return map[string]any{"data": data, "user_data": member.Data}, nil
 }
 
+// maxUserDataBytes 账号数据最大字节数（64KB），防止客户端写入过大内容。
+const maxUserDataBytes = 64 * 1024
+
+// GetUserData 获取账号数据（type 45）：返回当前登录用户的独有数据。
+func GetUserData(appUUID, token string) (any, error) {
+	db, err := database.GetDB()
+	if err != nil {
+		return nil, err
+	}
+	member, _, err := authActiveMember(db, appUUID, token)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"user_data": member.Data}, nil
+}
+
+// SetUserData 设置账号数据（type 54）：写入当前登录用户的独有数据（覆盖式）。
+func SetUserData(appUUID, token, data string) (any, error) {
+	if len(data) > maxUserDataBytes {
+		return nil, errors.New("账号数据过大，最大 64KB")
+	}
+	db, err := database.GetDB()
+	if err != nil {
+		return nil, err
+	}
+	member, _, err := authActiveMember(db, appUUID, token)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Model(member).Update("data", data).Error; err != nil {
+		return nil, err
+	}
+	return map[string]any{"message": "保存成功"}, nil
+}
+
 // GetVariable 获取变量数据（type 43）：按别名返回本应用或全局变量的数据。
 func GetVariable(appUUID, token, alias string) (any, error) {
 	alias = strings.TrimSpace(alias)

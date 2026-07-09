@@ -103,6 +103,9 @@ func runServer(cmd *cobra.Command, args []string) {
 				}
 			}
 
+			// 为现有应用补齐缺失的默认接口记录（新增 api_type 后向后兼容）
+			services.EnsureAppAPIs()
+
 			// 初始化加密管理器
 			// 从数据库设置中获取加密密钥
 			encryptionKey := services.GetSettingsService().GetEncryptionKey()

@@ -13,7 +13,7 @@ import (
 // ============================================================================
 //
 // 后台按各应用的 CleanInterval（清理间隔，小时）周期性扫描，删除超过该应用
-// CheckInterval（校验间隔，分钟）未活跃的会话——即使用户不再登录也能主动腾出
+// OfflineTimeout（自动离线时长，分钟）未心跳的会话——即使用户不再登录也能主动腾出
 // 多开名额、还原真实在线数。同时清理归属应用已不存在的孤儿会话。
 
 // 每个应用上次清理时间，用于按 CleanInterval 控制各自的清理节奏。
@@ -38,12 +38,12 @@ func sweepSessions() {
 	}
 
 	var apps []struct {
-		UUID          string
-		CleanInterval int
-		CheckInterval int
+		UUID           string
+		CleanInterval  int
+		OfflineTimeout int
 	}
 	if err := db.Model(&models.App{}).
-		Select("uuid, clean_interval, check_interval").Find(&apps).Error; err != nil {
+		Select("uuid, clean_interval, offline_timeout").Find(&apps).Error; err != nil {
 		return
 	}
 
@@ -63,11 +63,11 @@ func sweepSessions() {
 		}
 		lastSessionSweep[app.UUID] = now
 
-		checkMin := app.CheckInterval
-		if checkMin <= 0 {
-			checkMin = 10
+		offlineMin := app.OfflineTimeout
+		if offlineMin <= 0 {
+			offlineMin = 30
 		}
-		deadline := now.Add(-time.Duration(checkMin) * time.Minute)
+		deadline := now.Add(-time.Duration(offlineMin) * time.Minute)
 		res := db.Where("app_uuid = ? AND last_active_at < ?", app.UUID, deadline).
 			Delete(&models.MemberSession{})
 		if res.Error == nil && res.RowsAffected > 0 {

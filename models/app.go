@@ -72,8 +72,10 @@ type App struct {
 	MultiOpenScope int `gorm:"default:2;not null;comment:多开范围，0=单电脑，1=单IP，2=全部电脑" json:"multi_open_scope"`
 	// CleanInterval：清理间隔（单位：小时，默认1小时）
 	CleanInterval int `gorm:"default:1;not null;comment:清理间隔，单位小时" json:"clean_interval"`
-	// CheckInterval：校验间隔（单位：分钟，默认10分钟）
-	CheckInterval int `gorm:"default:10;not null;comment:校验间隔，单位分钟" json:"check_interval"`
+	// CheckInterval：心跳间隔（单位：分钟，默认10分钟）——登录后返回客户端，告知其心跳周期
+	CheckInterval int `gorm:"default:10;not null;comment:心跳间隔，单位分钟" json:"check_interval"`
+	// OfflineTimeout：自动离线时长（单位：分钟，默认30分钟）——超过该时长未心跳，后台扫描自动离线
+	OfflineTimeout int `gorm:"default:30;not null;comment:自动离线时长，单位分钟" json:"offline_timeout"`
 	// MultiOpenCount：多开数量（默认1）
 	MultiOpenCount int `gorm:"default:1;not null;comment:多开数量" json:"multi_open_count"`
 

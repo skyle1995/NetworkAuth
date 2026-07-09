@@ -6,6 +6,7 @@ import (
 	"NetworkAuth/services"
 	"NetworkAuth/utils/encrypt"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -325,15 +326,8 @@ func APIGetTypesHandler(c *gin.Context) {
 	var apiTypes []APITypeItem
 
 	// 获取所有有效的API类型
-	validTypes := []int{
-		models.APITypeGetBulletin, models.APITypeGetUpdateUrl, models.APITypeCheckAppVersion, models.APITypeGetCardInfo,
-		models.APITypeSingleLogin,
-		models.APITypeUserLogin, models.APITypeUserRegin, models.APITypeUserRecharge, models.APITypeSendEmailCode,
-		models.APITypeLogOut,
-		models.APITypeGetExpired, models.APITypeCheckUserStatus, models.APITypeGetAppData, models.APITypeGetVariable,
-		models.APITypeUpdatePwd, models.APITypeMacChangeBind, models.APITypeIPChangeBind, models.APITypeDeductPoints,
-		models.APITypeDisableUser, models.APITypeBlackUser, models.APITypeUserDeductedTime,
-	}
+	// 直接取全部默认接口类型，避免此处硬编码遗漏
+	validTypes := models.GetDefaultAPITypes()
 
 	for _, apiType := range validTypes {
 		apiTypes = append(apiTypes, APITypeItem{
@@ -413,75 +407,126 @@ func APIGenerateKeysHandler(c *gin.Context) {
 		return
 	}
 
-	// 根据算法生成密钥/证书
-	result := map[string]interface{}{}
-
-	switch req.Algorithm {
-	case models.AlgorithmNone:
-		// 不加密不生成任何密钥
-		result["public_key"] = ""
-		result["private_key"] = ""
-	case models.AlgorithmRC4:
-		// 生成16字节随机密钥并返回16位十六进制（大写）
-		key, err := encrypt.GenerateRC4Key(8) // 生成8字节密钥
-		if err != nil {
-			logrus.WithError(err).Error("Failed to generate RC4 key")
-			apiBaseController.HandleInternalError(c, "生成RC4密钥失败", err)
-			return
-		}
-		result["public_key"] = ""
-		result["private_key"] = strings.ToUpper(hex.EncodeToString(key))
-	case models.AlgorithmRSA:
-		// 生成标准RSA 2048密钥对，返回PEM明文字符串
-		publicKey, privateKey, err := encrypt.GenerateRSAKeyPair(2048)
-		if err != nil {
-			logrus.WithError(err).Error("Failed to generate RSA key pair")
-			apiBaseController.HandleInternalError(c, "生成RSA密钥失败", err)
-			return
-		}
-
-		// 转换为PEM格式
-		publicKeyPEM, err := encrypt.PublicKeyToPEM(publicKey)
-		if err != nil {
-			logrus.WithError(err).Error("Failed to convert public key to PEM")
-			apiBaseController.HandleInternalError(c, "转换公钥格式失败", err)
-			return
-		}
-
-		privateKeyPEM, err := encrypt.PrivateKeyToPEM(privateKey)
-		if err != nil {
-			logrus.WithError(err).Error("Failed to convert private key to PEM")
-			apiBaseController.HandleInternalError(c, "转换私钥格式失败", err)
-			return
-		}
-
-		result["public_key"] = publicKeyPEM
-		result["private_key"] = privateKeyPEM
-	case models.AlgorithmRSADynamic:
-		// 生成RSA动态加密密钥对，返回PEM明文字符串
-		publicKeyPEM, privateKeyPEM, err := encrypt.GenerateRSADynamicKeyPair(2048)
-		if err != nil {
-			logrus.WithError(err).Error("Failed to generate RSA dynamic key pair")
-			apiBaseController.HandleInternalError(c, "生成RSA动态密钥失败", err)
-			return
-		}
-
-		result["public_key"] = publicKeyPEM
-		result["private_key"] = privateKeyPEM
-	case models.AlgorithmEasy:
-		// 生成易加密密钥对，返回逗号分隔的整数数组字符串
-		encryptKey, _, err := encrypt.GenerateEasyKey()
-		if err != nil {
-			logrus.WithError(err).Error("Failed to generate Easy encryption key")
-			apiBaseController.HandleInternalError(c, "生成易加密密钥失败", err)
-			return
-		}
-		result["public_key"] = ""
-		result["private_key"] = encrypt.FormatKeyAsString(encryptKey)
-	default:
-		apiBaseController.HandleValidationError(c, "不支持的算法类型")
+	pub, priv, err := generateAlgorithmKeys(req.Algorithm)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to generate keys")
+		apiBaseController.HandleInternalError(c, "生成密钥失败", err)
 		return
 	}
 
-	apiBaseController.HandleSuccess(c, "生成成功", result)
+	apiBaseController.HandleSuccess(c, "生成成功", map[string]interface{}{
+		"public_key":  pub,
+		"private_key": priv,
+	})
+}
+
+// generateAlgorithmKeys 按算法生成一对(公钥, 私钥)明文；不加密返回空串。
+// RC4/易加密只有私钥；RSA/RSA动态返回 PEM 公私钥。
+func generateAlgorithmKeys(algorithm int) (string, string, error) {
+	switch algorithm {
+	case models.AlgorithmNone:
+		return "", "", nil
+	case models.AlgorithmRC4:
+		key, err := encrypt.GenerateRC4Key(8)
+		if err != nil {
+			return "", "", err
+		}
+		return "", strings.ToUpper(hex.EncodeToString(key)), nil
+	case models.AlgorithmRSA:
+		publicKey, privateKey, err := encrypt.GenerateRSAKeyPair(2048)
+		if err != nil {
+			return "", "", err
+		}
+		pubPEM, err := encrypt.PublicKeyToPEM(publicKey)
+		if err != nil {
+			return "", "", err
+		}
+		privPEM, err := encrypt.PrivateKeyToPEM(privateKey)
+		if err != nil {
+			return "", "", err
+		}
+		return pubPEM, privPEM, nil
+	case models.AlgorithmRSADynamic:
+		pubPEM, privPEM, err := encrypt.GenerateRSADynamicKeyPair(2048)
+		if err != nil {
+			return "", "", err
+		}
+		return pubPEM, privPEM, nil
+	case models.AlgorithmEasy:
+		encryptKey, _, err := encrypt.GenerateEasyKey()
+		if err != nil {
+			return "", "", err
+		}
+		return "", encrypt.FormatKeyAsString(encryptKey), nil
+	default:
+		return "", "", errors.New("不支持的算法类型")
+	}
+}
+
+// APIBatchSetAlgorithmHandler 批量设置所选接口的加密方式，并自动(重新)生成密钥。
+// 无论原接口是否已生成密钥，都会按新算法重新生成并覆盖。
+func APIBatchSetAlgorithmHandler(c *gin.Context) {
+	var req struct {
+		IDs             []uint `json:"ids"`
+		SubmitAlgorithm int    `json:"submit_algorithm"`
+		ReturnAlgorithm int    `json:"return_algorithm"`
+	}
+	if !apiBaseController.BindJSON(c, &req) {
+		return
+	}
+	if len(req.IDs) == 0 {
+		apiBaseController.HandleValidationError(c, "请选择要设置的接口")
+		return
+	}
+	if !models.IsValidAlgorithm(req.SubmitAlgorithm) || !models.IsValidAlgorithm(req.ReturnAlgorithm) {
+		apiBaseController.HandleValidationError(c, "无效的算法类型")
+		return
+	}
+
+	db, ok := apiBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+
+	var apis []models.API
+	if err := db.Where("id IN ?", req.IDs).Find(&apis).Error; err != nil {
+		apiBaseController.HandleInternalError(c, "查询接口失败", err)
+		return
+	}
+
+	updated := 0
+	for i := range apis {
+		submitPub, submitPriv, err := generateAlgorithmKeys(req.SubmitAlgorithm)
+		if err != nil {
+			apiBaseController.HandleInternalError(c, "生成提交算法密钥失败", err)
+			return
+		}
+		returnPub, returnPriv, err := generateAlgorithmKeys(req.ReturnAlgorithm)
+		if err != nil {
+			apiBaseController.HandleInternalError(c, "生成返回算法密钥失败", err)
+			return
+		}
+		// 用 map 更新以保证空字符串（不加密）也能写入，覆盖旧密钥
+		if err := db.Model(&models.API{}).Where("id = ?", apis[i].ID).Updates(map[string]interface{}{
+			"submit_algorithm":   req.SubmitAlgorithm,
+			"return_algorithm":   req.ReturnAlgorithm,
+			"submit_public_key":  submitPub,
+			"submit_private_key": submitPriv,
+			"return_public_key":  returnPub,
+			"return_private_key": returnPriv,
+		}).Error; err != nil {
+			apiBaseController.HandleInternalError(c, "更新接口失败", err)
+			return
+		}
+		updated++
+	}
+
+	operator := c.GetString("admin_username")
+	if operator == "" {
+		operator = "unknown"
+	}
+	services.RecordOperationLog("批量设置接口算法", operator, c.GetString("admin_uuid"),
+		fmt.Sprintf("批量设置 %d 个接口的加密算法并重新生成密钥", updated))
+
+	apiBaseController.HandleSuccess(c, fmt.Sprintf("已设置 %d 个接口", updated), gin.H{"updated": updated})
 }

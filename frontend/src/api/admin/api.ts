@@ -39,3 +39,8 @@ export const generateApiKeys = (data?: object) => {
     data
   });
 };
+
+/** 批量设置接口加密方式并自动(重新)生成密钥 */
+export const batchSetApiAlgorithm = (data?: object) => {
+  return http.request<ApiResult>("post", "/api/admin/apis/batch_set", { data });
+};

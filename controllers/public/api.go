@@ -135,6 +135,10 @@ func dispatch(c *gin.Context, app *models.App, apiType int, plainParams string) 
 		return handleGetVariable(app, plainParams)
 	case models.APITypeExecuteFunction:
 		return handleExecuteFunction(app, plainParams)
+	case models.APITypeGetUserData:
+		return handleGetUserData(app, plainParams)
+	case models.APITypeSetUserData:
+		return handleSetUserData(app, plainParams)
 	case models.APITypeUpdatePwd:
 		return handleUpdatePassword(app, plainParams)
 	case models.APITypeMacChangeBind:
@@ -331,6 +335,29 @@ func handleExecuteFunction(app *models.App, plainParams string) (any, error) {
 		return nil, err
 	}
 	return map[string]any{"result": result}, nil
+}
+
+// handleGetUserData 获取账号数据（type 45）
+func handleGetUserData(app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Token string `json:"token"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	return services.GetUserData(app.UUID, params.Token)
+}
+
+// handleSetUserData 设置账号数据（type 54）
+func handleSetUserData(app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Token string `json:"token"`
+		Data  string `json:"data"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	return services.SetUserData(app.UUID, params.Token, params.Data)
 }
 
 // handleUpdatePassword 修改账号密码（type 50）

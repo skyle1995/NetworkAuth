@@ -31,8 +31,10 @@ const props = withDefaults(defineProps<FormProps>(), {
 
 const newFormInline = ref(props.formInline);
 
-// 点数模式不支持领取试用（试用按时长发放），后端会直接拒绝
+// 点数模式发放试用点数，时长模式发放试用时长
 const isPoints = computed(() => props.operation_mode === 1);
+const trialLabel = computed(() => (isPoints.value ? "试用点数" : "试用时长"));
+const trialUnit = computed(() => (isPoints.value ? "点" : "分钟"));
 
 function getRef() {
   return formRef.value;
@@ -74,31 +76,21 @@ defineExpose({ getRef, newFormInline });
     </el-form-item>
 
     <el-divider>领取试用设置</el-divider>
-    <el-alert
-      v-if="isPoints"
-      type="info"
-      :closable="false"
-      show-icon
-      title="当前为点数模式，不支持领取试用（试用按时长发放）"
-      class="mb-3"
-    />
-    <template v-else>
-      <el-form-item label="领取试用" prop="trial_enabled">
-        <el-radio-group v-model="newFormInline.trial_enabled">
-          <el-radio :value="0">关闭</el-radio>
-          <el-radio :value="1">开启</el-radio>
-        </el-radio-group>
-      </el-form-item>
-      <el-form-item label="限制时间" prop="trial_limit_time">
-        <el-radio-group v-model="newFormInline.trial_limit_time">
-          <el-radio :value="0">每天</el-radio>
-          <el-radio :value="1">永久</el-radio>
-        </el-radio-group>
-      </el-form-item>
-      <el-form-item label="试用时长" prop="trial_duration">
-        <el-input-number v-model="newFormInline.trial_duration" :min="1" />
-        <span class="ml-2">分钟</span>
-      </el-form-item>
-    </template>
+    <el-form-item label="领取试用" prop="trial_enabled">
+      <el-radio-group v-model="newFormInline.trial_enabled">
+        <el-radio :value="0">关闭</el-radio>
+        <el-radio :value="1">开启</el-radio>
+      </el-radio-group>
+    </el-form-item>
+    <el-form-item label="限制时间" prop="trial_limit_time">
+      <el-radio-group v-model="newFormInline.trial_limit_time">
+        <el-radio :value="0">每天</el-radio>
+        <el-radio :value="1">永久</el-radio>
+      </el-radio-group>
+    </el-form-item>
+    <el-form-item :label="trialLabel" prop="trial_duration">
+      <el-input-number v-model="newFormInline.trial_duration" :min="1" />
+      <span class="ml-2">{{ trialUnit }}</span>
+    </el-form-item>
   </el-form>
 </template>
