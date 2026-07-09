@@ -32,6 +32,13 @@ export const deductMember = (data?: object) => {
   return http.request<Result>("post", "/api/admin/member/deduct", { data });
 };
 
+/** 批量加时/加点（指定 ids 或全体 all，可限定 app_uuid） */
+export const batchRechargeMembers = (data?: object) => {
+  return http.request<Result>("post", "/api/admin/member/batch_recharge", {
+    data
+  });
+};
+
 /** 重置密码 */
 export const resetMemberPassword = (data?: object) => {
   return http.request<Result>("post", "/api/admin/member/reset_password", {

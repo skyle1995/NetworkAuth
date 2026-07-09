@@ -24,9 +24,27 @@ import (
 // 依赖系统 SMTP 配置发送邮件（见 mail.go）。
 
 const (
-	emailCodeTTL      = 10 * time.Minute
-	emailCodeCooldown = 60 * time.Second
+	emailCodeTTL             = 10 * time.Minute
+	defaultEmailCodeCooldown = 60 // 秒
 )
+
+// emailCooldownSeconds 读取后台配置的发送限流秒数（默认60，非正数回退默认）。
+func emailCooldownSeconds() int {
+	n := GetSettingsService().GetInt("smtp_code_cooldown", defaultEmailCodeCooldown)
+	if n <= 0 {
+		n = defaultEmailCodeCooldown
+	}
+	return n
+}
+
+// cooldownRemain 读取冷却 key 的剩余秒数（向上取整）；不存在或出错返回0。
+func cooldownRemain(ctx context.Context, rdb *redis.Client, key string) int {
+	ttl, err := rdb.TTL(ctx, key).Result()
+	if err != nil || ttl <= 0 {
+		return 0
+	}
+	return int((ttl + time.Second - 1) / time.Second)
+}
 
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 
@@ -93,19 +111,21 @@ func SendRegisterCode(appUUID, email string) (any, error) {
 	ctx := context.Background()
 	rdb := utils.GetRedis()
 
-	// 频率限制
-	if exists, _ := rdb.Exists(ctx, emailCodeCooldownKey(appUUID, email)).Result(); exists > 0 {
-		return nil, errors.New("发送过于频繁，请稍后再试")
+	// 频率限制：命中冷却则返回剩余秒数
+	cdKey := emailCodeCooldownKey(appUUID, email)
+	if remain := cooldownRemain(ctx, rdb, cdKey); remain > 0 {
+		return nil, fmt.Errorf("发送过于频繁，请%d秒后再试", remain)
 	}
 
 	code, err := genNumericCode(6)
 	if err != nil {
 		return nil, err
 	}
+	cooldown := emailCooldownSeconds()
 	if err := rdb.Set(ctx, emailCodeKey(appUUID, email), code, emailCodeTTL).Err(); err != nil {
 		return nil, errors.New("验证码存储失败")
 	}
-	rdb.Set(ctx, emailCodeCooldownKey(appUUID, email), "1", emailCodeCooldown)
+	rdb.Set(ctx, cdKey, "1", time.Duration(cooldown)*time.Second)
 
 	subject := fmt.Sprintf("【%s】注册验证码", app.Name)
 	body := fmt.Sprintf(
@@ -117,11 +137,11 @@ func SendRegisterCode(appUUID, email string) (any, error) {
 
 	if err := SendMail(email, subject, body); err != nil {
 		// 发送失败则清掉已存的码，允许立即重试
-		rdb.Del(ctx, emailCodeKey(appUUID, email), emailCodeCooldownKey(appUUID, email))
+		rdb.Del(ctx, emailCodeKey(appUUID, email), cdKey)
 		return nil, errors.New("邮件发送失败: " + err.Error())
 	}
 
-	return map[string]any{"message": "验证码已发送，请查收邮箱"}, nil
+	return map[string]any{"message": "验证码已发送，请查收邮箱", "cooldown": cooldown}, nil
 }
 
 func emailResetCodeKey(appUUID, email string) string {
@@ -162,18 +182,20 @@ func SendResetCode(appUUID, email string) (any, error) {
 
 	ctx := context.Background()
 	rdb := utils.GetRedis()
-	if exists, _ := rdb.Exists(ctx, emailResetCooldownKey(appUUID, email)).Result(); exists > 0 {
-		return nil, errors.New("发送过于频繁，请稍后再试")
+	cdKey := emailResetCooldownKey(appUUID, email)
+	if remain := cooldownRemain(ctx, rdb, cdKey); remain > 0 {
+		return nil, fmt.Errorf("发送过于频繁，请%d秒后再试", remain)
 	}
 
 	code, err := genNumericCode(6)
 	if err != nil {
 		return nil, err
 	}
+	cooldown := emailCooldownSeconds()
 	if err := rdb.Set(ctx, emailResetCodeKey(appUUID, email), code, emailCodeTTL).Err(); err != nil {
 		return nil, errors.New("验证码存储失败")
 	}
-	rdb.Set(ctx, emailResetCooldownKey(appUUID, email), "1", emailCodeCooldown)
+	rdb.Set(ctx, cdKey, "1", time.Duration(cooldown)*time.Second)
 
 	subject := fmt.Sprintf("【%s】找回密码验证码", app.Name)
 	body := fmt.Sprintf(
@@ -184,11 +206,11 @@ func SendResetCode(appUUID, email string) (any, error) {
 		app.Name, code)
 
 	if err := SendMail(email, subject, body); err != nil {
-		rdb.Del(ctx, emailResetCodeKey(appUUID, email), emailResetCooldownKey(appUUID, email))
+		rdb.Del(ctx, emailResetCodeKey(appUUID, email), cdKey)
 		return nil, errors.New("邮件发送失败: " + err.Error())
 	}
 
-	return map[string]any{"message": "验证码已发送，请查收邮箱"}, nil
+	return map[string]any{"message": "验证码已发送，请查收邮箱", "cooldown": cooldown}, nil
 }
 
 // VerifyResetCode 校验找回密码验证码；成功后删除，防止复用。

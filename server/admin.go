@@ -159,6 +159,7 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			memberGroup.POST("/create", adminctl.MemberCreateHandler)
 			memberGroup.POST("/set_status", adminctl.MemberSetStatusHandler)
 			memberGroup.POST("/recharge", adminctl.MemberRechargeHandler)
+			memberGroup.POST("/batch_recharge", adminctl.MemberBatchRechargeHandler)
 			memberGroup.POST("/deduct", adminctl.MemberDeductHandler)
 			memberGroup.POST("/reset_password", adminctl.MemberResetPasswordHandler)
 			memberGroup.POST("/update_remark", adminctl.MemberUpdateRemarkHandler)

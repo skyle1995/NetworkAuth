@@ -49,6 +49,7 @@ const form = ref<Record<string, any>>({
   smtp_password: "",
   smtp_from: "",
   smtp_from_name: "NetworkAuth",
+  smtp_code_cooldown: 60,
 
   // IP 地区库
   ip_region_provider: "ip2region",
@@ -112,7 +113,9 @@ const numericFields = [
   "operation_log_cleanup_limit",
   "refresh_token_cleanup_days",
   "cookie_max_age",
-  "platform_menu_search_history"
+  "platform_menu_search_history",
+  "smtp_port",
+  "smtp_code_cooldown"
 ];
 
 /**
@@ -357,6 +360,17 @@ onMounted(() => {
                 placeholder="如 NetworkAuth"
               />
             </el-form-item>
+            <el-form-item label="发送限流">
+              <el-input-number
+                v-model="form.smtp_code_cooldown"
+                :min="0"
+                :max="3600"
+                :step="10"
+              />
+              <span class="ml-2 text-xs" style="color: var(--el-text-color-secondary)">
+                秒 —— 同一邮箱两次发送验证码的最小间隔
+              </span>
+            </el-form-item>
 
             <el-form-item class="mt-6">
               <el-button
@@ -370,7 +384,8 @@ onMounted(() => {
                     'smtp_username',
                     'smtp_password',
                     'smtp_from',
-                    'smtp_from_name'
+                    'smtp_from_name',
+                    'smtp_code_cooldown'
                   ])
                 "
                 >保存邮件配置</el-button

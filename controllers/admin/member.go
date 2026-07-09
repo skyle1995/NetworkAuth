@@ -341,6 +341,52 @@ func MemberDeductHandler(c *gin.Context) {
 	memberBaseController.HandleSuccess(c, "扣时成功", nil)
 }
 
+// MemberBatchRechargeHandler 批量加时/加点（维护补偿等）：定向(ids)或全体(all，可限定应用)。
+func MemberBatchRechargeHandler(c *gin.Context) {
+	var req struct {
+		IDs           []uint `json:"ids"`
+		All           bool   `json:"all"`
+		AppUUID       string `json:"app_uuid"`
+		DurationValue int    `json:"duration_value"`
+		DurationUnit  string `json:"duration_unit"`
+		Points        int    `json:"points"`
+	}
+	if !memberBaseController.BindJSON(c, &req) {
+		return
+	}
+
+	// 时长换算成分钟（未填时长则为0，表示只加点）
+	minutes := 0
+	if req.DurationValue > 0 && strings.TrimSpace(req.DurationUnit) != "" {
+		if req.DurationUnit == "permanent" {
+			memberBaseController.HandleValidationError(c, "批量操作不支持设为永久")
+			return
+		}
+		m, err := services.CardDurationToMinutes(req.DurationValue, req.DurationUnit)
+		if err != nil {
+			memberBaseController.HandleValidationError(c, err.Error())
+			return
+		}
+		minutes = m
+	}
+
+	res, err := services.BatchRecharge(req.IDs, req.All, req.AppUUID, minutes, req.Points)
+	if err != nil {
+		memberBaseController.HandleValidationError(c, err.Error())
+		return
+	}
+
+	scope := "选中账号"
+	if req.All {
+		scope = "全体账号"
+	}
+	recordMemberLog(c, "批量加时/点", fmt.Sprintf(
+		"%s 批量补偿：命中%d（加时%d/加点%d/永久跳过%d，时长%d分钟/点数%d）",
+		scope, res.Total, res.TimeAdded, res.PointsAdded, res.SkipPermanent, minutes, req.Points,
+	))
+	memberBaseController.HandleSuccess(c, "操作完成", res)
+}
+
 // MemberResetPasswordHandler 重置账号密码API处理器
 func MemberResetPasswordHandler(c *gin.Context) {
 	var req struct {

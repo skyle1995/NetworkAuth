@@ -222,6 +222,11 @@ func SeedDefaultSettings() error {
 			Value:       "NetworkAuth",
 			Description: "发件人显示名称",
 		},
+		{
+			Name:        "smtp_code_cooldown",
+			Value:       "60",
+			Description: "验证码发送限流(秒)，同一邮箱两次发送的最小间隔",
+		},
 	}...)
 
 	// ===== IP 地区库相关默认项（用于市级/省级 IP 验证）=====

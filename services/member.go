@@ -220,6 +220,104 @@ func SetMemberExpiry(id uint, expiredAt time.Time) error {
 	return db.Model(&models.Member{}).Where("id = ?", id).Update("expired_at", expiredAt).Error
 }
 
+// BatchRechargeResult 批量加时/加点结果统计。
+type BatchRechargeResult struct {
+	Total         int `json:"total"`          // 命中目标账号数
+	TimeAdded     int `json:"time_added"`     // 时长模式已加时账号数
+	PointsAdded   int `json:"points_added"`   // 点数模式已加点账号数
+	SkipPermanent int `json:"skip_permanent"` // 加时时跳过的永久账号数
+}
+
+// BatchRecharge 批量为账号加时长/点数（维护补偿等场景）。
+// all=false 时按 ids 定向；all=true 时全体（appUUID 非空则限定该应用）。
+// 每个账号按其应用运营模式选择：时长模式加 minutes 分钟，点数模式加 points 点。
+func BatchRecharge(ids []uint, all bool, appUUID string, minutes, points int) (*BatchRechargeResult, error) {
+	if minutes <= 0 && points <= 0 {
+		return nil, errors.New("请填写要增加的时长或点数")
+	}
+	if !all && len(ids) == 0 {
+		return nil, errors.New("请选择要操作的账号")
+	}
+	db, err := database.GetDB()
+	if err != nil {
+		return nil, err
+	}
+
+	q := db.Model(&models.Member{})
+	if all {
+		if appUUID = strings.TrimSpace(appUUID); appUUID != "" {
+			q = q.Where("app_uuid = ?", appUUID)
+		}
+	} else {
+		q = q.Where("id IN ?", ids)
+	}
+	var members []models.Member
+	if err := q.Find(&members).Error; err != nil {
+		return nil, err
+	}
+	if len(members) == 0 {
+		return &BatchRechargeResult{}, nil
+	}
+
+	// 批量取涉及应用的运营模式
+	appSet := make(map[string]struct{})
+	for i := range members {
+		appSet[members[i].AppUUID] = struct{}{}
+	}
+	appUUIDs := make([]string, 0, len(appSet))
+	for u := range appSet {
+		appUUIDs = append(appUUIDs, u)
+	}
+	modeByApp := make(map[string]int)
+	var appModes []struct {
+		UUID          string
+		OperationMode int
+	}
+	db.Model(&models.App{}).Select("uuid, operation_mode").
+		Where("uuid IN ?", appUUIDs).Find(&appModes)
+	for _, a := range appModes {
+		modeByApp[a.UUID] = a.OperationMode
+	}
+
+	res := &BatchRechargeResult{Total: len(members)}
+	now := time.Now()
+	err = db.Transaction(func(tx *gorm.DB) error {
+		for i := range members {
+			m := &members[i]
+			if modeByApp[m.AppUUID] == models.OperationModePoints {
+				if points > 0 {
+					if err := tx.Model(m).Update("points", m.Points+points).Error; err != nil {
+						return err
+					}
+					res.PointsAdded++
+				}
+				continue
+			}
+			// 时长模式
+			if minutes > 0 {
+				if m.ExpiredAt.Equal(models.PermanentTime) {
+					res.SkipPermanent++
+					continue
+				}
+				base := m.ExpiredAt
+				if base.Before(now) {
+					base = now
+				}
+				newExpiry := base.Add(time.Duration(minutes) * time.Minute)
+				if err := tx.Model(m).Update("expired_at", newExpiry).Error; err != nil {
+					return err
+				}
+				res.TimeAdded++
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // ResetMemberPassword 重置账号密码（重新生成盐值）。
 func ResetMemberPassword(id uint, newPassword string) error {
 	if strings.TrimSpace(newPassword) == "" {

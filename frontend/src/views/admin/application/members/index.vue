@@ -31,6 +31,7 @@ const {
   openDataDialog,
   openDetailDialog,
   openBlacklistDialog,
+  openBatchRechargeDialog,
   handleDelete,
   handleSizeChange,
   handleCurrentChange
@@ -221,6 +222,13 @@ async function onBatchDel() {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+        <el-button
+          type="success"
+          :icon="useRenderIcon('ep:timer')"
+          @click="openBatchRechargeDialog(selectedIds, selectedNum)"
+        >
+          批量加时/点
+        </el-button>
         <el-button
           type="danger"
           :icon="useRenderIcon('ep:delete')"

@@ -9,6 +9,7 @@ import dataForm from "./dataForm.vue";
 import memberDetail from "./memberDetail.vue";
 import bindingsView from "./bindingsView.vue";
 import blacklistForm from "./blacklistForm.vue";
+import batchRechargeForm from "./batchRechargeForm.vue";
 import {
   getMembers,
   createMember,
@@ -22,6 +23,7 @@ import {
   getMemberBindings,
   clearMemberBindings,
   blacklistMember,
+  batchRechargeMembers,
   batchDeleteMembers
 } from "@/api/admin/member";
 import { getAppsSimple } from "@/api/admin/app";
@@ -408,6 +410,87 @@ export function useMember() {
     });
   }
 
+  // 批量加时/加点（维护补偿）：选中账号或全体
+  function openBatchRechargeDialog(selectedIds: number[], selectedNum: number) {
+    addDialog({
+      title: "批量加时/点",
+      width: "560px",
+      draggable: true,
+      closeOnClickModal: false,
+      props: {
+        formInline: {
+          scope: selectedNum > 0 ? "selected" : "all",
+          app_uuid: "",
+          duration_value: 1,
+          duration_unit: "day",
+          points: 0,
+          selectedNum
+        }
+      },
+      contentRenderer: () => h(batchRechargeForm, { apps: apps.value } as any),
+      footerButtons: [
+        {
+          label: "取消",
+          text: true,
+          bg: true,
+          btnClick: ({ dialog: { options } }) => (options.visible = false)
+        },
+        {
+          label: "确认",
+          type: "primary",
+          text: true,
+          bg: true,
+          btnClick: async ({ dialog: { options } }) => {
+            const f = (options.props as any).formInline;
+            const hasTime = f.duration_value > 0;
+            const hasPoints = f.points > 0;
+            if (!hasTime && !hasPoints) {
+              message("请填写要增加的时长或点数", { type: "warning" });
+              return;
+            }
+            const payload: any = {
+              duration_value: hasTime ? f.duration_value : 0,
+              duration_unit: f.duration_unit,
+              points: hasPoints ? f.points : 0
+            };
+            if (f.scope === "all") {
+              payload.all = true;
+              payload.app_uuid = f.app_uuid;
+              try {
+                await ElMessageBox.confirm(
+                  f.app_uuid
+                    ? "确认为该应用下的全体账号批量加时/点吗？"
+                    : "确认为『所有应用的全体账号』批量加时/点吗？此操作影响范围很大。",
+                  "提示",
+                  { type: "warning" }
+                );
+              } catch {
+                return;
+              }
+            } else {
+              if (!selectedIds.length) {
+                message("请先勾选账号，或改为『全体账号』", { type: "warning" });
+                return;
+              }
+              payload.ids = selectedIds;
+            }
+            const { code, msg, data } = await batchRechargeMembers(payload);
+            if (code === 0) {
+              message(
+                `操作完成（命中${data?.total ?? 0}：加时${data?.time_added ?? 0}/加点${data?.points_added ?? 0}/永久跳过${data?.skip_permanent ?? 0}）`,
+                { type: "success", duration: 4000 }
+              );
+              options.visible = false;
+              onSearch();
+            } else {
+              message(msg || "操作失败", { type: "error" });
+            }
+          }
+        }
+      ]
+    });
+  }
+
   // 拉黑账号：弹窗多选，可附带拉黑 设备/IP/地区
   function openBlacklistDialog(row: any) {
     addDialog({
@@ -513,6 +596,7 @@ export function useMember() {
     openDataDialog,
     openDetailDialog,
     openBlacklistDialog,
+    openBatchRechargeDialog,
     handleDelete,
     handleSizeChange,
     handleCurrentChange
