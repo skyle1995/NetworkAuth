@@ -164,7 +164,6 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			memberGroup.POST("/update_remark", adminctl.MemberUpdateRemarkHandler)
 			memberGroup.GET("/bindings", adminctl.MemberBindingsHandler)
 			memberGroup.POST("/clear_bindings", adminctl.MemberClearBindingsHandler)
-			memberGroup.GET("/sessions", adminctl.MemberSessionsHandler)
 			memberGroup.GET("/online", adminctl.OnlineSessionsHandler)
 			memberGroup.POST("/kick", adminctl.MemberKickSessionHandler)
 			memberGroup.POST("/blacklist", adminctl.MemberBlacklistHandler)

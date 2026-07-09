@@ -70,11 +70,6 @@ export const clearMemberBindings = (data?: object) => {
   });
 };
 
-/** 查询账号在线会话 */
-export const getMemberSessions = (params?: object) => {
-  return http.request<Result>("get", "/api/admin/member/sessions", { params });
-};
-
 /** 踢下线（会话ID或用户UUID全部） */
 export const kickMemberSession = (data?: object) => {
   return http.request<Result>("post", "/api/admin/member/kick", { data });

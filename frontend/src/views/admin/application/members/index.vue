@@ -28,7 +28,6 @@ const {
   handleUpdateRemark,
   handleSetStatus,
   openBindingsDialog,
-  openSessionsDialog,
   openDataDialog,
   openDetailDialog,
   openBlacklistDialog,
@@ -51,9 +50,6 @@ function onRowCommand(command: string, row: any) {
     case "detail":
       openDetailDialog(row);
       break;
-    case "deduct":
-      openDurationDialog(row, "deduct");
-      break;
     case "resetPwd":
       handleResetPassword(row);
       break;
@@ -62,9 +58,6 @@ function onRowCommand(command: string, row: any) {
       break;
     case "bindings":
       openBindingsDialog(row);
-      break;
-    case "sessions":
-      openSessionsDialog(row);
       break;
     case "userData":
       openDataDialog(row);
@@ -223,7 +216,7 @@ async function onBatchDel() {
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item :command="1">设为正常</el-dropdown-item>
-              <el-dropdown-item :command="0">封停</el-dropdown-item>
+              <el-dropdown-item :command="0">封停账号</el-dropdown-item>
               <el-dropdown-item :command="2">拉黑账号</el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -271,6 +264,16 @@ async function onBatchDel() {
                 >
                   充值
                 </el-button>
+                <el-button
+                  class="reset-margin ml-2"
+                  link
+                  type="warning"
+                  :size="size"
+                  :icon="useRenderIcon('ep:remove')"
+                  @click="openDurationDialog(row, 'deduct')"
+                >
+                  扣减
+                </el-button>
                 <el-dropdown
                   class="ml-2"
                   @command="cmd => onRowCommand(cmd, row)"
@@ -289,7 +292,6 @@ async function onBatchDel() {
                   <template #dropdown>
                     <el-dropdown-menu>
                       <el-dropdown-item command="detail">详情</el-dropdown-item>
-                      <el-dropdown-item command="deduct">扣减</el-dropdown-item>
                       <el-dropdown-item command="resetPwd"
                         >重置密码</el-dropdown-item
                       >
@@ -298,9 +300,6 @@ async function onBatchDel() {
                       >
                       <el-dropdown-item command="bindings"
                         >绑定信息</el-dropdown-item
-                      >
-                      <el-dropdown-item command="sessions"
-                        >在线会话</el-dropdown-item
                       >
                       <el-dropdown-item command="userData"
                         >用户数据</el-dropdown-item
@@ -315,7 +314,7 @@ async function onBatchDel() {
                         v-if="row.status === 1"
                         command="disable"
                         divided
-                        >封停</el-dropdown-item
+                        >封停账号</el-dropdown-item
                       >
                       <el-dropdown-item v-if="row.status !== 2" command="black"
                         >拉黑账号</el-dropdown-item

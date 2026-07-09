@@ -8,7 +8,6 @@ import durationForm from "./durationForm.vue";
 import dataForm from "./dataForm.vue";
 import memberDetail from "./memberDetail.vue";
 import bindingsView from "./bindingsView.vue";
-import sessionsView from "./sessionsView.vue";
 import blacklistForm from "./blacklistForm.vue";
 import {
   getMembers,
@@ -22,8 +21,6 @@ import {
   setMemberStatus,
   getMemberBindings,
   clearMemberBindings,
-  getMemberSessions,
-  kickMemberSession,
   blacklistMember,
   batchDeleteMembers
 } from "@/api/admin/member";
@@ -106,7 +103,7 @@ export function useMember() {
     },
     { label: "备注", prop: "remark", minWidth: 120 },
     { label: "创建时间", prop: "created_at", minWidth: 160 },
-    { label: "操作", fixed: "right", width: 220, slot: "operation" }
+    { label: "操作", fixed: "right", width: 260, slot: "operation" }
   ];
 
   async function fetchApps() {
@@ -411,58 +408,6 @@ export function useMember() {
     });
   }
 
-  async function openSessionsDialog(row: any) {
-    const load = async () =>
-      getMemberSessions({ member_uuid: row.uuid }).then(r =>
-        r.code === 0 ? r.data || [] : []
-      );
-    const sessions = ref(await load());
-    addDialog({
-      title: `在线会话 - ${row.username}`,
-      width: "720px",
-      draggable: true,
-      closeOnClickModal: false,
-      contentRenderer: () =>
-        h(sessionsView, {
-          sessions: sessions.value,
-          onKick: async (id: number) => {
-            const { code, msg } = await kickMemberSession({ id });
-            if (code === 0) {
-              message("已踢下线", { type: "success" });
-              sessions.value = await load();
-            } else {
-              message(msg || "操作失败", { type: "error" });
-            }
-          }
-        }),
-      footerButtons: [
-        {
-          label: "关闭",
-          text: true,
-          bg: true,
-          btnClick: ({ dialog: { options } }) => (options.visible = false)
-        },
-        {
-          label: "全部踢下线",
-          type: "danger",
-          text: true,
-          bg: true,
-          btnClick: async ({ dialog: { options } }) => {
-            const { code, msg } = await kickMemberSession({
-              member_uuid: row.uuid
-            });
-            if (code === 0) {
-              message("已全部踢下线", { type: "success" });
-              options.visible = false;
-            } else {
-              message(msg || "操作失败", { type: "error" });
-            }
-          }
-        }
-      ]
-    });
-  }
-
   // 拉黑账号：弹窗多选，可附带拉黑 设备/IP/地区
   function openBlacklistDialog(row: any) {
     addDialog({
@@ -565,7 +510,6 @@ export function useMember() {
     handleUpdateRemark,
     handleSetStatus,
     openBindingsDialog,
-    openSessionsDialog,
     openDataDialog,
     openDetailDialog,
     openBlacklistDialog,

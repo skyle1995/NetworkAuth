@@ -482,52 +482,6 @@ func MemberUpdateDataHandler(c *gin.Context) {
 	memberBaseController.HandleSuccess(c, "保存成功", nil)
 }
 
-// MemberSessionsHandler 查询账号的在线会话API处理器
-func MemberSessionsHandler(c *gin.Context) {
-	memberUUID := strings.TrimSpace(c.Query("member_uuid"))
-	if memberUUID == "" {
-		memberBaseController.HandleValidationError(c, "账号UUID不能为空")
-		return
-	}
-
-	db, ok := memberBaseController.GetDB(c)
-	if !ok {
-		return
-	}
-
-	var sessions []models.MemberSession
-	if err := db.Where("member_uuid = ?", memberUUID).Order("last_active_at DESC").Find(&sessions).Error; err != nil {
-		memberBaseController.HandleInternalError(c, "查询会话列表失败", err)
-		return
-	}
-
-	type SessionResponse struct {
-		ID           uint   `json:"id"`
-		MachineCode  string `json:"machine_code"`
-		IP           string `json:"ip"`
-		Province     string `json:"province"`
-		City         string `json:"city"`
-		LastActiveAt string `json:"last_active_at"`
-		CreatedAt    string `json:"created_at"`
-	}
-	list := make([]SessionResponse, 0, len(sessions))
-	for _, s := range sessions {
-		// 登录IP实时解析归属地（会话不落库省市，避免历史数据缺失）
-		province, city := services.ResolveIPRegion(s.IP)
-		list = append(list, SessionResponse{
-			ID:           s.ID,
-			MachineCode:  s.MachineCode,
-			IP:           s.IP,
-			Province:     province,
-			City:         city,
-			LastActiveAt: s.LastActiveAt.Format("2006-01-02 15:04:05"),
-			CreatedAt:    s.CreatedAt.Format("2006-01-02 15:04:05"),
-		})
-	}
-
-	c.JSON(http.StatusOK, gin.H{"code": 0, "msg": "success", "data": list})
-}
-
 // MemberKickSessionHandler 踢下线：删除指定会话（id）或某用户全部会话（member_uuid）
 func MemberKickSessionHandler(c *gin.Context) {
 	var req struct {
