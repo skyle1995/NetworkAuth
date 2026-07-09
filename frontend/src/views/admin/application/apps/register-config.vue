@@ -72,9 +72,6 @@ defineExpose({ getRef, newFormInline });
         <el-radio :value="0">关闭</el-radio>
         <el-radio :value="1">开启</el-radio>
       </el-radio-group>
-      <span class="ml-2 text-xs" style="color: var(--el-text-color-secondary)">
-        开启后客户端注册须提交设备码
-      </span>
     </el-form-item>
     <el-form-item label="限制时间" prop="register_limit_time">
       <el-radio-group v-model="newFormInline.register_limit_time">

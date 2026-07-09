@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -201,6 +202,18 @@ func handleBulletin(app *models.App) (any, error) {
 	if decoded, err := base64.StdEncoding.DecodeString(app.Announcement); err == nil {
 		content = string(decoded)
 	}
+	// 各接口启用状态：api_type -> 1启用/0禁用，客户端据此判断某功能是否可调
+	interfaces := map[string]int{}
+	if db, err := database.GetDB(); err == nil {
+		var apis []models.API
+		if err := db.Model(&models.API{}).Select("api_type, status").
+			Where("app_uuid = ?", app.UUID).Find(&apis).Error; err == nil {
+			for _, a := range apis {
+				interfaces[strconv.Itoa(a.APIType)] = a.Status
+			}
+		}
+	}
+
 	return gin.H{
 		"title":   app.Name,
 		"version": app.Version,
@@ -213,9 +226,33 @@ func handleBulletin(app *models.App) (any, error) {
 			"card_login_enabled":      app.CardLoginEnabled,
 			"register_enabled":        app.RegisterEnabled,
 			"email_verify_enabled":    app.EmailVerifyEnabled,
-			"recharge_enabled":        app.RechargeEnabled,
-			"trial_enabled":           app.TrialEnabled,
+			// 设备注册限制：=1 时客户端注册须收集并提交 machine_code，否则会被拒
+			"register_device_required": app.RegisterDeviceLimitEnabled,
+			"recharge_enabled":         app.RechargeEnabled,
+			"trial_enabled":            app.TrialEnabled,
+			// 验证与多开
+			"machine_verify":   app.MachineVerify,
+			"ip_verify":        app.IPVerify,
+			"multi_open_scope": app.MultiOpenScope,
+			"multi_open_count": app.MultiOpenCount,
 		},
+		// 换绑能力：客户端据此显示换绑入口及提示扣费/次数
+		"rebind": gin.H{
+			"machine": gin.H{
+				"enabled": app.MachineRebindEnabled,
+				"limit":   app.MachineRebindLimit, // 0每天 1永久
+				"count":   app.MachineRebindCount,
+				"deduct":  app.MachineRebindDeduct, // 每次换绑扣除分钟
+			},
+			"ip": gin.H{
+				"enabled": app.IPRebindEnabled,
+				"limit":   app.IPRebindLimit,
+				"count":   app.IPRebindCount,
+				"deduct":  app.IPRebindDeduct,
+			},
+		},
+		// 各接口启用状态映射：{ "20": 1, "21": 0, ... }
+		"interfaces": interfaces,
 		// 更新策略：启动即可判断是否强制更新/下载方式
 		"update": gin.H{
 			"force_update":  app.ForceUpdate == 1,

@@ -106,13 +106,29 @@ sign      = HEX_UPPER( SHA256(raw) )
     "card_login_enabled": 1,      // 是否开放卡密登录
     "register_enabled": 1,        // 是否开放账号注册
     "email_verify_enabled": 1,    // 注册是否需要邮箱验证码（=1 则需先调 23 取码）
+    "register_device_required": 1,// 注册是否必须提交设备码（=1 则注册须带 machine_code）
     "recharge_enabled": 1,        // 是否开放卡密充值
-    "trial_enabled": 1            // 是否开放领取试用
+    "trial_enabled": 1,           // 是否开放领取试用
+    "machine_verify": 1,          // 机器码验证 0关/1开
+    "ip_verify": 0,               // IP验证 0关/1开/2市/3省
+    "multi_open_scope": 2,        // 多开范围 0单机/1单IP/2全部
+    "multi_open_count": 1         // 多开数量
+  },
+  "rebind": {                     // 换绑能力（machine=机器码，ip=IP）
+    "machine": { "enabled": 1, "limit": 0, "count": 3, "deduct": 60 },
+    "ip":      { "enabled": 0, "limit": 0, "count": 0, "deduct": 0 }
+    // enabled 0关/1开；limit 0每天/1永久；count 次数；deduct 每次换绑扣除分钟
+  },
+  "interfaces": {                 // 各接口启用状态 api_type -> 1启用/0禁用
+    "1": 1, "10": 1, "20": 1, "21": 1, "23": 1, "30": 1, "40": 1, "41": 1
   },
   "update": { "force_update": false, "download_type": 0, "download_url": "" }
 }
 ```
+> 客户端**开机调一次 type 1** 即可拿到：能力开关(`config`)、换绑能力(`rebind`)、以及**每个接口的启用状态**(`interfaces`)，据此渲染界面、决定哪些功能可用，无需再逐个探测。
 > **注册要不要验证码**：看 `config.email_verify_enabled`——为 `1` 时注册前需先调 `23` 发验证码、注册时带上 `code`。
+> **注册要不要设备码**：看 `config.register_device_required`——为 `1` 时注册须带 `machine_code`，否则被拒。
+> **换绑是否开放**：看 `rebind.machine.enabled` / `rebind.ip.enabled`。
 
 #### `2` 获取更新地址
 - 请求：无
