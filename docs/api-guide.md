@@ -156,7 +156,7 @@ sign      = HEX_UPPER( SHA256(raw) )
 
 #### `41` 检测账号状态（心跳）
 - 请求：`{ token }`
-- 返回（`StatusResult`）。点数「按时」模式会在此结算并顺延周期。账号被封停/拉黑/到期/点数耗尽时返回异常，客户端据此登出。
+- 返回（`StatusResult`，含 `heartbeat_interval`）：既是心跳也是状态查询，返回用户基本信息 + 心跳间隔，客户端可据返回的 `heartbeat_interval` **动态调整**下次心跳时间。点数「按时」模式会在此结算并顺延周期。账号被封停/拉黑/到期/点数耗尽时返回异常，客户端据此登出。
 
 #### `42` 获取程序数据
 - 请求：`{ token }`
@@ -235,8 +235,10 @@ sign      = HEX_UPPER( SHA256(raw) )
 
 | 字段 | 说明 |
 |---|---|
-| `username` / `status` | 用户名 / 状态：0 封停 / 1 正常 / 2 黑名单 |
-| `mode` / `permanent` / `expired_at` / `points` | 同上 |
+| `username` / `type` | 用户名 / 来源类型：0 注册 / 1 卡密 |
+| `status` | 状态：0 封停 / 1 正常 / 2 黑名单 |
+| `mode` / `permanent` / `expired_at` / `points` | 同 LoginResult |
+| `heartbeat_interval` | 心跳间隔（分钟）——每次心跳都会返回，客户端可据此**动态调整**心跳频率 |
 
 ---
 

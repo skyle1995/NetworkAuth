@@ -36,12 +36,14 @@ type LoginResult struct {
 
 // StatusResult 账号状态查询返回的信息
 type StatusResult struct {
-	Username  string    `json:"username"`
-	Status    int       `json:"status"`
-	Mode      int       `json:"mode"`
-	Permanent bool      `json:"permanent"`
-	ExpiredAt time.Time `json:"expired_at"`
-	Points    int       `json:"points"`
+	Username          string    `json:"username"`
+	Type              int       `json:"type"` // 来源类型：0注册/1卡密
+	Status            int       `json:"status"`
+	Mode              int       `json:"mode"`
+	Permanent         bool      `json:"permanent"`
+	ExpiredAt         time.Time `json:"expired_at"`
+	Points            int       `json:"points"`
+	HeartbeatInterval int       `json:"heartbeat_interval"` // 心跳间隔（分钟），客户端可据此动态调整
 }
 
 // generateSessionToken 生成 32 字节随机会话令牌（64 位十六进制）
@@ -152,12 +154,14 @@ func settlePointsTime(tx *gorm.DB, app *models.App, m *models.Member) error {
 // buildStatusResult 依据运营模式构造状态返回
 func buildStatusResult(app *models.App, m *models.Member) *StatusResult {
 	return &StatusResult{
-		Username:  m.Username,
-		Status:    m.Status,
-		Mode:      app.OperationMode,
-		Permanent: isPermanent(m.ExpiredAt),
-		ExpiredAt: m.ExpiredAt,
-		Points:    m.Points,
+		Username:          m.Username,
+		Type:              m.Type,
+		Status:            m.Status,
+		Mode:              app.OperationMode,
+		Permanent:         isPermanent(m.ExpiredAt),
+		ExpiredAt:         m.ExpiredAt,
+		Points:            m.Points,
+		HeartbeatInterval: heartbeatMinutes(app),
 	}
 }
 
