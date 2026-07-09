@@ -146,10 +146,9 @@ func dispatch(c *gin.Context, app *models.App, apiType int, plainParams string) 
 		return handleSetUserData(app, plainParams)
 	case models.APITypeUpdatePwd:
 		return handleUpdatePassword(app, plainParams)
-	case models.APITypeMacChangeBind:
-		return handleRebindMachine(app, plainParams)
-	case models.APITypeIPChangeBind:
-		return handleRebindIP(c, app, plainParams)
+	case models.APITypeMacChangeBind, models.APITypeIPChangeBind:
+		// 机器码/IP 转绑已合并为统一转绑，两个类型号均走同一逻辑
+		return handleRebind(c, app, plainParams)
 	case models.APITypeDeductPoints:
 		return handleDeductPoints(app, plainParams)
 	case models.APITypeDisableUser:
@@ -482,27 +481,18 @@ func handleGetCardInfo(app *models.App, plainParams string) (any, error) {
 	return services.GetCardInfo(app, params.Card)
 }
 
-// handleRebindMachine 机器码转绑（type 51）
-func handleRebindMachine(app *models.App, plainParams string) (any, error) {
+// handleRebind 统一转绑（type 51/52）：凭账号密码鉴权（卡密账号用卡号），
+// 开启机器码转绑时须带 machine_code；IP 转绑用当前请求 IP。不需登录令牌，避免死循环。
+func handleRebind(c *gin.Context, app *models.App, plainParams string) (any, error) {
 	var params struct {
-		Token       string `json:"token"`
+		Username    string `json:"username"`
+		Password    string `json:"password"`
 		MachineCode string `json:"machine_code"`
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.RebindMachine(app.UUID, params.Token, params.MachineCode)
-}
-
-// handleRebindIP IP转绑（type 52），以服务端识别的客户端 IP 为准。
-func handleRebindIP(c *gin.Context, app *models.App, plainParams string) (any, error) {
-	var params struct {
-		Token string `json:"token"`
-	}
-	if err := parseParams(plainParams, &params); err != nil {
-		return nil, errBadParams
-	}
-	return services.RebindIP(app.UUID, params.Token, c.ClientIP())
+	return services.Rebind(app.UUID, params.Username, params.Password, params.MachineCode, c.ClientIP())
 }
 
 // handleDeductPoints 功能扣点（type 53，点数模式）

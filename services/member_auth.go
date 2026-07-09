@@ -442,7 +442,7 @@ func ensureMachineBinding(db *gorm.DB, memberUUID, machineCode string, multiOpen
 		multiOpenCount = 1
 	}
 	if int(count) >= multiOpenCount {
-		return errors.New("超出多开数量限制")
+		return errors.New("机器码未绑定，请先进行机器码转绑")
 	}
 	return db.Create(&models.Binding{
 		MemberUUID: memberUUID,
@@ -534,6 +534,34 @@ func authActiveMember(db *gorm.DB, appUUID, token string) (*models.Member, *mode
 		return nil, nil, err
 	}
 	return member, app, nil
+}
+
+// authMemberByCredential 用凭据鉴权账号（不依赖会话令牌）：
+// 注册账号校验用户名+密码；卡密账号以卡号为身份、无密码。供转绑等“可能登录不了”的场景用，
+// 避免“设备/IP 不匹配→登不进→拿不到令牌→无法转绑”的死循环。
+func authMemberByCredential(db *gorm.DB, appUUID, username, password string) (*models.Member, error) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return nil, errors.New("用户名不能为空")
+	}
+	var member models.Member
+	if err := db.Where("app_uuid = ? AND username = ?", strings.TrimSpace(appUUID), username).
+		First(&member).Error; err != nil {
+		return nil, errors.New("账号不存在")
+	}
+	if member.Status == models.MemberStatusBlack {
+		return nil, errors.New("账号已被拉黑")
+	}
+	if member.Status == models.MemberStatusDisabled {
+		return nil, errors.New("账号已被封停")
+	}
+	// 注册账号校验密码；卡密账号以卡号即身份，无需密码
+	if member.Type == models.MemberTypeRegister {
+		if !utils.VerifyPasswordWithSalt(password, member.PasswordSalt, member.Password) {
+			return nil, errors.New("密码错误")
+		}
+	}
+	return &member, nil
 }
 
 // CheckMemberStatus 心跳/状态查询：校验令牌有效、账号正常且可用。

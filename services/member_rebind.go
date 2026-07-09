@@ -116,8 +116,12 @@ func rebindCore(db *gorm.DB, app *models.App, member *models.Member, newValue st
 	return buildStatusResult(app, member), nil
 }
 
-// RebindMachine 机器码转绑（type 51）
-func RebindMachine(appUUID, token, newMachineCode string) (*StatusResult, error) {
+// Rebind 统一转绑（原 type 51 机器码 / 52 IP 合并为一个功能）。
+// 凭账号密码鉴权（卡密账号以卡号为身份，无需密码），**不要求登录会话**——
+// 从而打破“设备/IP 对不上→登不进→拿不到令牌→无法转绑”的死循环。
+// 按应用配置转绑已开启的维度：机器码转绑须带设备码，IP 转绑用当前请求 IP。
+// 两个维度都开时依次转绑，各自独立计次/扣费。
+func Rebind(appUUID, username, password, machineCode, ip string) (*StatusResult, error) {
 	db, err := database.GetDB()
 	if err != nil {
 		return nil, err
@@ -126,50 +130,62 @@ func RebindMachine(appUUID, token, newMachineCode string) (*StatusResult, error)
 	if err != nil {
 		return nil, err
 	}
-	member, _, err := authActiveMember(db, appUUID, token)
+	member, err := authMemberByCredential(db, appUUID, username, password)
 	if err != nil {
 		return nil, err
 	}
-	return rebindCore(db, app, member, newMachineCode, rebindParams{
-		bindingType: models.BindingTypeMachine,
-		typeName:    "机器码",
-		enabled:     app.MachineRebindEnabled,
-		limit:       app.MachineRebindLimit,
-		freeCount:   app.MachineFreeCount,
-		maxCount:    app.MachineRebindCount,
-		deduct:      app.MachineRebindDeduct,
-		used:        member.MachineRebindUsed,
-		dateStr:     member.MachineRebindDate,
-		usedCol:     "machine_rebind_used",
-		dateCol:     "machine_rebind_date",
-	})
-}
 
-// RebindIP IP转绑（type 52）
-func RebindIP(appUUID, token, newIP string) (*StatusResult, error) {
-	db, err := database.GetDB()
-	if err != nil {
-		return nil, err
+	if app.MachineRebindEnabled != 1 && app.IPRebindEnabled != 1 {
+		return nil, errors.New("该应用未开启转绑")
 	}
-	app, err := loadEnabledApp(db, appUUID)
-	if err != nil {
-		return nil, err
+
+	var result *StatusResult
+
+	// 机器码转绑：开启则必须带设备码
+	if app.MachineRebindEnabled == 1 {
+		if strings.TrimSpace(machineCode) == "" {
+			return nil, errors.New("机器码转绑需提供设备码")
+		}
+		result, err = rebindCore(db, app, member, machineCode, rebindParams{
+			bindingType: models.BindingTypeMachine,
+			typeName:    "机器码",
+			enabled:     app.MachineRebindEnabled,
+			limit:       app.MachineRebindLimit,
+			freeCount:   app.MachineFreeCount,
+			maxCount:    app.MachineRebindCount,
+			deduct:      app.MachineRebindDeduct,
+			used:        member.MachineRebindUsed,
+			dateStr:     member.MachineRebindDate,
+			usedCol:     "machine_rebind_used",
+			dateCol:     "machine_rebind_date",
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
-	member, _, err := authActiveMember(db, appUUID, token)
-	if err != nil {
-		return nil, err
+
+	// IP 转绑：用当前请求 IP（客户端须从新 IP 调用）
+	if app.IPRebindEnabled == 1 {
+		if strings.TrimSpace(ip) == "" {
+			return nil, errors.New("IP转绑无法获取当前IP")
+		}
+		result, err = rebindCore(db, app, member, ip, rebindParams{
+			bindingType: models.BindingTypeIP,
+			typeName:    "IP",
+			enabled:     app.IPRebindEnabled,
+			limit:       app.IPRebindLimit,
+			freeCount:   app.IPFreeCount,
+			maxCount:    app.IPRebindCount,
+			deduct:      app.IPRebindDeduct,
+			used:        member.IPRebindUsed,
+			dateStr:     member.IPRebindDate,
+			usedCol:     "ip_rebind_used",
+			dateCol:     "ip_rebind_date",
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
-	return rebindCore(db, app, member, newIP, rebindParams{
-		bindingType: models.BindingTypeIP,
-		typeName:    "IP",
-		enabled:     app.IPRebindEnabled,
-		limit:       app.IPRebindLimit,
-		freeCount:   app.IPFreeCount,
-		maxCount:    app.IPRebindCount,
-		deduct:      app.IPRebindDeduct,
-		used:        member.IPRebindUsed,
-		dateStr:     member.IPRebindDate,
-		usedCol:     "ip_rebind_used",
-		dateCol:     "ip_rebind_date",
-	})
+
+	return result, nil
 }

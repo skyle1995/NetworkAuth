@@ -427,8 +427,8 @@ func TestRebindMachineLimitsAndDeduct(t *testing.T) {
 	}
 	before := loadMemberByToken(t, db, login.Token).ExpiredAt
 
-	// 第 1 次转绑（免费，不扣时），绑定应替换为 MC-1
-	if _, err := RebindMachine("APP-1", login.Token, "MC-1"); err != nil {
+	// 第 1 次转绑（免费，不扣时），绑定应替换为 MC-1（卡密账号用卡号鉴权，无需令牌）
+	if _, err := Rebind("APP-1", "KM-RB", "", "MC-1", "1.2.3.4"); err != nil {
 		t.Fatalf("rebind 1: %v", err)
 	}
 	m := loadMemberByToken(t, db, login.Token)
@@ -445,7 +445,7 @@ func TestRebindMachineLimitsAndDeduct(t *testing.T) {
 	}
 
 	// 第 2 次转绑（超免费 → 扣 60 分钟）
-	if _, err := RebindMachine("APP-1", login.Token, "MC-2"); err != nil {
+	if _, err := Rebind("APP-1", "KM-RB", "", "MC-2", "1.2.3.4"); err != nil {
 		t.Fatalf("rebind 2: %v", err)
 	}
 	m2 := loadMemberByToken(t, db, login.Token)
@@ -454,7 +454,7 @@ func TestRebindMachineLimitsAndDeduct(t *testing.T) {
 	}
 
 	// 第 3 次转绑 → 超过 max(2) 次上限，拒绝
-	if _, err := RebindMachine("APP-1", login.Token, "MC-3"); err == nil {
+	if _, err := Rebind("APP-1", "KM-RB", "", "MC-3", "1.2.3.4"); err == nil {
 		t.Fatalf("third rebind should exceed limit")
 	}
 }
@@ -471,15 +471,15 @@ func TestIPVerifyBindingAndRebind(t *testing.T) {
 
 	card := models.Card{CardNo: "KM-IP", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
 	db.Create(&card)
-	login, err := CardLogin("APP-1", "KM-IP", "", "10.0.0.1")
-	if err != nil {
+	if _, err := CardLogin("APP-1", "KM-IP", "", "10.0.0.1"); err != nil {
 		t.Fatalf("first IP login should bind IP: %v", err)
 	}
 	if _, err := CardLogin("APP-1", "KM-IP", "", "10.0.0.2"); err == nil {
 		t.Fatalf("login from unbound IP should be rejected")
 	}
-	if _, err := RebindIP("APP-1", login.Token, "10.0.0.2"); err != nil {
-		t.Fatalf("RebindIP: %v", err)
+	// 死循环验证：新 IP 登录被拒，但凭卡号转绑无需令牌，转绑后即可登录
+	if _, err := Rebind("APP-1", "KM-IP", "", "", "10.0.0.2"); err != nil {
+		t.Fatalf("Rebind IP: %v", err)
 	}
 	if _, err := CardLogin("APP-1", "KM-IP", "", "10.0.0.2"); err != nil {
 		t.Fatalf("login from rebound IP should pass: %v", err)
@@ -493,8 +493,10 @@ func TestRebindDisabledRejected(t *testing.T) {
 	db := setupPublicTestDB(t)
 	card := models.Card{CardNo: "KM-NOREBIND", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
 	db.Create(&card)
-	login, _ := CardLogin("APP-1", "KM-NOREBIND", "", "1.2.3.4")
-	if _, err := RebindMachine("APP-1", login.Token, "MC-X"); err == nil {
+	if _, err := CardLogin("APP-1", "KM-NOREBIND", "", "1.2.3.4"); err != nil {
+		t.Fatalf("CardLogin: %v", err)
+	}
+	if _, err := Rebind("APP-1", "KM-NOREBIND", "", "MC-X", "1.2.3.4"); err == nil {
 		t.Fatalf("rebind should be rejected when disabled")
 	}
 }
