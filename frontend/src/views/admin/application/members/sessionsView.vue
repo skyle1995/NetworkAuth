@@ -3,6 +3,8 @@ export interface Session {
   id: number;
   machine_code?: string;
   ip?: string;
+  province?: string;
+  city?: string;
   last_active_at?: string;
   created_at?: string;
 }
@@ -26,6 +28,11 @@ const emit = defineEmits<{
         show-overflow-tooltip
       />
       <el-table-column prop="ip" label="登录IP" width="130" />
+      <el-table-column label="归属地" min-width="140">
+        <template #default="{ row }">
+          {{ [row.province, row.city].filter(Boolean).join(" ") || "—" }}
+        </template>
+      </el-table-column>
       <el-table-column prop="last_active_at" label="最近活跃" width="160" />
       <el-table-column label="操作" width="90" fixed="right">
         <template #default="{ row }">

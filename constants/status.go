@@ -6,6 +6,6 @@ package constants
 
 // 应用程序版本信息
 const (
-	// AppVersion 应用程序版本号
-	AppVersion = "2.1.6"
+	// AppVersion 应用程序版本号（请勿修改，CI 会从 tag 注入）
+	AppVersion = "1.0.0"
 )

@@ -318,7 +318,7 @@ export function useMember() {
     const bindings = ref(code === 0 ? data || [] : []);
     addDialog({
       title: `绑定信息 - ${row.username}`,
-      width: "600px",
+      width: "720px",
       draggable: true,
       closeOnClickModal: false,
       contentRenderer: () => h(bindingsView, { bindings: bindings.value }),
@@ -417,7 +417,7 @@ export function useMember() {
     const sessions = ref(await load());
     addDialog({
       title: `在线会话 - ${row.username}`,
-      width: "620px",
+      width: "720px",
       draggable: true,
       closeOnClickModal: false,
       contentRenderer: () =>

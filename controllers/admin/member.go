@@ -407,10 +407,33 @@ func MemberBindingsHandler(c *gin.Context) {
 		return
 	}
 
+	type BindingResponse struct {
+		Type      int    `json:"type"`
+		Value     string `json:"value"`
+		Province  string `json:"province"`
+		City      string `json:"city"`
+		CreatedAt string `json:"created_at"`
+	}
+	list := make([]BindingResponse, 0, len(bindings))
+	for _, b := range bindings {
+		province, city := b.Province, b.City
+		// IP绑定：库里省市为空（老数据/绑定时未解析）则按当前IP实时补全
+		if b.Type == models.BindingTypeIP && province == "" && city == "" {
+			province, city = services.ResolveIPRegion(b.Value)
+		}
+		list = append(list, BindingResponse{
+			Type:      b.Type,
+			Value:     b.Value,
+			Province:  province,
+			City:      city,
+			CreatedAt: b.CreatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
 		"msg":  "success",
-		"data": bindings,
+		"data": list,
 	})
 }
 
@@ -482,15 +505,21 @@ func MemberSessionsHandler(c *gin.Context) {
 		ID           uint   `json:"id"`
 		MachineCode  string `json:"machine_code"`
 		IP           string `json:"ip"`
+		Province     string `json:"province"`
+		City         string `json:"city"`
 		LastActiveAt string `json:"last_active_at"`
 		CreatedAt    string `json:"created_at"`
 	}
 	list := make([]SessionResponse, 0, len(sessions))
 	for _, s := range sessions {
+		// 登录IP实时解析归属地（会话不落库省市，避免历史数据缺失）
+		province, city := services.ResolveIPRegion(s.IP)
 		list = append(list, SessionResponse{
 			ID:           s.ID,
 			MachineCode:  s.MachineCode,
 			IP:           s.IP,
+			Province:     province,
+			City:         city,
 			LastActiveAt: s.LastActiveAt.Format("2006-01-02 15:04:05"),
 			CreatedAt:    s.CreatedAt.Format("2006-01-02 15:04:05"),
 		})

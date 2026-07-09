@@ -476,3 +476,114 @@ call(30, {token})
 | 易加密 | — | 逗号分隔整数 | base64 |
 
 > 全部密钥可在后台「接口设置 → 导出密钥」一键导出为 JSON（含 `server.api_endpoint`、`app.uuid/secret` 及每个接口的算法与四类密钥），交给对接开发直接使用。
+
+---
+
+## 十一、算法 SDK（参考实现）
+
+以下为各加密算法的**确切规格**与 **Python 参考实现**（依赖 `cryptography` 库）。其它语言按同一规格移植即可（RC4/易加密逻辑与语言无关，RSA 用各平台自带库）。
+
+**方向与密钥**（务必对应）：提交(客户端→服务端)用 `submit_*`，返回(服务端→客户端)用 `return_*`；RSA 提交用 `submit_public_key` 加密、返回用 `return_private_key` 解密；RC4/易加密两个方向都用各自的 `private_key`。
+
+### 各算法规格
+| 算法 | 密钥（来自导出的 private_key/public_key） | 密文编码 | 说明 |
+|---|---|---|---|
+| 0 不加密 | 无 | 明文 | `data` = JSON 原文 |
+| 1 RC4 | private_key = 16 进制串 | base64 | **标准 RC4**，密钥=hex 解码后的字节 |
+| 2 RSA | PEM 公/私钥 | base64 | **OAEP + SHA-256 + MGF1(SHA-256)，label 空**；明文超长按 `keySize-66` 分块，密文按 `keySize` 分块拼接 |
+| 3 RSA动态 | PEM 公/私钥 | base64 | PKCS#1 v1.5 外层 + 内层动态 XOR（见文末，弱加密，不建议） |
+| 4 易加密 | private_key = 逗号分隔整数 | base64 | 自定义：`(字节-207) ^ key[i]`，带符号 16 进制、逗号拼接后 base64 |
+
+### Python 参考实现
+
+```python
+import base64, hashlib, json, time, requests
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes, serialization
+
+# ---------- 签名 ----------
+def make_sign(app_uuid, api_type, data, ts, secret):
+    return hashlib.sha256(f"{app_uuid}|{api_type}|{data}|{ts}|{secret}".encode()).hexdigest().upper()
+
+# ---------- 1 RC4（标准RC4；key为16进制串；输出base64） ----------
+def _rc4(key: bytes, data: bytes) -> bytes:
+    S = list(range(256)); j = 0
+    for i in range(256):
+        j = (j + S[i] + key[i % len(key)]) % 256
+        S[i], S[j] = S[j], S[i]
+    out = bytearray(); i = j = 0
+    for b in data:
+        i = (i + 1) % 256; j = (j + S[i]) % 256
+        S[i], S[j] = S[j], S[i]
+        out.append(b ^ S[(S[i] + S[j]) % 256])
+    return bytes(out)
+
+def rc4_encrypt(plain, hex_key): return base64.b64encode(_rc4(bytes.fromhex(hex_key), plain.encode())).decode()
+def rc4_decrypt(ciph, hex_key):  return _rc4(bytes.fromhex(hex_key), base64.b64decode(ciph)).decode()
+
+# ---------- 4 易加密（key为逗号分隔整数；输出base64） ----------
+def _easy_key(key_str): return [int(x) for x in key_str.split(",") if x.strip() != ""]
+
+def easy_encrypt(plain, key_str):
+    key = _easy_key(key_str); n = len(key); parts = []
+    for i, b in enumerate(plain.encode()):          # 按 UTF-8 字节
+        v = (b - 207) ^ key[i % n]                  # 负数用两补码（与Go一致）
+        parts.append(("-" + format(-v, "x")) if v < 0 else format(v, "x"))
+    return base64.b64encode((",".join(parts) + ",").encode()).decode()  # 注意结尾逗号
+
+def easy_decrypt(ciph, key_str):
+    key = _easy_key(key_str); n = len(key)
+    out = bytearray()
+    for i, part in enumerate(base64.b64decode(ciph).decode().split(",")):
+        if part == "": continue
+        neg = part.startswith("-")
+        d = -int(part[1:], 16) if neg else int(part, 16)
+        out.append(((d ^ key[i % n]) + 207) & 0xFF)
+    return out.decode("utf-8", "ignore")
+
+# ---------- 2 RSA（OAEP-SHA256，分块） ----------
+_OAEP = padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
+
+def rsa_encrypt(plain, public_pem):        # 提交方向：用 submit_public_key
+    pub = serialization.load_pem_public_key(public_pem.encode())
+    ksz = pub.key_size // 8; blk = ksz - 2*32 - 2
+    d = plain.encode(); out = b""
+    for i in range(0, len(d), blk):
+        out += pub.encrypt(d[i:i+blk], _OAEP)
+    return base64.b64encode(out).decode()
+
+def rsa_decrypt(ciph, private_pem):        # 返回方向：用 return_private_key
+    prv = serialization.load_pem_private_key(private_pem.encode(), password=None)
+    ksz = prv.key_size // 8; d = base64.b64decode(ciph); out = b""
+    for i in range(0, len(d), ksz):
+        out += prv.decrypt(d[i:i+ksz], _OAEP)
+    return out.decode()
+
+# ---------- 统一调用（按接口算法装配 data/解析 resp.data） ----------
+BASE = "https://your-domain.com/api/open"
+APP_UUID = "你的应用UUID"
+APP_SECRET = "你的应用密钥"
+
+def call(api_type, params, submit=("none", ""), ret=("none", "")):
+    # submit/ret 形如 ("rc4", hexkey) / ("easy", "1,2,3") / ("rsa", pem) / ("none","")
+    plain = json.dumps(params, separators=(",", ":"))
+    algo, key = submit
+    data = {"none": lambda: plain, "rc4": lambda: rc4_encrypt(plain, key),
+            "easy": lambda: easy_encrypt(plain, key), "rsa": lambda: rsa_encrypt(plain, key)}[algo]()
+    ts = int(time.time())
+    body = {"app_uuid": APP_UUID, "api_type": api_type, "data": data,
+            "timestamp": ts, "sign": make_sign(APP_UUID, api_type, data, ts, APP_SECRET)}
+    resp = requests.post(BASE, json=body, timeout=10).json()
+    if resp["code"] != 0: raise RuntimeError(resp["msg"])
+    algo, key = ret
+    return json.loads({"none": lambda: resp["data"], "rc4": lambda: rc4_decrypt(resp["data"], key),
+        "easy": lambda: easy_decrypt(resp["data"], key), "rsa": lambda: rsa_decrypt(resp["data"], key)}[algo]())
+
+# 例：不加密卡密登录
+# print(call(10, {"card": "KM-xxxx", "machine_code": "PC-1"}))
+```
+
+### RSA 动态（algorithm 3）规格
+弱加密、不建议使用；如需对接，流程为：客户端生成一段随机动态密钥 `keys`（每字节非 0）→ 对明文按 `keys` 循环 XOR → 拼成 `[1字节keys长度][keys][XOR后的密文]` → 用 RSA **PKCS#1 v1.5** 公钥加密 → base64。解密相反（RSA 私钥解密后，读首字节得 keys 长度，取出 keys，再 XOR 还原）。需要该算法的完整参考代码可单独索取。
+
+> 其它语言（C# / JS / 易语言 / C++）版本可按上表规格移植；需要我直接给某语言的成品 SDK，告诉我目标语言即可。
