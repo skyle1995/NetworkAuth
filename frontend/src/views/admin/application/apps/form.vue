@@ -15,6 +15,7 @@ export interface FormProps {
     points_per_login: number;
     points_period_minutes: number;
     points_per_period: number;
+    points_heartbeat_charge: number;
     card_login_enabled: number;
     recharge_enabled: number;
   };
@@ -33,6 +34,7 @@ const props = withDefaults(defineProps<FormProps>(), {
     points_per_login: 1,
     points_period_minutes: 60,
     points_per_period: 1,
+    points_heartbeat_charge: 0,
     card_login_enabled: 1,
     recharge_enabled: 1
   })
@@ -142,6 +144,20 @@ defineExpose({ getRef, newFormInline });
       <el-form-item v-if="isPerTime" label="周期扣点" prop="points_per_period">
         <el-input-number v-model="newFormInline.points_per_period" :min="1" />
         <span class="ml-2">点</span>
+      </el-form-item>
+      <el-form-item
+        v-if="isPerTime"
+        label="扣费触发"
+        prop="points_heartbeat_charge"
+      >
+        <el-radio-group v-model="newFormInline.points_heartbeat_charge">
+          <el-radio :value="0">登录预扣</el-radio>
+          <el-radio :value="1">心跳触发</el-radio>
+        </el-radio-group>
+        <div class="text-xs text-gray-400 mt-1">
+          心跳触发：登录不扣费，仅当心跳请求带 charge=true
+          时才按周期扣费（用于"功能A免费/功能B计费"）
+        </div>
       </el-form-item>
     </template>
 

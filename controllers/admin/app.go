@@ -271,19 +271,20 @@ func AppResetSecretHandler(c *gin.Context) {
 // AppCreateHandler 创建应用API处理器
 func AppCreateHandler(c *gin.Context) {
 	var req struct {
-		Name                string `json:"name"`
-		Version             string `json:"version"`
-		Status              int    `json:"status"`
-		DownloadType        int    `json:"download_type"`
-		ForceUpdate         int    `json:"force_update"`
-		DownloadURL         string `json:"download_url"`
-		OperationMode       int    `json:"operation_mode"`
-		PointsChargeMode    int    `json:"points_charge_mode"`
-		PointsPerLogin      int    `json:"points_per_login"`
-		PointsPeriodMinutes int    `json:"points_period_minutes"`
-		PointsPerPeriod     int    `json:"points_per_period"`
-		CardLoginEnabled    int    `json:"card_login_enabled"`
-		RechargeEnabled     int    `json:"recharge_enabled"`
+		Name                  string `json:"name"`
+		Version               string `json:"version"`
+		Status                int    `json:"status"`
+		DownloadType          int    `json:"download_type"`
+		ForceUpdate           int    `json:"force_update"`
+		DownloadURL           string `json:"download_url"`
+		OperationMode         int    `json:"operation_mode"`
+		PointsChargeMode      int    `json:"points_charge_mode"`
+		PointsPerLogin        int    `json:"points_per_login"`
+		PointsPeriodMinutes   int    `json:"points_period_minutes"`
+		PointsPerPeriod       int    `json:"points_per_period"`
+		PointsHeartbeatCharge int    `json:"points_heartbeat_charge"`
+		CardLoginEnabled      int    `json:"card_login_enabled"`
+		RechargeEnabled       int    `json:"recharge_enabled"`
 	}
 
 	if !appBaseController.BindJSON(c, &req) {
@@ -316,19 +317,20 @@ func AppCreateHandler(c *gin.Context) {
 
 	// 创建应用
 	app := models.App{
-		Name:                strings.TrimSpace(req.Name),
-		Version:             req.Version,
-		Status:              req.Status,
-		DownloadType:        req.DownloadType,
-		DownloadURL:         strings.TrimSpace(req.DownloadURL),
-		ForceUpdate:         req.ForceUpdate,
-		OperationMode:       req.OperationMode,
-		PointsChargeMode:    req.PointsChargeMode,
-		PointsPerLogin:      req.PointsPerLogin,
-		PointsPeriodMinutes: req.PointsPeriodMinutes,
-		PointsPerPeriod:     req.PointsPerPeriod,
-		CardLoginEnabled:    req.CardLoginEnabled,
-		RechargeEnabled:     req.RechargeEnabled,
+		Name:                  strings.TrimSpace(req.Name),
+		Version:               req.Version,
+		Status:                req.Status,
+		DownloadType:          req.DownloadType,
+		DownloadURL:           strings.TrimSpace(req.DownloadURL),
+		ForceUpdate:           req.ForceUpdate,
+		OperationMode:         req.OperationMode,
+		PointsChargeMode:      req.PointsChargeMode,
+		PointsPerLogin:        req.PointsPerLogin,
+		PointsPeriodMinutes:   req.PointsPeriodMinutes,
+		PointsPerPeriod:       req.PointsPerPeriod,
+		PointsHeartbeatCharge: req.PointsHeartbeatCharge,
+		CardLoginEnabled:      req.CardLoginEnabled,
+		RechargeEnabled:       req.RechargeEnabled,
 	}
 
 	// 确保UUID和Secret被设置（虽然BeforeCreate钩子应该处理这些，但为了保险起见）
@@ -436,20 +438,21 @@ func AppCreateHandler(c *gin.Context) {
 // AppUpdateHandler 更新应用API处理器
 func AppUpdateHandler(c *gin.Context) {
 	var req struct {
-		ID                  uint   `json:"id"`
-		Name                string `json:"name"`
-		Version             string `json:"version"`
-		Status              int    `json:"status"`
-		DownloadType        int    `json:"download_type"`
-		DownloadURL         string `json:"download_url"`
-		ForceUpdate         int    `json:"force_update"`
-		OperationMode       int    `json:"operation_mode"`
-		PointsChargeMode    int    `json:"points_charge_mode"`
-		PointsPerLogin      int    `json:"points_per_login"`
-		PointsPeriodMinutes int    `json:"points_period_minutes"`
-		PointsPerPeriod     int    `json:"points_per_period"`
-		CardLoginEnabled    int    `json:"card_login_enabled"`
-		RechargeEnabled     int    `json:"recharge_enabled"`
+		ID                    uint   `json:"id"`
+		Name                  string `json:"name"`
+		Version               string `json:"version"`
+		Status                int    `json:"status"`
+		DownloadType          int    `json:"download_type"`
+		DownloadURL           string `json:"download_url"`
+		ForceUpdate           int    `json:"force_update"`
+		OperationMode         int    `json:"operation_mode"`
+		PointsChargeMode      int    `json:"points_charge_mode"`
+		PointsPerLogin        int    `json:"points_per_login"`
+		PointsPeriodMinutes   int    `json:"points_period_minutes"`
+		PointsPerPeriod       int    `json:"points_per_period"`
+		PointsHeartbeatCharge int    `json:"points_heartbeat_charge"`
+		CardLoginEnabled      int    `json:"card_login_enabled"`
+		RechargeEnabled       int    `json:"recharge_enabled"`
 	}
 
 	if !appBaseController.BindJSON(c, &req) {
@@ -502,6 +505,7 @@ func AppUpdateHandler(c *gin.Context) {
 	app.PointsPerLogin = req.PointsPerLogin
 	app.PointsPeriodMinutes = req.PointsPeriodMinutes
 	app.PointsPerPeriod = req.PointsPerPeriod
+	app.PointsHeartbeatCharge = req.PointsHeartbeatCharge
 	app.CardLoginEnabled = req.CardLoginEnabled
 	app.RechargeEnabled = req.RechargeEnabled
 

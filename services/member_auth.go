@@ -107,6 +107,10 @@ func applyLoginCharge(tx *gorm.DB, app *models.App, m *models.Member) error {
 		return nil
 	}
 	if app.PointsChargeMode == models.PointsChargePerTime {
+		// 心跳触发扣费模式：登录不预扣，交由心跳按需结算
+		if app.PointsHeartbeatCharge == 1 {
+			return nil
+		}
 		return settlePointsTime(tx, app, m)
 	}
 	// 按次
@@ -528,7 +532,10 @@ func authActiveMember(db *gorm.DB, appUUID, token string) (*models.Member, *mode
 
 // CheckMemberStatus 心跳/状态查询：校验令牌有效、账号正常且可用。
 // 按时点数模式在心跳时结算：过了预扣周期则自动续扣下一周期。
-func CheckMemberStatus(appUUID, token string) (*StatusResult, error) {
+// CheckMemberStatus 检测账号状态/心跳（type 41）。
+// charge 为心跳是否触发扣费：仅在点数-按时且「心跳触发扣费」模式下用于决定本次心跳是否结算；
+// 其它模式忽略该参数（按时默认心跳自动结算，时长/按次登录时已扣）。
+func CheckMemberStatus(appUUID, token string, charge bool) (*StatusResult, error) {
 	db, err := database.GetDB()
 	if err != nil {
 		return nil, err
@@ -544,8 +551,11 @@ func CheckMemberStatus(appUUID, token string) (*StatusResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 按时预扣费结算（尽力续期，忽略无法续期的错误，交由 usable 判定）
-	_ = settlePointsTime(db, app, member)
+	// 按时预扣费结算：心跳触发模式下仅当客户端要求扣费(charge)时才结算；否则默认心跳自动结算。
+	// 尽力续期，忽略无法续期的错误，交由 usable 判定。
+	if app.PointsHeartbeatCharge != 1 || charge {
+		_ = settlePointsTime(db, app, member)
+	}
 	if err := checkMemberUsable(app, member); err != nil {
 		return nil, err
 	}

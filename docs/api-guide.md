@@ -155,8 +155,9 @@ sign      = HEX_UPPER( SHA256(raw) )
 - 返回（`StatusResult`）：`{ username, status, mode, permanent, expired_at, points }`
 
 #### `41` 检测账号状态（心跳）
-- 请求：`{ token }`
-- 返回（`StatusResult`，含 `heartbeat_interval`）：既是心跳也是状态查询，返回用户基本信息 + 心跳间隔，客户端可据返回的 `heartbeat_interval` **动态调整**下次心跳时间。点数「按时」模式会在此结算并顺延周期。账号被封停/拉黑/到期/点数耗尽时返回异常，客户端据此登出。
+- 请求：`{ token, charge?: bool }`
+- 返回（`StatusResult`，含 `heartbeat_interval`）：既是心跳也是状态查询，返回用户基本信息 + 心跳间隔,客户端可据返回的 `heartbeat_interval` **动态调整**下次心跳时间。点数「按时」模式会在此结算并顺延周期。账号被封停/拉黑/到期/点数耗尽时返回异常，客户端据此登出。
+- **`charge` 参数**（仅点数-按时 + 应用开启「扣费触发=心跳触发」时有效）：本次心跳是否触发按周期扣费。用免费功能时传 `false`（不扣），用计费功能时传 `true`（按周期扣点）。其它模式忽略该参数。可实现「功能A免费 / 功能B计费」：登录不预扣，只有发 `charge:true` 的心跳才消耗点数。
 
 #### `42` 获取程序数据
 - 请求：`{ token }`

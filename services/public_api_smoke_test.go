@@ -138,7 +138,7 @@ func TestCardLoginActivateStatusLogout(t *testing.T) {
 	}
 
 	// 心跳应通过
-	if _, err := CheckMemberStatus("APP-1", res.Token); err != nil {
+	if _, err := CheckMemberStatus("APP-1", res.Token, true); err != nil {
 		t.Fatalf("status check should pass: %v", err)
 	}
 
@@ -150,10 +150,10 @@ func TestCardLoginActivateStatusLogout(t *testing.T) {
 	if res2.Token == res.Token {
 		t.Fatalf("re-login should issue a new token")
 	}
-	if _, err := CheckMemberStatus("APP-1", res.Token); err == nil {
+	if _, err := CheckMemberStatus("APP-1", res.Token, true); err == nil {
 		t.Fatalf("old token should be invalidated after re-login")
 	}
-	if _, err := CheckMemberStatus("APP-1", res2.Token); err != nil {
+	if _, err := CheckMemberStatus("APP-1", res2.Token, true); err != nil {
 		t.Fatalf("new token should be valid: %v", err)
 	}
 
@@ -161,7 +161,7 @@ func TestCardLoginActivateStatusLogout(t *testing.T) {
 	if err := MemberLogout("APP-1", res2.Token); err != nil {
 		t.Fatalf("logout: %v", err)
 	}
-	if _, err := CheckMemberStatus("APP-1", res2.Token); err == nil {
+	if _, err := CheckMemberStatus("APP-1", res2.Token, true); err == nil {
 		t.Fatalf("status check should fail after logout")
 	}
 }
@@ -727,7 +727,7 @@ func TestMultiOpenSessions(t *testing.T) {
 		t.Fatalf("preemption should keep session count at limit, got %d", sessionCount())
 	}
 	// 新会话有效
-	if _, err := CheckMemberStatus("APP-1", l4.Token); err != nil {
+	if _, err := CheckMemberStatus("APP-1", l4.Token, true); err != nil {
 		t.Fatalf("new session should be valid: %v", err)
 	}
 }
@@ -801,7 +801,7 @@ func TestRiskControl(t *testing.T) {
 	if _, err := RiskDisableMember("APP-1", "KM-RISK"); err != nil {
 		t.Fatalf("RiskDisableMember: %v", err)
 	}
-	if _, err := CheckMemberStatus("APP-1", login.Token); err == nil {
+	if _, err := CheckMemberStatus("APP-1", login.Token, true); err == nil {
 		t.Fatalf("session should be killed after disable")
 	}
 	var m models.Member
@@ -957,14 +957,14 @@ func TestPointsPerTimeMode(t *testing.T) {
 	}
 
 	// 心跳仍在窗口内 → 不再扣点
-	if st, _ := CheckMemberStatus("APP-1", res.Token); st.Points != 1 {
+	if st, _ := CheckMemberStatus("APP-1", res.Token, true); st.Points != 1 {
 		t.Fatalf("heartbeat within window should not deduct, got %d", st.Points)
 	}
 
 	// 模拟窗口已过：把到期时间拨到过去，心跳应续扣 1 点 → 0
 	db.Model(&models.Member{}).Where("uuid = ?", m.UUID).
 		Update("expired_at", time.Now().Add(-time.Minute))
-	st, err := CheckMemberStatus("APP-1", res.Token)
+	st, err := CheckMemberStatus("APP-1", res.Token, true)
 	if err != nil {
 		t.Fatalf("renew heartbeat: %v", err)
 	}
@@ -975,7 +975,7 @@ func TestPointsPerTimeMode(t *testing.T) {
 	// 再次窗口过期且余额 0 → 不可用
 	db.Model(&models.Member{}).Where("uuid = ?", m.UUID).
 		Update("expired_at", time.Now().Add(-time.Minute))
-	if _, err := CheckMemberStatus("APP-1", res.Token); err == nil {
+	if _, err := CheckMemberStatus("APP-1", res.Token, true); err == nil {
 		t.Fatalf("should be unusable when window expired and points exhausted")
 	}
 }

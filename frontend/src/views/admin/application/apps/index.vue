@@ -78,6 +78,7 @@ function openDialog(title = "新增", row?: any) {
         points_per_login: row?.points_per_login ?? 1,
         points_period_minutes: row?.points_period_minutes ?? 60,
         points_per_period: row?.points_per_period ?? 1,
+        points_heartbeat_charge: row?.points_heartbeat_charge ?? 0,
         card_login_enabled: row?.card_login_enabled ?? 1,
         recharge_enabled: row?.recharge_enabled ?? 1
       }

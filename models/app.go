@@ -117,6 +117,8 @@ type App struct {
 	PointsPeriodMinutes int `gorm:"default:60;not null;comment:按时模式计费周期，分钟" json:"points_period_minutes"`
 	// PointsPerPeriod：按时模式每周期扣除的点数
 	PointsPerPeriod int `gorm:"default:1;not null;comment:按时模式每周期扣点" json:"points_per_period"`
+	// PointsHeartbeatCharge：按时扣费触发方式（0=登录预扣[默认]，1=心跳触发/登录不预扣）。仅点数-按时模式生效
+	PointsHeartbeatCharge int `gorm:"default:0;not null;comment:按时扣费触发方式，0=登录预扣，1=心跳触发" json:"points_heartbeat_charge"`
 
 	// 登录方式开关字段
 	// CardLoginEnabled：卡密登录开关（0=关闭，1=开启）。开启后卡密可直接登录并自动创建绑定账号

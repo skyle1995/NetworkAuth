@@ -276,14 +276,16 @@ func handleRecharge(app *models.App, plainParams string) (any, error) {
 }
 
 // handleCheckStatus 检测账号状态/心跳（type 41）
+// charge：点数-按时且「心跳触发扣费」模式下，本次心跳是否触发扣费（用功能A传false、用功能B传true）。
 func handleCheckStatus(app *models.App, plainParams string) (any, error) {
 	var params struct {
-		Token string `json:"token"`
+		Token  string `json:"token"`
+		Charge bool   `json:"charge"`
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.CheckMemberStatus(app.UUID, params.Token)
+	return services.CheckMemberStatus(app.UUID, params.Token, params.Charge)
 }
 
 // handleGetExpired 获取到期时间（type 40）
