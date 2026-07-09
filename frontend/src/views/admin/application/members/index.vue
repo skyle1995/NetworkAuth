@@ -238,7 +238,7 @@ async function onBatchDel() {
         </el-button>
       </div>
 
-      <PureTableBar title="账号管理" :columns="columns" @refresh="onSearch">
+      <PureTableBar title="终端账号管理" :columns="columns" @refresh="onSearch">
         <template v-slot="{ size, dynamicColumns }">
           <pure-table
             ref="tableRef"

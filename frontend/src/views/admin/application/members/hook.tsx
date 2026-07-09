@@ -151,7 +151,7 @@ export function useMember() {
   function openCreateDialog() {
     const dialogFormRef = ref();
     addDialog({
-      title: "新增账号",
+      title: "新增终端账号",
       props: {
         formInline: {
           app_uuid: form.app_uuid || "",

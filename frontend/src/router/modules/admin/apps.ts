@@ -116,7 +116,7 @@ export default [
     redirect: "/admin/members/index",
     meta: {
       icon: "ep:user",
-      title: "账号",
+      title: "终端账号",
       rank: 6
     },
     children: [
@@ -125,7 +125,7 @@ export default [
         name: "MembersIndex",
         component: () => import("@/views/admin/application/members/index.vue"),
         meta: {
-          title: "账号"
+          title: "终端账号"
         }
       }
     ]
