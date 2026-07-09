@@ -61,13 +61,13 @@ defineExpose({ getRef, newFormInline });
         <el-radio :value="1">开启</el-radio>
       </el-radio-group>
     </el-form-item>
-    <el-form-item label="IP注册限制" prop="register_limit_enabled">
+    <el-form-item label="IP限制" prop="register_limit_enabled">
       <el-radio-group v-model="newFormInline.register_limit_enabled">
         <el-radio :value="0">关闭</el-radio>
         <el-radio :value="1">开启</el-radio>
       </el-radio-group>
     </el-form-item>
-    <el-form-item label="设备注册限制" prop="register_device_limit_enabled">
+    <el-form-item label="设备限制" prop="register_device_limit_enabled">
       <el-radio-group v-model="newFormInline.register_device_limit_enabled">
         <el-radio :value="0">关闭</el-radio>
         <el-radio :value="1">开启</el-radio>
