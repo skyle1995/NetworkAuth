@@ -59,7 +59,7 @@ func recordMemberLog(c *gin.Context, action, details string) {
 // API处理器
 // ============================================================================
 
-// MemberListHandler 终端用户列表API处理器
+// MemberListHandler 账号列表API处理器
 func MemberListHandler(c *gin.Context) {
 	page, limit := memberBaseController.GetPaginationParams(c)
 
@@ -90,7 +90,7 @@ func MemberListHandler(c *gin.Context) {
 	members, total, err := services.Paginate[models.Member](query, page, limit, "created_at DESC")
 	if err != nil {
 		logrus.WithError(err).Error("Failed to fetch members")
-		memberBaseController.HandleInternalError(c, "查询终端用户列表失败", err)
+		memberBaseController.HandleInternalError(c, "查询账号列表失败", err)
 		return
 	}
 
@@ -181,7 +181,7 @@ func MemberListHandler(c *gin.Context) {
 	})
 }
 
-// MemberCreateHandler 后台创建注册型终端用户API处理器
+// MemberCreateHandler 后台创建注册型账号API处理器
 func MemberCreateHandler(c *gin.Context) {
 	var req struct {
 		AppUUID       string `json:"app_uuid"`
@@ -221,11 +221,11 @@ func MemberCreateHandler(c *gin.Context) {
 		return
 	}
 
-	recordMemberLog(c, "创建终端用户", fmt.Sprintf("为应用 %s 创建用户 %s", req.AppUUID, member.Username))
+	recordMemberLog(c, "创建账号", fmt.Sprintf("为应用 %s 创建用户 %s", req.AppUUID, member.Username))
 	memberBaseController.HandleSuccess(c, "创建成功", gin.H{"id": member.ID, "uuid": member.UUID})
 }
 
-// MemberSetStatusHandler 批量设置终端用户状态API处理器（正常/封停/黑名单）
+// MemberSetStatusHandler 批量设置账号状态API处理器（正常/封停/黑名单）
 func MemberSetStatusHandler(c *gin.Context) {
 	var req struct {
 		IDs    []uint `json:"ids"`
@@ -249,7 +249,7 @@ func MemberSetStatusHandler(c *gin.Context) {
 	memberBaseController.HandleSuccess(c, "操作成功", nil)
 }
 
-// MemberRechargeHandler 终端用户充值API处理器（时长模式加时长/永久，点数模式加点数）
+// MemberRechargeHandler 账号充值API处理器（时长模式加时长/永久，点数模式加点数）
 func MemberRechargeHandler(c *gin.Context) {
 	var req struct {
 		ID            uint   `json:"id"`
@@ -300,7 +300,7 @@ func MemberRechargeHandler(c *gin.Context) {
 	memberBaseController.HandleSuccess(c, "充值成功", nil)
 }
 
-// MemberDeductHandler 终端用户扣减API处理器（时长模式扣时长，点数模式扣点数）
+// MemberDeductHandler 账号扣减API处理器（时长模式扣时长，点数模式扣点数）
 func MemberDeductHandler(c *gin.Context) {
 	var req struct {
 		ID            uint   `json:"id"`
@@ -341,7 +341,7 @@ func MemberDeductHandler(c *gin.Context) {
 	memberBaseController.HandleSuccess(c, "扣时成功", nil)
 }
 
-// MemberResetPasswordHandler 重置终端用户密码API处理器
+// MemberResetPasswordHandler 重置账号密码API处理器
 func MemberResetPasswordHandler(c *gin.Context) {
 	var req struct {
 		ID       uint   `json:"id"`
@@ -367,7 +367,7 @@ func MemberResetPasswordHandler(c *gin.Context) {
 	memberBaseController.HandleSuccess(c, "密码重置成功", nil)
 }
 
-// MemberUpdateRemarkHandler 更新终端用户备注API处理器
+// MemberUpdateRemarkHandler 更新账号备注API处理器
 func MemberUpdateRemarkHandler(c *gin.Context) {
 	var req struct {
 		ID     uint   `json:"id"`
@@ -388,11 +388,11 @@ func MemberUpdateRemarkHandler(c *gin.Context) {
 	memberBaseController.HandleSuccess(c, "更新成功", nil)
 }
 
-// MemberBindingsHandler 查询终端用户的机器码/IP绑定列表API处理器
+// MemberBindingsHandler 查询账号的机器码/IP绑定列表API处理器
 func MemberBindingsHandler(c *gin.Context) {
 	memberUUID := strings.TrimSpace(c.Query("member_uuid"))
 	if memberUUID == "" {
-		memberBaseController.HandleValidationError(c, "终端用户UUID不能为空")
+		memberBaseController.HandleValidationError(c, "账号UUID不能为空")
 		return
 	}
 
@@ -437,7 +437,7 @@ func MemberBindingsHandler(c *gin.Context) {
 	})
 }
 
-// MemberGetDataHandler 获取终端用户的用户数据
+// MemberGetDataHandler 获取账号的用户数据
 func MemberGetDataHandler(c *gin.Context) {
 	idStr := strings.TrimSpace(c.Query("id"))
 	id, err := strconv.Atoi(idStr)
@@ -451,13 +451,13 @@ func MemberGetDataHandler(c *gin.Context) {
 	}
 	var member models.Member
 	if err := db.Select("id, data").First(&member, id).Error; err != nil {
-		memberBaseController.HandleNotFoundError(c, "终端用户")
+		memberBaseController.HandleNotFoundError(c, "账号")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "msg": "success", "data": gin.H{"data": member.Data}})
 }
 
-// MemberUpdateDataHandler 更新终端用户的用户数据
+// MemberUpdateDataHandler 更新账号的用户数据
 func MemberUpdateDataHandler(c *gin.Context) {
 	var req struct {
 		ID   uint   `json:"id"`
@@ -482,11 +482,11 @@ func MemberUpdateDataHandler(c *gin.Context) {
 	memberBaseController.HandleSuccess(c, "保存成功", nil)
 }
 
-// MemberSessionsHandler 查询终端用户的在线会话API处理器
+// MemberSessionsHandler 查询账号的在线会话API处理器
 func MemberSessionsHandler(c *gin.Context) {
 	memberUUID := strings.TrimSpace(c.Query("member_uuid"))
 	if memberUUID == "" {
-		memberBaseController.HandleValidationError(c, "终端用户UUID不能为空")
+		memberBaseController.HandleValidationError(c, "账号UUID不能为空")
 		return
 	}
 
@@ -563,7 +563,7 @@ func MemberKickSessionHandler(c *gin.Context) {
 	memberBaseController.HandleSuccess(c, "操作成功", gin.H{"count": res.RowsAffected})
 }
 
-// MemberClearBindingsHandler 清空终端用户绑定API处理器（后台解绑）
+// MemberClearBindingsHandler 清空账号绑定API处理器（后台解绑）
 func MemberClearBindingsHandler(c *gin.Context) {
 	var req struct {
 		UUID string `json:"uuid"`
@@ -571,7 +571,7 @@ func MemberClearBindingsHandler(c *gin.Context) {
 	if !memberBaseController.BindJSON(c, &req) {
 		return
 	}
-	if !memberBaseController.ValidateRequired(c, map[string]interface{}{"终端用户UUID": req.UUID}) {
+	if !memberBaseController.ValidateRequired(c, map[string]interface{}{"账号UUID": req.UUID}) {
 		return
 	}
 
@@ -584,7 +584,7 @@ func MemberClearBindingsHandler(c *gin.Context) {
 	memberBaseController.HandleSuccess(c, "解绑成功", nil)
 }
 
-// MembersBatchDeleteHandler 批量删除终端用户API处理器
+// MembersBatchDeleteHandler 批量删除账号API处理器
 func MembersBatchDeleteHandler(c *gin.Context) {
 	var req struct {
 		IDs []uint `json:"ids"`
@@ -603,6 +603,6 @@ func MembersBatchDeleteHandler(c *gin.Context) {
 		return
 	}
 
-	recordMemberLog(c, "删除终端用户", fmt.Sprintf("批量删除了 %d 个终端用户", len(req.IDs)))
+	recordMemberLog(c, "删除账号", fmt.Sprintf("批量删除了 %d 个账号", len(req.IDs)))
 	memberBaseController.HandleSuccess(c, "批量删除成功", nil)
 }

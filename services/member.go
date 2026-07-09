@@ -12,15 +12,15 @@ import (
 )
 
 // ============================================================================
-// 终端用户服务
+// 账号服务
 // ============================================================================
 //
-// 终端用户（Member）是应用的最终用户，区别于后台管理员（User）。
+// 账号（Member）是应用的最终用户，区别于后台管理员（User）。
 // 注册账号与卡密账号统一存储于 members 表，本服务负责后台对其的管理操作。
 
-// CreateMember 后台手动创建一个注册型终端用户。
+// CreateMember 后台手动创建一个注册型账号。
 // durationMinutes 为初始时长（分钟），models.CardDurationPermanent(-1) 表示永久。
-// CreateMember 后台创建注册型终端用户。
+// CreateMember 后台创建注册型账号。
 // 时长模式用 durationMinutes 设初始到期；点数模式用 points 设初始点数。
 func CreateMember(appUUID, username, password string, durationMinutes, points int, remark string) (*models.Member, error) {
 	appUUID = strings.TrimSpace(appUUID)
@@ -81,7 +81,7 @@ func CreateMember(appUUID, username, password string, durationMinutes, points in
 	return &member, nil
 }
 
-// RechargeMemberPoints 后台为终端用户增加点数余额。
+// RechargeMemberPoints 后台为账号增加点数余额。
 func RechargeMemberPoints(id uint, points int) error {
 	if points <= 0 {
 		return errors.New("充值点数必须大于0")
@@ -92,12 +92,12 @@ func RechargeMemberPoints(id uint, points int) error {
 	}
 	var member models.Member
 	if err := db.First(&member, id).Error; err != nil {
-		return errors.New("终端用户不存在")
+		return errors.New("账号不存在")
 	}
 	return db.Model(&member).Update("points", member.Points+points).Error
 }
 
-// DeductMemberPoints 后台扣除终端用户点数余额（不低于0）。
+// DeductMemberPoints 后台扣除账号点数余额（不低于0）。
 func DeductMemberPoints(id uint, points int) error {
 	if points <= 0 {
 		return errors.New("扣除点数必须大于0")
@@ -108,7 +108,7 @@ func DeductMemberPoints(id uint, points int) error {
 	}
 	var member models.Member
 	if err := db.First(&member, id).Error; err != nil {
-		return errors.New("终端用户不存在")
+		return errors.New("账号不存在")
 	}
 	newPoints := member.Points - points
 	if newPoints < 0 {
@@ -117,7 +117,7 @@ func DeductMemberPoints(id uint, points int) error {
 	return db.Model(&member).Update("points", newPoints).Error
 }
 
-// GetMemberAppMode 返回某终端用户所属应用的运营模式（供后台按模式分支）。
+// GetMemberAppMode 返回某账号所属应用的运营模式（供后台按模式分支）。
 func GetMemberAppMode(id uint) (int, error) {
 	db, err := database.GetDB()
 	if err != nil {
@@ -125,7 +125,7 @@ func GetMemberAppMode(id uint) (int, error) {
 	}
 	var member models.Member
 	if err := db.First(&member, id).Error; err != nil {
-		return 0, errors.New("终端用户不存在")
+		return 0, errors.New("账号不存在")
 	}
 	var app models.App
 	if err := db.Where("uuid = ?", member.AppUUID).First(&app).Error; err != nil {
@@ -142,7 +142,7 @@ func expiryFromDuration(durationMinutes int) time.Time {
 	return time.Now().Add(time.Duration(durationMinutes) * time.Minute)
 }
 
-// SetMembersStatus 批量设置终端用户状态（正常/封停/黑名单）。
+// SetMembersStatus 批量设置账号状态（正常/封停/黑名单）。
 func SetMembersStatus(ids []uint, status int) error {
 	if len(ids) == 0 {
 		return nil
@@ -159,7 +159,7 @@ func SetMembersStatus(ids []uint, status int) error {
 	return db.Model(&models.Member{}).Where("id IN ?", ids).Update("status", status).Error
 }
 
-// RechargeMemberTime 为终端用户充值时长（分钟）。
+// RechargeMemberTime 为账号充值时长（分钟）。
 // 已过期的账号从当前时间起算；永久账号保持永久不变。
 func RechargeMemberTime(id uint, minutes int) error {
 	if minutes <= 0 {
@@ -171,7 +171,7 @@ func RechargeMemberTime(id uint, minutes int) error {
 	}
 	var member models.Member
 	if err := db.First(&member, id).Error; err != nil {
-		return errors.New("终端用户不存在")
+		return errors.New("账号不存在")
 	}
 	if member.ExpiredAt.Equal(models.PermanentTime) {
 		// 永久账号无需充值
@@ -186,7 +186,7 @@ func RechargeMemberTime(id uint, minutes int) error {
 	return db.Model(&member).Update("expired_at", newExpiry).Error
 }
 
-// DeductMemberTime 扣除终端用户时长（分钟），到期时间不早于当前时间。
+// DeductMemberTime 扣除账号时长（分钟），到期时间不早于当前时间。
 // 永久账号不允许直接扣时，需先通过 SetMemberExpiry 重设到期时间。
 func DeductMemberTime(id uint, minutes int) error {
 	if minutes <= 0 {
@@ -198,7 +198,7 @@ func DeductMemberTime(id uint, minutes int) error {
 	}
 	var member models.Member
 	if err := db.First(&member, id).Error; err != nil {
-		return errors.New("终端用户不存在")
+		return errors.New("账号不存在")
 	}
 	if member.ExpiredAt.Equal(models.PermanentTime) {
 		return errors.New("永久账号无法扣时，请先重设到期时间")
@@ -211,7 +211,7 @@ func DeductMemberTime(id uint, minutes int) error {
 	return db.Model(&member).Update("expired_at", newExpiry).Error
 }
 
-// SetMemberExpiry 直接设置终端用户到期时间（用于修正/设为永久）。
+// SetMemberExpiry 直接设置账号到期时间（用于修正/设为永久）。
 func SetMemberExpiry(id uint, expiredAt time.Time) error {
 	db, err := database.GetDB()
 	if err != nil {
@@ -220,7 +220,7 @@ func SetMemberExpiry(id uint, expiredAt time.Time) error {
 	return db.Model(&models.Member{}).Where("id = ?", id).Update("expired_at", expiredAt).Error
 }
 
-// ResetMemberPassword 重置终端用户密码（重新生成盐值）。
+// ResetMemberPassword 重置账号密码（重新生成盐值）。
 func ResetMemberPassword(id uint, newPassword string) error {
 	if strings.TrimSpace(newPassword) == "" {
 		return errors.New("新密码不能为空")
@@ -243,7 +243,7 @@ func ResetMemberPassword(id uint, newPassword string) error {
 	}).Error
 }
 
-// UpdateMemberRemark 更新终端用户备注。
+// UpdateMemberRemark 更新账号备注。
 func UpdateMemberRemark(id uint, remark string) error {
 	db, err := database.GetDB()
 	if err != nil {
@@ -252,11 +252,11 @@ func UpdateMemberRemark(id uint, remark string) error {
 	return db.Model(&models.Member{}).Where("id = ?", id).Update("remark", remark).Error
 }
 
-// ClearMemberBindings 清空某终端用户的机器码/IP 绑定（后台解绑）。
+// ClearMemberBindings 清空某账号的机器码/IP 绑定（后台解绑）。
 func ClearMemberBindings(memberUUID string) error {
 	memberUUID = strings.TrimSpace(memberUUID)
 	if memberUUID == "" {
-		return errors.New("终端用户UUID不能为空")
+		return errors.New("账号UUID不能为空")
 	}
 	db, err := database.GetDB()
 	if err != nil {
@@ -265,7 +265,7 @@ func ClearMemberBindings(memberUUID string) error {
 	return db.Where("member_uuid = ?", memberUUID).Delete(&models.Binding{}).Error
 }
 
-// DeleteMembers 批量删除终端用户，并级联删除其绑定记录。
+// DeleteMembers 批量删除账号，并级联删除其绑定记录。
 func DeleteMembers(ids []uint) error {
 	if len(ids) == 0 {
 		return nil

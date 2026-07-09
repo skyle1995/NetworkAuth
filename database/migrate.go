@@ -42,5 +42,6 @@ func AllModels() []any {
 		&models.Binding{},
 		&models.MemberSession{},
 		&models.MemberLog{},
+		&models.Blacklist{},
 	}
 }

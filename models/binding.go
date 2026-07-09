@@ -22,10 +22,10 @@ const (
 // 结构体定义
 // ============================================================================
 
-// Binding 终端用户绑定表模型
-// 存储终端用户的机器码/IP 绑定关系，支撑多开与转绑逻辑。
+// Binding 账号绑定表模型
+// 存储账号的机器码/IP 绑定关系，支撑多开与转绑逻辑。
 // 一个用户可有多条绑定（受 App 的 MultiOpenCount 限制），因此单独成表。
-// 卡密账号与注册账号的绑定统一归此表，owner 恒为终端用户，运行时逻辑无需区分来源。
+// 卡密账号与注册账号的绑定统一归此表，owner 恒为账号，运行时逻辑无需区分来源。
 // CreatedAt/UpdatedAt 由 GORM 自动维护
 type Binding struct {
 	// ID：主键，自增
@@ -34,8 +34,8 @@ type Binding struct {
 	// UUID：绑定唯一标识符，自动生成
 	UUID string `gorm:"uniqueIndex;size:36;not null;comment:绑定UUID，唯一标识符" json:"uuid"`
 
-	// MemberUUID：归属终端用户UUID，与 Type+Value 联合唯一
-	MemberUUID string `gorm:"size:36;not null;index;uniqueIndex:idx_binding_member_type_value;comment:归属终端用户UUID" json:"member_uuid"`
+	// MemberUUID：归属账号UUID，与 Type+Value 联合唯一
+	MemberUUID string `gorm:"size:36;not null;index;uniqueIndex:idx_binding_member_type_value;comment:归属账号UUID" json:"member_uuid"`
 
 	// Type：绑定类型（0=机器码，1=IP地址）
 	Type int `gorm:"not null;uniqueIndex:idx_binding_member_type_value;comment:绑定类型，0=机器码，1=IP" json:"type"`

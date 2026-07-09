@@ -93,7 +93,7 @@ func DashboardStatsHandler(c *gin.Context) {
 		// 应用
 		"total_apps":   count(&models.App{}, nil),
 		"enabled_apps": count(&models.App{}, "status = ?", 1),
-		// 终端用户
+		// 账号
 		"total_members":     count(&models.Member{}, nil),
 		"normal_members":    count(&models.Member{}, "status = ?", models.MemberStatusNormal),
 		"disabled_members":  count(&models.Member{}, "status = ?", models.MemberStatusDisabled),

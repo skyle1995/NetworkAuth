@@ -31,8 +31,8 @@ const CardDurationPermanent = -1
 
 // Card 卡密表模型
 // 卡密是独立的“时长凭证”，制卡时不锁定用途：
-//   - 卡密登录：首次使用时长出一个绑定该卡的终端用户（见 [Member].CardUUID）
-//   - 用户充值：把面值时长加到目标终端用户的到期时间上
+//   - 卡密登录：首次使用时长出一个绑定该卡的账号（见 [Member].CardUUID）
+//   - 用户充值：把面值时长加到目标账号的到期时间上
 //
 // 卡密不因被使用而删除，只是状态变为已使用并记录用途，便于后台追溯。
 // CreatedAt/UpdatedAt 由 GORM 自动维护
@@ -61,8 +61,8 @@ type Card struct {
 	// Status：卡密状态（0=未使用，1=已使用，2=已冻结）
 	Status int `gorm:"default:0;not null;comment:卡密状态，0=未使用，1=已使用，2=已冻结" json:"status"`
 
-	// UsedByMember：核销去向，记录被哪个终端用户使用（终端用户UUID）
-	UsedByMember string `gorm:"size:36;index;comment:核销去向，使用该卡的终端用户UUID" json:"used_by_member"`
+	// UsedByMember：核销去向，记录被哪个账号使用（账号UUID）
+	UsedByMember string `gorm:"size:36;index;comment:核销去向，使用该卡的账号UUID" json:"used_by_member"`
 
 	// UsedAt：核销时间（未使用时为空）
 	UsedAt *time.Time `gorm:"comment:核销时间" json:"used_at"`

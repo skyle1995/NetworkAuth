@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// MemberLogListHandler 终端用户调用审计日志列表
+// MemberLogListHandler 账号调用审计日志列表
 func MemberLogListHandler(c *gin.Context) {
 	page, limit := memberBaseController.GetPaginationParams(c)
 
@@ -69,7 +69,7 @@ func MemberLogListHandler(c *gin.Context) {
 	})
 }
 
-// MemberLogClearHandler 清空终端用户审计日志
+// MemberLogClearHandler 清空账号审计日志
 func MemberLogClearHandler(c *gin.Context) {
 	db, ok := memberBaseController.GetDB(c)
 	if !ok {
@@ -80,6 +80,6 @@ func MemberLogClearHandler(c *gin.Context) {
 		memberBaseController.HandleInternalError(c, "清空失败", err)
 		return
 	}
-	recordMemberLog(c, "清空审计日志", "清空了终端用户调用审计日志")
+	recordMemberLog(c, "清空审计日志", "清空了账号调用审计日志")
 	memberBaseController.HandleSuccess(c, "已清空", nil)
 }

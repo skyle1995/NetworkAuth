@@ -8,7 +8,7 @@ import (
 // 结构体定义
 // ============================================================================
 
-// MemberSession 终端用户会话
+// MemberSession 账号会话
 // 支持多开：一个用户可同时存在多个会话（受 App.MultiOpenCount 限制）。
 // 令牌即会话标识；心跳刷新 LastActiveAt，超过 App.CheckInterval 未活跃视为失效。
 type MemberSession struct {
@@ -18,8 +18,8 @@ type MemberSession struct {
 	// Token：会话令牌，唯一
 	Token string `gorm:"uniqueIndex;size:64;not null;comment:会话令牌" json:"token"`
 
-	// MemberUUID：所属终端用户UUID
-	MemberUUID string `gorm:"size:36;not null;index;comment:所属终端用户UUID" json:"member_uuid"`
+	// MemberUUID：所属账号UUID
+	MemberUUID string `gorm:"size:36;not null;index;comment:所属账号UUID" json:"member_uuid"`
 
 	// AppUUID：归属应用UUID（冗余，便于按应用清理与鉴权）
 	AppUUID string `gorm:"size:36;not null;index;comment:归属应用UUID" json:"app_uuid"`

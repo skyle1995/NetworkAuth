@@ -17,13 +17,13 @@ import (
 )
 
 // cascadeDeleteAppData 在事务内删除一批应用的所有衍生关联数据：
-// 接口、卡密、终端用户及其绑定/会话、调用审计日志、以及应用级变量/函数。
+// 接口、卡密、账号及其绑定/会话、调用审计日志、以及应用级变量/函数。
 // 全局变量/函数(app_uuid="0")不受影响。
 func cascadeDeleteAppData(tx *gorm.DB, appUUIDs []string) error {
 	if len(appUUIDs) == 0 {
 		return nil
 	}
-	// 绑定表仅有 member_uuid，需先取出这些应用下的终端用户 UUID
+	// 绑定表仅有 member_uuid，需先取出这些应用下的账号 UUID
 	var memberUUIDs []string
 	if err := tx.Model(&models.Member{}).Where("app_uuid IN ?", appUUIDs).
 		Pluck("uuid", &memberUUIDs).Error; err != nil {

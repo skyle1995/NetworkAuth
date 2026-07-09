@@ -15,10 +15,10 @@ import (
 // 风控接口（封停 / 黑名单 / 扣时，type 60 / 61 / 62）
 // ============================================================================
 //
-// 风控为作者侧操作，按用户名定位终端用户。调用授权依赖信封签名（持有应用密钥），
+// 风控为作者侧操作，按用户名定位账号。调用授权依赖信封签名（持有应用密钥），
 // 应从可信/服务端环境发起。封停与拉黑会同时清除该用户全部会话使其立即掉线。
 
-// findMemberByUsername 按应用与用户名定位终端用户
+// findMemberByUsername 按应用与用户名定位账号
 func findMemberByUsername(db *gorm.DB, appUUID, username string) (*models.Member, error) {
 	username = strings.TrimSpace(username)
 	if username == "" {

@@ -59,7 +59,7 @@ const fetchUpdateStatus = async () => {
 // 快捷入口
 const quickLinks = [
   { label: "应用管理", type: "primary", path: "/admin/apps/index" },
-  { label: "终端用户", type: "success", path: "/admin/members/index" },
+  { label: "账号", type: "success", path: "/admin/members/index" },
   { label: "卡密管理", type: "warning", path: "/admin/cards/index" },
   { label: "接口设置", type: "info", path: "/admin/apis/index" },
   { label: "变量管理", type: "primary", path: "/admin/variables/index" },
@@ -107,7 +107,7 @@ const overviewItems = computed(() => [
     cls: "stat-success"
   },
   {
-    label: "终端用户",
+    label: "账号",
     value: systemStats.value.total_members,
     cls: "stat-primary"
   },
@@ -128,7 +128,7 @@ const overviewItems = computed(() => [
   }
 ]);
 
-// 终端用户状态分布
+// 账号状态分布
 const memberItems = computed(() => [
   {
     label: "正常",
@@ -448,12 +448,12 @@ onUnmounted(() => {
       </el-col>
     </el-row>
 
-    <!-- 终端用户 / 卡密 状态分布 -->
+    <!-- 账号 / 卡密 状态分布 -->
     <el-row :gutter="20" class="mt-4">
       <el-col :xs="24" :sm="12" :md="12" :lg="12" :xl="12">
         <el-card shadow="hover">
           <template #header>
-            <div class="card-header"><span>终端用户状态</span></div>
+            <div class="card-header"><span>账号状态</span></div>
           </template>
           <el-row :gutter="16" class="stat-overview">
             <el-col v-for="item in memberItems" :key="item.label" :span="8">

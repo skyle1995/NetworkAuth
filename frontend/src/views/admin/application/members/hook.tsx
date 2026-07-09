@@ -9,6 +9,7 @@ import dataForm from "./dataForm.vue";
 import memberDetail from "./memberDetail.vue";
 import bindingsView from "./bindingsView.vue";
 import sessionsView from "./sessionsView.vue";
+import blacklistForm from "./blacklistForm.vue";
 import {
   getMembers,
   createMember,
@@ -23,6 +24,7 @@ import {
   clearMemberBindings,
   getMemberSessions,
   kickMemberSession,
+  blacklistMember,
   batchDeleteMembers
 } from "@/api/admin/member";
 import { getAppsSimple } from "@/api/admin/app";
@@ -149,7 +151,7 @@ export function useMember() {
   function openCreateDialog() {
     const dialogFormRef = ref();
     addDialog({
-      title: "新增终端用户",
+      title: "新增账号",
       props: {
         formInline: {
           app_uuid: form.app_uuid || "",
@@ -461,6 +463,59 @@ export function useMember() {
     });
   }
 
+  // 拉黑账号：弹窗多选，可附带拉黑 设备/IP/地区
+  function openBlacklistDialog(row: any) {
+    addDialog({
+      title: `拉黑账号 - ${row.username}`,
+      width: "520px",
+      draggable: true,
+      closeOnClickModal: false,
+      props: {
+        formInline: {
+          username: row.username,
+          blacklist_device: false,
+          blacklist_ip: false,
+          blacklist_region: false
+        }
+      },
+      contentRenderer: () => h(blacklistForm),
+      footerButtons: [
+        {
+          label: "取消",
+          text: true,
+          bg: true,
+          btnClick: ({ dialog: { options } }) => (options.visible = false)
+        },
+        {
+          label: "确认拉黑",
+          type: "danger",
+          text: true,
+          bg: true,
+          btnClick: async ({ dialog: { options } }) => {
+            const f = (options.props as any).formInline;
+            const { code, msg, data } = await blacklistMember({
+              id: row.id,
+              blacklist_device: f.blacklist_device,
+              blacklist_ip: f.blacklist_ip,
+              blacklist_region: f.blacklist_region
+            });
+            if (code === 0) {
+              const extra =
+                data && (data.device || data.ip || data.region)
+                  ? `（设备+${data.device} / IP+${data.ip} / 地区+${data.region}）`
+                  : "";
+              message(`已拉黑${extra}`, { type: "success" });
+              options.visible = false;
+              onSearch();
+            } else {
+              message(msg || "拉黑失败", { type: "error" });
+            }
+          }
+        }
+      ]
+    });
+  }
+
   async function handleDelete(row: any) {
     try {
       await ElMessageBox.confirm(
@@ -513,6 +568,7 @@ export function useMember() {
     openSessionsDialog,
     openDataDialog,
     openDetailDialog,
+    openBlacklistDialog,
     handleDelete,
     handleSizeChange,
     handleCurrentChange

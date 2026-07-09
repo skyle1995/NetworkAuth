@@ -35,7 +35,7 @@ func GetAppData(appUUID, token string) (any, error) {
 	if decoded, derr := base64.StdEncoding.DecodeString(app.AppData); derr == nil {
 		data = string(decoded)
 	}
-	// 同时返回该终端用户的独有用户数据
+	// 同时返回该账号的独有用户数据
 	return map[string]any{"data": data, "user_data": member.Data}, nil
 }
 

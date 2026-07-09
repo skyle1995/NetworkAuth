@@ -12,13 +12,13 @@ import (
 // 常量定义
 // ============================================================================
 
-// 终端用户来源类型
+// 账号来源类型
 const (
 	MemberTypeRegister = 0 // 注册账号（用户名+密码）
 	MemberTypeCard     = 1 // 卡密账号（卡密登录时自动创建，绑定卡密）
 )
 
-// 终端用户状态常量
+// 账号状态常量
 const (
 	MemberStatusDisabled = 0 // 封停
 	MemberStatusNormal   = 1 // 正常
@@ -33,8 +33,8 @@ var PermanentTime = time.Date(2099, 12, 31, 23, 59, 59, 0, time.UTC)
 // 结构体定义
 // ============================================================================
 
-// Member 终端用户表模型
-// 应用的终端用户（区别于后台管理员 [User]），两种来源统一存储于此表：
+// Member 账号表模型
+// 应用的账号（区别于后台管理员 [User]），两种来源统一存储于此表：
 //   - 注册账号（Type=0）：用户名+密码登录，可用卡密充值
 //   - 卡密账号（Type=1）：卡密登录时自动创建，Username=卡号，通过 CardUUID 绑定来源卡
 //
@@ -42,10 +42,10 @@ var PermanentTime = time.Date(2099, 12, 31, 23, 59, 59, 0, time.UTC)
 // CreatedAt/UpdatedAt 由 GORM 自动维护
 type Member struct {
 	// ID：主键，自增
-	ID uint `gorm:"primaryKey;comment:终端用户ID，自增主键" json:"id"`
+	ID uint `gorm:"primaryKey;comment:账号ID，自增主键" json:"id"`
 
-	// UUID：终端用户唯一标识符，自动生成
-	UUID string `gorm:"uniqueIndex;size:36;not null;comment:终端用户UUID，唯一标识符" json:"uuid"`
+	// UUID：账号唯一标识符，自动生成
+	UUID string `gorm:"uniqueIndex;size:36;not null;comment:账号UUID，唯一标识符" json:"uuid"`
 
 	// AppUUID：归属应用UUID，与 Username 联合唯一（不同应用的用户互相隔离）
 	AppUUID string `gorm:"size:36;not null;index;uniqueIndex:idx_member_app_username;comment:归属应用UUID" json:"app_uuid"`
@@ -102,7 +102,7 @@ type Member struct {
 	// LastLoginIP：最近登录IP
 	LastLoginIP string `gorm:"size:50;comment:最近登录IP" json:"last_login_ip"`
 
-	// Data：用户数据（每个终端用户独有的自定义数据，供客户端读取）
+	// Data：用户数据（每个账号独有的自定义数据，供客户端读取）
 	Data string `gorm:"type:text;comment:用户数据，供客户端读取" json:"data"`
 
 	// Remark：备注信息

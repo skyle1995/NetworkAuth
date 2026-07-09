@@ -152,7 +152,7 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			cardGroup.POST("/delete_batch", adminctl.CardDeleteByBatchHandler)
 		}
 
-		// 终端用户管理API
+		// 账号管理API
 		memberGroup := authorized.Group("/member")
 		{
 			memberGroup.GET("/list", adminctl.MemberListHandler)
@@ -165,12 +165,23 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			memberGroup.GET("/bindings", adminctl.MemberBindingsHandler)
 			memberGroup.POST("/clear_bindings", adminctl.MemberClearBindingsHandler)
 			memberGroup.GET("/sessions", adminctl.MemberSessionsHandler)
+			memberGroup.GET("/online", adminctl.OnlineSessionsHandler)
 			memberGroup.POST("/kick", adminctl.MemberKickSessionHandler)
+			memberGroup.POST("/blacklist", adminctl.MemberBlacklistHandler)
+			memberGroup.POST("/online/blacklist", adminctl.SessionBlacklistHandler)
 			memberGroup.GET("/get_data", adminctl.MemberGetDataHandler)
 			memberGroup.POST("/update_data", adminctl.MemberUpdateDataHandler)
 			memberGroup.GET("/logs", adminctl.MemberLogListHandler)
 			memberGroup.POST("/logs/clear", adminctl.MemberLogClearHandler)
 			memberGroup.POST("/batch_delete", adminctl.MembersBatchDeleteHandler)
+		}
+
+		// 黑名单管理API（设备/IP/地区）
+		blacklistGroup := authorized.Group("/blacklist")
+		{
+			blacklistGroup.GET("/list", adminctl.BlacklistListHandler)
+			blacklistGroup.POST("/add", adminctl.BlacklistAddHandler)
+			blacklistGroup.POST("/delete", adminctl.BlacklistDeleteHandler)
 		}
 	}
 }

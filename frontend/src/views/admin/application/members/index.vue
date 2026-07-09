@@ -31,6 +31,7 @@ const {
   openSessionsDialog,
   openDataDialog,
   openDetailDialog,
+  openBlacklistDialog,
   handleDelete,
   handleSizeChange,
   handleCurrentChange
@@ -75,7 +76,7 @@ function onRowCommand(command: string, row: any) {
       handleSetStatus(row, 0);
       break;
     case "black":
-      handleSetStatus(row, 2);
+      openBlacklistDialog(row);
       break;
     case "unblack":
       handleSetStatus(row, 1);
@@ -237,7 +238,7 @@ async function onBatchDel() {
         </el-button>
       </div>
 
-      <PureTableBar title="终端用户管理" :columns="columns" @refresh="onSearch">
+      <PureTableBar title="账号管理" :columns="columns" @refresh="onSearch">
         <template v-slot="{ size, dynamicColumns }">
           <pure-table
             ref="tableRef"

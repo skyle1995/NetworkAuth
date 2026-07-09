@@ -15,7 +15,7 @@ import (
 )
 
 // ============================================================================
-// 终端用户认证服务（公开 API 业务核心）
+// 账号认证服务（公开 API 业务核心）
 // ============================================================================
 //
 // 面向客户端的登录/心跳/登出逻辑。会话采用单令牌模型：
@@ -170,7 +170,7 @@ func buildStatusResult(app *models.App, m *models.Member) *StatusResult {
 }
 
 // CardLogin 卡密登录：卡号即身份。
-// 未使用的卡首次登录激活并自动创建绑定该卡的终端用户；已使用的卡走登录校验。
+// 未使用的卡首次登录激活并自动创建绑定该卡的账号；已使用的卡走登录校验。
 func CardLogin(appUUID, cardNo, machineCode, ip string) (*LoginResult, error) {
 	appUUID = strings.TrimSpace(appUUID)
 	cardNo = strings.TrimSpace(cardNo)
@@ -206,7 +206,7 @@ func CardLogin(appUUID, cardNo, machineCode, ip string) (*LoginResult, error) {
 		}
 
 		if card.Status == models.CardStatusUnused {
-			// 首次使用：激活并创建绑定该卡的终端用户
+			// 首次使用：激活并创建绑定该卡的账号
 			member = models.Member{
 				AppUUID:  appUUID,
 				Username: cardNo,
@@ -229,7 +229,7 @@ func CardLogin(appUUID, cardNo, machineCode, ip string) (*LoginResult, error) {
 			return nil
 		}
 
-		// 已使用：定位其绑定的终端用户
+		// 已使用：定位其绑定的账号
 		if err := tx.Where("app_uuid = ? AND username = ?", appUUID, cardNo).First(&member).Error; err != nil {
 			return errors.New("卡密账号不存在")
 		}
@@ -252,6 +252,12 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 	}
 	if err := checkMemberUsable(app, member); err != nil {
 		return nil, err
+	}
+
+	// 设备/IP/地区黑名单校验：命中任一即拒绝（先于绑定，避免为黑名单目标建立绑定/扣费）
+	blProvince, blCity := ResolveIPRegion(ip)
+	if blocked, reason := CheckBlacklist(db, app.UUID, machineCode, ip, blProvince, blCity); blocked {
+		return nil, errors.New(reason)
 	}
 
 	// 机器码绑定（开启机器验证时）：已绑定则放行，未绑定且未超多开则新增，超出则拒绝
@@ -491,7 +497,7 @@ func ensureIPBinding(db *gorm.DB, memberUUID, ip string, ipVerify, multiOpenCoun
 	}).Error
 }
 
-// authMemberByToken 按应用与会话令牌定位有效终端用户，并刷新会话活跃时间。
+// authMemberByToken 按应用与会话令牌定位有效账号，并刷新会话活跃时间。
 func authMemberByToken(db *gorm.DB, appUUID, token string) (*models.Member, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -510,7 +516,7 @@ func authMemberByToken(db *gorm.DB, appUUID, token string) (*models.Member, erro
 	return &member, nil
 }
 
-// authActiveMember 校验令牌并要求账号正常且可用（按运营模式），返回有效终端用户及其应用。
+// authActiveMember 校验令牌并要求账号正常且可用（按运营模式），返回有效账号及其应用。
 // 供需要“已登录且可用”前提的接口（数据获取、改密、转绑、扣点等）复用。
 func authActiveMember(db *gorm.DB, appUUID, token string) (*models.Member, *models.App, error) {
 	member, err := authMemberByToken(db, appUUID, token)
@@ -631,7 +637,7 @@ func enforceRegisterLimit(db *gorm.DB, app *models.App, registerIP string) error
 	return nil
 }
 
-// AccountRegister 账号注册（邮箱即账号）：邮箱作为登录名创建注册型终端用户。
+// AccountRegister 账号注册（邮箱即账号）：邮箱作为登录名创建注册型账号。
 // 应用开启邮箱验证时须校验验证码。不颁发会话令牌——注册账号在无试用时初始即过期，
 // 需登录（或先充值）后方可使用。
 func AccountRegister(appUUID, email, password, code, registerIP string) (*StatusResult, error) {

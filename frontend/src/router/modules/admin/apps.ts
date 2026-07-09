@@ -116,7 +116,7 @@ export default [
     redirect: "/admin/members/index",
     meta: {
       icon: "ep:user",
-      title: "终端用户",
+      title: "账号",
       rank: 6
     },
     children: [
@@ -125,7 +125,49 @@ export default [
         name: "MembersIndex",
         component: () => import("@/views/admin/application/members/index.vue"),
         meta: {
-          title: "终端用户"
+          title: "账号"
+        }
+      }
+    ]
+  },
+  {
+    path: "/admin/online",
+    name: "OnlineManage",
+    component: Layout,
+    redirect: "/admin/online/index",
+    meta: {
+      icon: "ep:monitor",
+      title: "在线管理",
+      rank: 7
+    },
+    children: [
+      {
+        path: "/admin/online/index",
+        name: "OnlineManageIndex",
+        component: () => import("@/views/admin/online/index.vue"),
+        meta: {
+          title: "在线管理"
+        }
+      }
+    ]
+  },
+  {
+    path: "/admin/blacklist",
+    name: "Blacklist",
+    component: Layout,
+    redirect: "/admin/blacklist/index",
+    meta: {
+      icon: "ep:circle-close",
+      title: "黑名单",
+      rank: 8
+    },
+    children: [
+      {
+        path: "/admin/blacklist/index",
+        name: "BlacklistIndex",
+        component: () => import("@/views/admin/blacklist/index.vue"),
+        meta: {
+          title: "黑名单"
         }
       }
     ]
