@@ -80,6 +80,9 @@ type Member struct {
 	// RegisterIP：注册时的客户端IP，用于应用注册次数限制
 	RegisterIP string `gorm:"size:50;index;comment:注册IP" json:"register_ip"`
 
+	// RegisterMachine：注册时提交的设备码，用于设备维度注册次数限制
+	RegisterMachine string `gorm:"size:255;index;comment:注册设备码" json:"register_machine"`
+
 	// TrialUsed：已领取试用次数，用于永久限制
 	TrialUsed int `gorm:"default:0;not null;comment:已领取试用次数" json:"trial_used"`
 	// TrialDate：最近领取试用日期，用于每日限制

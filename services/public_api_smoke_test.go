@@ -187,7 +187,7 @@ func TestAccountRegisterLoginRecharge(t *testing.T) {
 		Updates(map[string]interface{}{"register_enabled": 1, "recharge_enabled": 1})
 
 	// 注册（无试用 → 注册即过期，不返回令牌）
-	reg, err := AccountRegister("APP-1", "alice@test.com", "secret1", "", "1.2.3.4")
+	reg, err := AccountRegister("APP-1", "alice@test.com", "secret1", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("AccountRegister: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestAccountRegisterLoginRecharge(t *testing.T) {
 		t.Fatalf("unexpected register result: %+v", reg)
 	}
 	// 重复注册应失败
-	if _, err := AccountRegister("APP-1", "alice@test.com", "x", "", "1.2.3.4"); err == nil {
+	if _, err := AccountRegister("APP-1", "alice@test.com", "x", "", "1.2.3.4", ""); err == nil {
 		t.Fatalf("duplicate register should fail")
 	}
 	// 未充值（已过期）登录应失败
@@ -254,14 +254,40 @@ func TestRegisterLimitByIP(t *testing.T) {
 		"register_count":         1,
 	})
 
-	if _, err := AccountRegister("APP-1", "limit1@test.com", "pw123456", "", "8.8.8.8"); err != nil {
+	if _, err := AccountRegister("APP-1", "limit1@test.com", "pw123456", "", "8.8.8.8", ""); err != nil {
 		t.Fatalf("first register should pass: %v", err)
 	}
-	if _, err := AccountRegister("APP-1", "limit2@test.com", "pw123456", "", "8.8.8.8"); err == nil {
+	if _, err := AccountRegister("APP-1", "limit2@test.com", "pw123456", "", "8.8.8.8", ""); err == nil {
 		t.Fatalf("second register from same IP should be rejected")
 	}
-	if _, err := AccountRegister("APP-1", "limit3@test.com", "pw123456", "", "8.8.4.4"); err != nil {
+	if _, err := AccountRegister("APP-1", "limit3@test.com", "pw123456", "", "8.8.4.4", ""); err != nil {
 		t.Fatalf("register from another IP should pass: %v", err)
+	}
+}
+
+func TestRegisterLimitByDevice(t *testing.T) {
+	db := setupPublicTestDB(t)
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
+		"register_enabled":              1,
+		"register_device_limit_enabled": 1,
+		"register_limit_time":           1,
+		"register_count":                1,
+	})
+
+	// 开启设备限制但未提交设备码 → 拒绝
+	if _, err := AccountRegister("APP-1", "d0@test.com", "pw123456", "", "1.1.1.1", ""); err == nil {
+		t.Fatalf("register without machine code should be rejected when device limit on")
+	}
+	// 同一设备第一次通过、第二次被拦（不同 IP 也拦，证明是按设备而非 IP）
+	if _, err := AccountRegister("APP-1", "d1@test.com", "pw123456", "", "1.1.1.1", "MC-AAA"); err != nil {
+		t.Fatalf("first register on device should pass: %v", err)
+	}
+	if _, err := AccountRegister("APP-1", "d2@test.com", "pw123456", "", "9.9.9.9", "MC-AAA"); err == nil {
+		t.Fatalf("second register on same device (different IP) should be rejected")
+	}
+	// 换设备可继续
+	if _, err := AccountRegister("APP-1", "d3@test.com", "pw123456", "", "1.1.1.1", "MC-BBB"); err != nil {
+		t.Fatalf("register on another device should pass: %v", err)
 	}
 }
 
@@ -274,7 +300,7 @@ func TestClaimTrialLimits(t *testing.T) {
 		"trial_duration":   60,
 	})
 
-	reg, err := AccountRegister("APP-1", "trial@test.com", "pw123456", "", "1.2.3.4")
+	reg, err := AccountRegister("APP-1", "trial@test.com", "pw123456", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -310,7 +336,7 @@ func TestDataInterfacesAndChangePassword(t *testing.T) {
 	}
 
 	// 注册 + 充值 + 登录，拿到有效令牌
-	if _, err := AccountRegister("APP-1", "carl@test.com", "pw123456", "", "1.2.3.4"); err != nil {
+	if _, err := AccountRegister("APP-1", "carl@test.com", "pw123456", "", "1.2.3.4", ""); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 	card := models.Card{CardNo: "KM-DATA", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
@@ -841,19 +867,19 @@ func TestEmailValidationAndRegister(t *testing.T) {
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("register_enabled", 1)
 
 	// 非法邮箱注册被拒
-	if _, err := AccountRegister("APP-1", "notanemail", "pw123456", "", "1.2.3.4"); err == nil {
+	if _, err := AccountRegister("APP-1", "notanemail", "pw123456", "", "1.2.3.4", ""); err == nil {
 		t.Fatalf("register with invalid email should fail")
 	}
 
 	// 开启邮箱验证后，无有效验证码注册应失败（测试环境无 Redis → 验证码服务不可用亦属拒绝）
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("email_verify_enabled", 1)
-	if _, err := AccountRegister("APP-1", "eve@test.com", "pw123456", "000000", "1.2.3.4"); err == nil {
+	if _, err := AccountRegister("APP-1", "eve@test.com", "pw123456", "000000", "1.2.3.4", ""); err == nil {
 		t.Fatalf("register should fail without valid email code when verification enabled")
 	}
 
 	// 关闭验证：邮箱注册账号 username=email 且 Email 字段落库
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("email_verify_enabled", 0)
-	if _, err := AccountRegister("APP-1", "frank@test.com", "pw123456", "", "1.2.3.4"); err != nil {
+	if _, err := AccountRegister("APP-1", "frank@test.com", "pw123456", "", "1.2.3.4", ""); err != nil {
 		t.Fatalf("register should succeed with verification off: %v", err)
 	}
 	var reg models.Member
@@ -997,7 +1023,7 @@ func TestAccountRegisterDisabled(t *testing.T) {
 	db := setupPublicTestDB(t)
 	// 显式关闭注册（App.RegisterEnabled 带 default:1，需强制置 0）
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("register_enabled", 0)
-	if _, err := AccountRegister("APP-1", "bob@test.com", "pw", "", "1.2.3.4"); err == nil {
+	if _, err := AccountRegister("APP-1", "bob@test.com", "pw", "", "1.2.3.4", ""); err == nil {
 		t.Fatalf("register should be rejected when disabled")
 	}
 }

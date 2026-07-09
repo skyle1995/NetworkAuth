@@ -138,9 +138,10 @@ sign      = HEX_UPPER( SHA256(raw) )
 
 #### `21` 账号注册（邮箱即账号）
 - 触发条件：应用「账号注册」开启；开启邮箱验证时需先调 `23` 拿验证码。
-- 请求：`{ email, password, code }`（未开邮箱验证时 `code` 可空）
+- 请求：`{ email, password, code, machine_code }`（未开邮箱验证时 `code` 可空）
 - 返回（`StatusResult`）：`{ username, status, mode, permanent, expired_at, points }`
 - 说明：注册成功**不下发 token**（无试用时账号初始即过期），需再登录/充值/领试用。
+- **注册限制**：可按 IP 和/或设备限流（后台「注册设置」分别开关，共用限制时间/次数）。开启**设备注册限制**时，`machine_code` **必传**，否则返回「注册需提供设备码」；换 IP 不能绕过设备限制。
 
 #### `23` 发送注册验证码
 - 触发条件：应用「账号注册」且「邮箱验证」均开启，且已配置 SMTP 与 Redis。

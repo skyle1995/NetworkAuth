@@ -253,14 +253,15 @@ func handleAccountLogin(c *gin.Context, app *models.App, plainParams string) (an
 // handleAccountRegister 账号注册（type 21，邮箱即账号）
 func handleAccountRegister(c *gin.Context, app *models.App, plainParams string) (any, error) {
 	var params struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-		Code     string `json:"code"`
+		Email       string `json:"email"`
+		Password    string `json:"password"`
+		Code        string `json:"code"`
+		MachineCode string `json:"machine_code"`
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.AccountRegister(app.UUID, params.Email, params.Password, params.Code, c.ClientIP())
+	return services.AccountRegister(app.UUID, params.Email, params.Password, params.Code, c.ClientIP(), params.MachineCode)
 }
 
 // handleSendEmailCode 发送注册验证码（type 23）

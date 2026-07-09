@@ -1162,14 +1162,15 @@ func AppGetRegisterConfigHandler(c *gin.Context) {
 		"code": 0,
 		"msg":  "获取注册配置成功",
 		"data": gin.H{
-			"register_enabled":       app.RegisterEnabled,
-			"email_verify_enabled":   app.EmailVerifyEnabled,
-			"register_limit_enabled": app.RegisterLimitEnabled,
-			"register_limit_time":    app.RegisterLimitTime,
-			"register_count":         app.RegisterCount,
-			"trial_enabled":          app.TrialEnabled,
-			"trial_limit_time":       app.TrialLimitTime,
-			"trial_duration":         app.TrialDuration,
+			"register_enabled":              app.RegisterEnabled,
+			"email_verify_enabled":          app.EmailVerifyEnabled,
+			"register_limit_enabled":        app.RegisterLimitEnabled,
+			"register_device_limit_enabled": app.RegisterDeviceLimitEnabled,
+			"register_limit_time":           app.RegisterLimitTime,
+			"register_count":                app.RegisterCount,
+			"trial_enabled":                 app.TrialEnabled,
+			"trial_limit_time":              app.TrialLimitTime,
+			"trial_duration":                app.TrialDuration,
 		},
 	})
 }
@@ -1178,15 +1179,16 @@ func AppGetRegisterConfigHandler(c *gin.Context) {
 func AppUpdateRegisterConfigHandler(c *gin.Context) {
 	// 解析请求体
 	var req struct {
-		UUID                 string `json:"uuid"`
-		RegisterEnabled      int    `json:"register_enabled"`
-		EmailVerifyEnabled   int    `json:"email_verify_enabled"`
-		RegisterLimitEnabled int    `json:"register_limit_enabled"`
-		RegisterLimitTime    int    `json:"register_limit_time"`
-		RegisterCount        int    `json:"register_count"`
-		TrialEnabled         int    `json:"trial_enabled"`
-		TrialLimitTime       int    `json:"trial_limit_time"`
-		TrialDuration        int    `json:"trial_duration"`
+		UUID                       string `json:"uuid"`
+		RegisterEnabled            int    `json:"register_enabled"`
+		EmailVerifyEnabled         int    `json:"email_verify_enabled"`
+		RegisterLimitEnabled       int    `json:"register_limit_enabled"`
+		RegisterDeviceLimitEnabled int    `json:"register_device_limit_enabled"`
+		RegisterLimitTime          int    `json:"register_limit_time"`
+		RegisterCount              int    `json:"register_count"`
+		TrialEnabled               int    `json:"trial_enabled"`
+		TrialLimitTime             int    `json:"trial_limit_time"`
+		TrialDuration              int    `json:"trial_duration"`
 	}
 
 	if !appBaseController.BindJSON(c, &req) {
@@ -1231,14 +1233,15 @@ func AppUpdateRegisterConfigHandler(c *gin.Context) {
 
 	// 更新注册配置
 	updates := map[string]interface{}{
-		"register_enabled":       req.RegisterEnabled,
-		"email_verify_enabled":   req.EmailVerifyEnabled,
-		"register_limit_enabled": req.RegisterLimitEnabled,
-		"register_limit_time":    req.RegisterLimitTime,
-		"register_count":         req.RegisterCount,
-		"trial_enabled":          req.TrialEnabled,
-		"trial_limit_time":       req.TrialLimitTime,
-		"trial_duration":         req.TrialDuration,
+		"register_enabled":              req.RegisterEnabled,
+		"email_verify_enabled":          req.EmailVerifyEnabled,
+		"register_limit_enabled":        req.RegisterLimitEnabled,
+		"register_device_limit_enabled": req.RegisterDeviceLimitEnabled,
+		"register_limit_time":           req.RegisterLimitTime,
+		"register_count":                req.RegisterCount,
+		"trial_enabled":                 req.TrialEnabled,
+		"trial_limit_time":              req.TrialLimitTime,
+		"trial_duration":                req.TrialDuration,
 	}
 
 	if err := db.Model(&app).Updates(updates).Error; err != nil {

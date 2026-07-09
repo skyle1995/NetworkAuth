@@ -7,6 +7,7 @@ export interface FormProps {
     register_enabled: number;
     email_verify_enabled: number;
     register_limit_enabled: number;
+    register_device_limit_enabled: number;
     register_limit_time: number;
     register_count: number;
     trial_enabled: number;
@@ -21,6 +22,7 @@ const props = withDefaults(defineProps<FormProps>(), {
     register_enabled: 0,
     email_verify_enabled: 0,
     register_limit_enabled: 0,
+    register_device_limit_enabled: 0,
     register_limit_time: 0,
     register_count: 1,
     trial_enabled: 0,
@@ -59,11 +61,20 @@ defineExpose({ getRef, newFormInline });
         <el-radio :value="1">开启</el-radio>
       </el-radio-group>
     </el-form-item>
-    <el-form-item label="注册限制" prop="register_limit_enabled">
+    <el-form-item label="IP注册限制" prop="register_limit_enabled">
       <el-radio-group v-model="newFormInline.register_limit_enabled">
         <el-radio :value="0">关闭</el-radio>
         <el-radio :value="1">开启</el-radio>
       </el-radio-group>
+    </el-form-item>
+    <el-form-item label="设备注册限制" prop="register_device_limit_enabled">
+      <el-radio-group v-model="newFormInline.register_device_limit_enabled">
+        <el-radio :value="0">关闭</el-radio>
+        <el-radio :value="1">开启</el-radio>
+      </el-radio-group>
+      <span class="ml-2 text-xs" style="color: var(--el-text-color-secondary)">
+        开启后客户端注册须提交设备码
+      </span>
     </el-form-item>
     <el-form-item label="限制时间" prop="register_limit_time">
       <el-radio-group v-model="newFormInline.register_limit_time">

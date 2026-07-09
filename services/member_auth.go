@@ -608,31 +608,57 @@ func registerInitialExpiry() time.Time {
 }
 
 // enforceRegisterLimit 按应用和注册 IP 校验每天/永久注册次数限制。
-func enforceRegisterLimit(db *gorm.DB, app *models.App, registerIP string) error {
-	if app.RegisterLimitEnabled != 1 {
-		return nil
-	}
+func enforceRegisterLimit(db *gorm.DB, app *models.App, registerIP, machineCode string) error {
 	registerIP = strings.TrimSpace(registerIP)
-	if registerIP == "" {
-		return errors.New("注册IP不能为空")
-	}
+	machineCode = strings.TrimSpace(machineCode)
 	limit := app.RegisterCount
 	if limit <= 0 {
 		limit = 1
 	}
-	query := db.Model(&models.Member{}).
-		Where("app_uuid = ? AND register_ip = ?", app.UUID, registerIP)
-	if app.RegisterLimitTime == 0 {
-		today := time.Now()
-		startOfDay := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
-		query = query.Where("created_at >= ?", startOfDay)
+
+	// 时间窗口（每天/永久），IP 与设备维度共用
+	withWindow := func(q *gorm.DB) *gorm.DB {
+		if app.RegisterLimitTime == 0 {
+			today := time.Now()
+			startOfDay := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
+			q = q.Where("created_at >= ?", startOfDay)
+		}
+		return q
 	}
-	var count int64
-	if err := query.Count(&count).Error; err != nil {
-		return err
+	countBy := func(field, value string) (int64, error) {
+		var count int64
+		q := withWindow(db.Model(&models.Member{}).
+			Where("app_uuid = ? AND "+field+" = ?", app.UUID, value))
+		err := q.Count(&count).Error
+		return count, err
 	}
-	if count >= int64(limit) {
-		return errors.New("注册次数已达上限")
+
+	// IP 维度
+	if app.RegisterLimitEnabled == 1 {
+		if registerIP == "" {
+			return errors.New("注册IP不能为空")
+		}
+		count, err := countBy("register_ip", registerIP)
+		if err != nil {
+			return err
+		}
+		if count >= int64(limit) {
+			return errors.New("该IP注册次数已达上限")
+		}
+	}
+
+	// 设备维度：开启后注册必须提交设备码
+	if app.RegisterDeviceLimitEnabled == 1 {
+		if machineCode == "" {
+			return errors.New("注册需提供设备码")
+		}
+		count, err := countBy("register_machine", machineCode)
+		if err != nil {
+			return err
+		}
+		if count >= int64(limit) {
+			return errors.New("该设备注册次数已达上限")
+		}
 	}
 	return nil
 }
@@ -640,7 +666,7 @@ func enforceRegisterLimit(db *gorm.DB, app *models.App, registerIP string) error
 // AccountRegister 账号注册（邮箱即账号）：邮箱作为登录名创建注册型账号。
 // 应用开启邮箱验证时须校验验证码。不颁发会话令牌——注册账号在无试用时初始即过期，
 // 需登录（或先充值）后方可使用。
-func AccountRegister(appUUID, email, password, code, registerIP string) (*StatusResult, error) {
+func AccountRegister(appUUID, email, password, code, registerIP, machineCode string) (*StatusResult, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" || password == "" {
 		return nil, errors.New("邮箱与密码不能为空")
@@ -660,7 +686,7 @@ func AccountRegister(appUUID, email, password, code, registerIP string) (*Status
 	if app.RegisterEnabled != 1 {
 		return nil, errors.New("该应用未开启账号注册")
 	}
-	if err := enforceRegisterLimit(db, app, registerIP); err != nil {
+	if err := enforceRegisterLimit(db, app, registerIP, machineCode); err != nil {
 		return nil, err
 	}
 
@@ -689,14 +715,15 @@ func AccountRegister(appUUID, email, password, code, registerIP string) (*Status
 	}
 
 	member := models.Member{
-		AppUUID:      app.UUID,
-		Username:     email,
-		Email:        email,
-		Type:         models.MemberTypeRegister,
-		Password:     hashed,
-		PasswordSalt: salt,
-		Status:       models.MemberStatusNormal,
-		RegisterIP:   strings.TrimSpace(registerIP),
+		AppUUID:         app.UUID,
+		Username:        email,
+		Email:           email,
+		Type:            models.MemberTypeRegister,
+		Password:        hashed,
+		PasswordSalt:    salt,
+		Status:          models.MemberStatusNormal,
+		RegisterIP:      strings.TrimSpace(registerIP),
+		RegisterMachine: strings.TrimSpace(machineCode),
 	}
 	if app.OperationMode == models.OperationModePoints {
 		// 点数模式：注册初始 0 点，需充值；ExpiredAt 留零值

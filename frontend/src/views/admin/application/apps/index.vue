@@ -363,6 +363,7 @@ async function openRegisterConfigDialog(uuid: string, operationMode = 0) {
             register_enabled: 0,
             email_verify_enabled: 0,
             register_limit_enabled: 0,
+            register_device_limit_enabled: 0,
             register_limit_time: 0,
             register_count: 1,
             trial_enabled: 0,

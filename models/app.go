@@ -131,9 +131,11 @@ type App struct {
 	RegisterEnabled int `gorm:"default:1;not null;comment:账号注册开关，0=关闭，1=开启" json:"register_enabled"`
 	// EmailVerifyEnabled：注册邮箱验证开关（0=关闭，1=开启）。开启后注册须校验邮箱验证码，依赖系统SMTP配置
 	EmailVerifyEnabled int `gorm:"default:0;not null;comment:注册邮箱验证开关，0=关闭，1=开启" json:"email_verify_enabled"`
-	// RegisterLimitEnabled：注册限制开关（0=关闭，1=开启）
-	RegisterLimitEnabled int `gorm:"default:0;not null;comment:注册限制开关，0=关闭，1=开启" json:"register_limit_enabled"`
-	// RegisterLimitTime：限制时间（0=每天，1=永久）
+	// RegisterLimitEnabled：IP注册限制开关（0=关闭，1=开启）
+	RegisterLimitEnabled int `gorm:"default:0;not null;comment:IP注册限制开关，0=关闭，1=开启" json:"register_limit_enabled"`
+	// RegisterDeviceLimitEnabled：设备注册限制开关（0=关闭，1=开启）；开启后注册须提交设备码
+	RegisterDeviceLimitEnabled int `gorm:"default:0;not null;comment:设备注册限制开关，0=关闭，1=开启" json:"register_device_limit_enabled"`
+	// RegisterLimitTime：限制时间（0=每天，1=永久），IP与设备限制共用
 	RegisterLimitTime int `gorm:"default:1;not null;comment:注册限制时间，0=每天，1=永久" json:"register_limit_time"`
 	// RegisterCount：注册次数
 	RegisterCount int `gorm:"default:1;not null;comment:注册次数" json:"register_count"`
