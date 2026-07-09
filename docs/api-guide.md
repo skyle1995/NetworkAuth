@@ -91,9 +91,28 @@ sign      = HEX_UPPER( SHA256(raw) )
 
 ### 基础信息（免登录）
 
-#### `1` 获取程序公告
+#### `1` 获取程序公告（客户端启动初始化入口）
 - 请求：无
-- 返回：`{ title, version, content }`
+- 返回：公告 + 应用能力开关 + 运营模式 + 更新策略,客户端**开机调一次即可拿全初始化信息**,据此渲染登录/注册界面（是否显示验证码框、是否有卡密登录、按模式显示到期或点数等）。
+```json
+{
+  "title": "应用名",
+  "version": "1.0.0",
+  "content": "公告内容",
+  "config": {
+    "operation_mode": 1,          // 0时长/1点数
+    "points_charge_mode": 1,      // 0按次/1按时
+    "points_heartbeat_charge": 0, // 按时:0登录预扣/1心跳触发
+    "card_login_enabled": 1,      // 是否开放卡密登录
+    "register_enabled": 1,        // 是否开放账号注册
+    "email_verify_enabled": 1,    // 注册是否需要邮箱验证码（=1 则需先调 23 取码）
+    "recharge_enabled": 1,        // 是否开放卡密充值
+    "trial_enabled": 1            // 是否开放领取试用
+  },
+  "update": { "force_update": false, "download_type": 0, "download_url": "" }
+}
+```
+> **注册要不要验证码**：看 `config.email_verify_enabled`——为 `1` 时注册前需先调 `23` 发验证码、注册时带上 `code`。
 
 #### `2` 获取更新地址
 - 请求：无

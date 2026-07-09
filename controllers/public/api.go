@@ -189,6 +189,8 @@ func parseParams(plain string, dst any) error {
 // ============================================================================
 
 // handleBulletin 获取程序公告（type 1）
+// 作为客户端「启动初始化」入口：一并返回公告 + 应用能力开关 + 运营模式 + 更新策略，
+// 客户端据此渲染登录/注册界面（是否显示验证码/卡密登录、按模式显示到期或点数等），免登录。
 func handleBulletin(app *models.App) (any, error) {
 	content := app.Announcement
 	// 公告以 base64 存储，解码失败则原样返回
@@ -199,6 +201,23 @@ func handleBulletin(app *models.App) (any, error) {
 		"title":   app.Name,
 		"version": app.Version,
 		"content": content,
+		// 能力/模式开关：客户端据此决定界面（如注册是否需验证码、是否显示卡密登录）
+		"config": gin.H{
+			"operation_mode":          app.OperationMode,
+			"points_charge_mode":      app.PointsChargeMode,
+			"points_heartbeat_charge": app.PointsHeartbeatCharge,
+			"card_login_enabled":      app.CardLoginEnabled,
+			"register_enabled":        app.RegisterEnabled,
+			"email_verify_enabled":    app.EmailVerifyEnabled,
+			"recharge_enabled":        app.RechargeEnabled,
+			"trial_enabled":           app.TrialEnabled,
+		},
+		// 更新策略：启动即可判断是否强制更新/下载方式
+		"update": gin.H{
+			"force_update":  app.ForceUpdate == 1,
+			"download_type": app.DownloadType,
+			"download_url":  app.DownloadURL,
+		},
 	}, nil
 }
 
