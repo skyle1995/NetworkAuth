@@ -158,7 +158,7 @@ export default [
     redirect: "/admin/blacklist/index",
     meta: {
       icon: "ep:circle-close",
-      title: "黑名单",
+      title: "拉黑管理",
       rank: 8
     },
     children: [
@@ -167,7 +167,7 @@ export default [
         name: "BlacklistIndex",
         component: () => import("@/views/admin/blacklist/index.vue"),
         meta: {
-          title: "黑名单"
+          title: "拉黑管理"
         }
       }
     ]

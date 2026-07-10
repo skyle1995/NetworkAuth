@@ -459,6 +459,49 @@ func TestRebindMachineLimitsAndDeduct(t *testing.T) {
 	}
 }
 
+func TestRebindSameDeviceIsNoOp(t *testing.T) {
+	db := setupPublicTestDB(t)
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
+		"machine_verify":         1,
+		"machine_rebind_enabled": 1,
+		"machine_rebind_limit":   1, // 永久
+		"machine_free_count":     0, // 无免费次数：若真转绑必扣时
+		"machine_rebind_count":   5,
+		"machine_rebind_deduct":  60,
+	})
+	card := models.Card{CardNo: "KM-SAME", AppUUID: "APP-1", Duration: 10 * 24 * 60, Status: models.CardStatusUnused}
+	db.Create(&card)
+	if _, err := CardLogin("APP-1", "KM-SAME", "MC-A", "1.2.3.4"); err != nil {
+		t.Fatalf("CardLogin: %v", err)
+	}
+
+	load := func() models.Member {
+		var m models.Member
+		db.Where("app_uuid = ? AND username = ?", "APP-1", "KM-SAME").First(&m)
+		return m
+	}
+	before := load().ExpiredAt
+
+	// 换绑到同一设备 MC-A → 幂等 no-op：不计次、不扣时
+	if _, err := Rebind("APP-1", "KM-SAME", "", "MC-A", "1.2.3.4"); err != nil {
+		t.Fatalf("rebind same device: %v", err)
+	}
+	if m := load(); m.MachineRebindUsed != 0 {
+		t.Fatalf("same-device rebind should not consume count, got %d", m.MachineRebindUsed)
+	}
+	if m := load(); !m.ExpiredAt.Equal(before) {
+		t.Fatalf("same-device rebind should not deduct time")
+	}
+
+	// 换绑到新设备 MC-B → 正常计次并扣时
+	if _, err := Rebind("APP-1", "KM-SAME", "", "MC-B", "1.2.3.4"); err != nil {
+		t.Fatalf("rebind new device: %v", err)
+	}
+	if m := load(); m.MachineRebindUsed != 1 {
+		t.Fatalf("new-device rebind should count once, got %d", m.MachineRebindUsed)
+	}
+}
+
 func TestIPVerifyBindingAndRebind(t *testing.T) {
 	db := setupPublicTestDB(t)
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{

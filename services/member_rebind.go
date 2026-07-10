@@ -45,6 +45,17 @@ func rebindCore(db *gorm.DB, app *models.App, member *models.Member, newValue st
 		return nil, errors.New("该应用未开启" + p.typeName + "转绑")
 	}
 
+	// 防误重绑：目标值已是当前绑定则直接放行，不计次、不扣费（幂等，避免同设备白扣一次）
+	var alreadyBound int64
+	if err := db.Model(&models.Binding{}).
+		Where("member_uuid = ? AND type = ? AND value = ?", member.UUID, p.bindingType, newValue).
+		Count(&alreadyBound).Error; err != nil {
+		return nil, err
+	}
+	if alreadyBound > 0 {
+		return buildStatusResult(app, member), nil
+	}
+
 	today := time.Now().Format("2006-01-02")
 	used := p.used
 	// 每天限制：跨天则重置计数
