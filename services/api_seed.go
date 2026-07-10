@@ -5,6 +5,7 @@ import (
 	"NetworkAuth/models"
 
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 // EnsureAppAPIs 为所有应用补齐缺失的默认接口记录。
@@ -50,5 +51,15 @@ func EnsureAppAPIs() {
 	}
 	if created > 0 {
 		logrus.Infof("接口补齐：为现有应用新增 %d 条缺失接口记录", created)
+	}
+
+	purgeLegacyRebindAPI(db)
+}
+
+// purgeLegacyRebindAPI 彻底移除历史「IP转绑(52)」接口记录（转绑已统一为 51）。幂等。
+func purgeLegacyRebindAPI(db *gorm.DB) {
+	res := db.Where("api_type = ?", models.LegacyAPITypeIPChangeBind).Delete(&models.API{})
+	if res.Error == nil && res.RowsAffected > 0 {
+		logrus.Infof("接口清理：移除 %d 条历史 IP转绑(52) 记录（转绑已统一为 51）", res.RowsAffected)
 	}
 }

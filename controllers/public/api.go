@@ -146,8 +146,8 @@ func dispatch(c *gin.Context, app *models.App, apiType int, plainParams string) 
 		return handleSetUserData(app, plainParams)
 	case models.APITypeUpdatePwd:
 		return handleUpdatePassword(app, plainParams)
-	case models.APITypeMacChangeBind, models.APITypeIPChangeBind:
-		// 机器码/IP 转绑已合并为统一转绑，两个类型号均走同一逻辑
+	case models.APITypeMacChangeBind:
+		// 统一转绑（机器码 + IP）
 		return handleRebind(c, app, plainParams)
 	case models.APITypeDeductPoints:
 		return handleDeductPoints(app, plainParams)

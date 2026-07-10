@@ -45,8 +45,7 @@ const (
 
 	// 用户操作
 	APITypeUpdatePwd     = 50 // 修改账号密码
-	APITypeMacChangeBind = 51 // 机器码转绑
-	APITypeIPChangeBind  = 52 // IP转绑
+	APITypeMacChangeBind = 51 // 转绑（机器码+IP 统一转绑）
 	APITypeDeductPoints  = 53 // 功能扣点（点数模式）
 	APITypeSetUserData   = 54 // 设置账号数据（当前用户独有数据）
 
@@ -54,6 +53,11 @@ const (
 	APITypeDisableUser      = 60 // 封停用户
 	APITypeBlackUser        = 61 // 添加黑名单
 	APITypeUserDeductedTime = 62 // 扣除时间
+)
+
+// 已移除的历史接口类型：仅用于启动时清理数据库中的遗留记录，不再作为有效接口。
+const (
+	LegacyAPITypeIPChangeBind = 52 // 原「IP转绑」，已并入统一转绑(51)
 )
 
 // 算法类型常量
@@ -225,8 +229,7 @@ func GetAPITypes(categorized bool) interface{} {
 			Name: "用户操作",
 			Types: []APITypeInfo{
 				{Type: APITypeUpdatePwd, Name: "修改账号密码"},
-				{Type: APITypeMacChangeBind, Name: "机器码转绑"},
-				{Type: APITypeIPChangeBind, Name: "IP转绑"},
+				{Type: APITypeMacChangeBind, Name: "转绑"},
 				{Type: APITypeDeductPoints, Name: "功能扣点"},
 				{Type: APITypeSetUserData, Name: "设置账号数据"},
 			},
