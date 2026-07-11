@@ -111,10 +111,6 @@ defineExpose({ getRef, newFormInline });
         <el-radio :value="0">时长模式</el-radio>
         <el-radio :value="1">点数模式</el-radio>
       </el-radio-group>
-      <div v-if="isFree" class="text-xs text-gray-400 mt-1">
-        免费模式：不计费，账号即便已到期/无点数也可正常登录使用；心跳照常校验但不扣费；转绑不扣费。
-        （已充值的时长/点数仍保留，只是不再消耗）
-      </div>
     </el-form-item>
     <template v-if="isPoints">
       <el-form-item label="扣费方式" prop="points_charge_mode">
@@ -151,11 +147,6 @@ defineExpose({ getRef, newFormInline });
           <el-radio :value="0">登录预扣</el-radio>
           <el-radio :value="1">心跳触发</el-radio>
         </el-radio-group>
-        <div class="text-xs text-gray-400 mt-1">
-          登录预扣：登录即扣一个周期。心跳触发：登录不扣，首个周期延到首次心跳时扣。
-          两种方式心跳均<strong>默认按周期扣费</strong>，客户端可对免费功能传
-          no_charge=true 跳过本次扣费。
-        </div>
       </el-form-item>
     </template>
 
