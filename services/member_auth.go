@@ -229,6 +229,9 @@ func CardLogin(appUUID, cardNo, machineCode, ip, version string) (*LoginResult, 
 	if appUUID == "" || cardNo == "" {
 		return nil, errors.New("应用与卡号不能为空")
 	}
+	if strings.TrimSpace(version) == "" {
+		return nil, errors.New("请提供客户端版本号")
+	}
 
 	db, err := database.GetDB()
 	if err != nil {
@@ -403,6 +406,7 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 			AppUUID:      member.AppUUID,
 			MachineCode:  machineCode,
 			IP:           ip,
+			Version:      strings.TrimSpace(version),
 			LastActiveAt: now,
 		}
 		if err := tx.Create(&session).Error; err != nil {
@@ -943,6 +947,9 @@ func AccountLogin(appUUID, username, password, machineCode, ip, version string) 
 	username = strings.TrimSpace(username)
 	if username == "" || password == "" {
 		return nil, errors.New("用户名与密码不能为空")
+	}
+	if strings.TrimSpace(version) == "" {
+		return nil, errors.New("请提供客户端版本号")
 	}
 
 	db, err := database.GetDB()

@@ -51,6 +51,7 @@ const columns: TableColumnList = [
   },
   { label: "机器码", prop: "machine_code", minWidth: 160 },
   { label: "登录IP", prop: "ip", width: 140 },
+  { label: "版本", prop: "version", width: 100 },
   {
     label: "归属地",
     prop: "province",

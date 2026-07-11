@@ -157,7 +157,7 @@ sign      = HEX_UPPER( SHA256(raw) )
 #### `10` 卡密登录
 - 触发条件：应用「卡密登录」开启。首次用某卡登录会**自动创建绑定该卡的账号**（用户名=卡号）并核销该卡。
 - 请求：`{ card: "卡号", machine_code: "机器码", version: "客户端版本" }`
-  - `version`：客户端当前版本。**更新方式开启（`download_type != 0`）时应提交**，用于登录时判断是否需更新。
+  - `version`：**必传**，客户端当前版本。缺失直接拒绝登录（「请提供客户端版本号」）。用于更新判断，并记入在线会话供后台在线列表查看。
 - 成功返回（`LoginResult`）：`{ token, username, type, mode, permanent, expired_at, points, heartbeat_interval, update? }`
 - **强制更新（`download_type=1`）且版本过旧 → 直接拒绝登录**：不发 token、不核销卡、不建号、不开会话；返回 **`code=2`** 的失败响应：
   ```json
@@ -204,7 +204,7 @@ sign      = HEX_UPPER( SHA256(raw) )
 - 返回（`StatusResult`）
 
 #### `20` 账号登录
-- 请求：`{ username, password, machine_code, version: "客户端版本" }`（`version` 同 `10`，更新方式开启时提交）
+- 请求：`{ username, password, machine_code, version: "客户端版本" }`（`version` **必传**，同 `10`）
 - 返回（`LoginResult`）：同 `10`（含 `update?` 对象）
 
 ### 登出

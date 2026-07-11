@@ -60,7 +60,7 @@ func doOpen(r *gin.Engine, body map[string]any) (int, map[string]any) {
 func TestOpenAPIEnvelopeCardLogin(t *testing.T) {
 	r := setupOpenAPITest(t)
 
-	data := `{"card":"KM-1","machine_code":"MC-1"}`
+	data := `{"card":"KM-1","machine_code":"MC-1","version":"1.0.0"}`
 	ts := time.Now().Unix()
 	sign := services.SignOpenRequest("APP-1", models.APITypeSingleLogin, data, ts, "SECRET")
 

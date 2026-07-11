@@ -30,6 +30,9 @@ type MemberSession struct {
 	// IP：登录IP
 	IP string `gorm:"size:50;comment:登录IP" json:"ip"`
 
+	// Version：登录时客户端提交的版本号
+	Version string `gorm:"size:50;comment:客户端版本号" json:"version"`
+
 	// LastActiveAt：最近活跃时间（心跳刷新）
 	LastActiveAt time.Time `gorm:"comment:最近活跃时间" json:"last_active_at"`
 
