@@ -7,7 +7,6 @@ export interface FormProps {
     name: string;
     version: string;
     status: number;
-    force_update: number;
     download_type: number;
     download_url: string;
     operation_mode: number;
@@ -26,7 +25,6 @@ const props = withDefaults(defineProps<FormProps>(), {
     name: "",
     version: "1.0.0",
     status: 1,
-    force_update: 0,
     download_type: 0,
     download_url: "",
     operation_mode: 0,
@@ -43,6 +41,7 @@ const props = withDefaults(defineProps<FormProps>(), {
 const newFormInline = ref(props.formInline);
 
 const isPoints = computed(() => newFormInline.value.operation_mode === 1);
+const isFree = computed(() => newFormInline.value.operation_mode === 2);
 const isPerTime = computed(() => newFormInline.value.points_charge_mode === 1);
 
 function getRef() {
@@ -83,22 +82,15 @@ defineExpose({ getRef, newFormInline });
         inline-prompt
       />
     </el-form-item>
-    <el-form-item label="强制更新" prop="force_update">
-      <el-switch
-        v-model="newFormInline.force_update"
-        :active-value="1"
-        :inactive-value="0"
-        active-text="开启"
-        inactive-text="关闭"
-        inline-prompt
-      />
-    </el-form-item>
     <el-form-item label="更新方式" prop="download_type">
       <el-radio-group v-model="newFormInline.download_type">
         <el-radio :value="0">不启用</el-radio>
-        <el-radio :value="1">自动更新</el-radio>
-        <el-radio :value="2">手动下载</el-radio>
+        <el-radio :value="1">强制更新</el-radio>
+        <el-radio :value="2">自由更新</el-radio>
       </el-radio-group>
+      <div class="text-xs text-gray-400 mt-1">
+        强制更新：有新版本必须更新才能继续；自由更新：提示新版本，用户可自行选择。
+      </div>
     </el-form-item>
     <el-form-item
       v-if="newFormInline.download_type !== 0"
@@ -115,9 +107,14 @@ defineExpose({ getRef, newFormInline });
     <el-divider content-position="left">运营模式</el-divider>
     <el-form-item label="运营模式" prop="operation_mode">
       <el-radio-group v-model="newFormInline.operation_mode">
+        <el-radio :value="2">免费模式</el-radio>
         <el-radio :value="0">时长模式</el-radio>
         <el-radio :value="1">点数模式</el-radio>
       </el-radio-group>
+      <div v-if="isFree" class="text-xs text-gray-400 mt-1">
+        免费模式：不计费，账号即便已到期/无点数也可正常登录使用；心跳照常校验但不扣费；转绑不扣费。
+        （已充值的时长/点数仍保留，只是不再消耗）
+      </div>
     </el-form-item>
     <template v-if="isPoints">
       <el-form-item label="扣费方式" prop="points_charge_mode">
@@ -155,8 +152,9 @@ defineExpose({ getRef, newFormInline });
           <el-radio :value="1">心跳触发</el-radio>
         </el-radio-group>
         <div class="text-xs text-gray-400 mt-1">
-          心跳触发：登录不扣费，仅当心跳请求带 charge=true
-          时才按周期扣费（用于"功能A免费/功能B计费"）
+          登录预扣：登录即扣一个周期。心跳触发：登录不扣，首个周期延到首次心跳时扣。
+          两种方式心跳均<strong>默认按周期扣费</strong>，客户端可对免费功能传
+          no_charge=true 跳过本次扣费。
         </div>
       </el-form-item>
     </template>

@@ -97,7 +97,6 @@ func appInfoMap(a *models.App) map[string]any {
 		"card_login_enabled":    a.CardLoginEnabled,
 		"recharge_enabled":      a.RechargeEnabled,
 		"register_enabled":      a.RegisterEnabled,
-		"force_update":          a.ForceUpdate,
 		"download_type":         a.DownloadType,
 		"download_url":          a.DownloadURL,
 	}

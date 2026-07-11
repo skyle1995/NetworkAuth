@@ -88,17 +88,6 @@ export function useApp() {
       )
     },
     {
-      label: "强制更新",
-      prop: "force_update",
-      width: 100,
-      align: "center",
-      cellRenderer: ({ row }) => (
-        <el-tag type={row.force_update === 1 ? "warning" : "info"}>
-          {row.force_update === 1 ? "是" : "否"}
-        </el-tag>
-      )
-    },
-    {
       label: "更新方式",
       prop: "download_type",
       width: 100,
@@ -107,10 +96,10 @@ export function useApp() {
         let text = "不启用";
         let type = "info";
         if (row.download_type === 1) {
-          text = "自动更新";
-          type = "success";
+          text = "强制更新";
+          type = "danger";
         } else if (row.download_type === 2) {
-          text = "手动下载";
+          text = "自由更新";
           type = "warning";
         }
         return <el-tag type={type}>{text}</el-tag>;

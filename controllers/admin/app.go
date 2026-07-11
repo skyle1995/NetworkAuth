@@ -275,7 +275,6 @@ func AppCreateHandler(c *gin.Context) {
 		Version               string `json:"version"`
 		Status                int    `json:"status"`
 		DownloadType          int    `json:"download_type"`
-		ForceUpdate           int    `json:"force_update"`
 		DownloadURL           string `json:"download_url"`
 		OperationMode         int    `json:"operation_mode"`
 		PointsChargeMode      int    `json:"points_charge_mode"`
@@ -312,7 +311,6 @@ func AppCreateHandler(c *gin.Context) {
 		"status":        req.Status,
 		"download_type": req.DownloadType,
 		"download_url":  req.DownloadURL,
-		"force_update":  req.ForceUpdate,
 	}).Debug("Received app create request")
 
 	// 创建应用
@@ -322,7 +320,6 @@ func AppCreateHandler(c *gin.Context) {
 		Status:                req.Status,
 		DownloadType:          req.DownloadType,
 		DownloadURL:           strings.TrimSpace(req.DownloadURL),
-		ForceUpdate:           req.ForceUpdate,
 		OperationMode:         req.OperationMode,
 		PointsChargeMode:      req.PointsChargeMode,
 		PointsPerLogin:        req.PointsPerLogin,
@@ -444,7 +441,6 @@ func AppUpdateHandler(c *gin.Context) {
 		Status                int    `json:"status"`
 		DownloadType          int    `json:"download_type"`
 		DownloadURL           string `json:"download_url"`
-		ForceUpdate           int    `json:"force_update"`
 		OperationMode         int    `json:"operation_mode"`
 		PointsChargeMode      int    `json:"points_charge_mode"`
 		PointsPerLogin        int    `json:"points_per_login"`
@@ -499,7 +495,6 @@ func AppUpdateHandler(c *gin.Context) {
 	app.Status = req.Status
 	app.DownloadType = req.DownloadType
 	app.DownloadURL = strings.TrimSpace(req.DownloadURL)
-	app.ForceUpdate = req.ForceUpdate
 	app.OperationMode = req.OperationMode
 	app.PointsChargeMode = req.PointsChargeMode
 	app.PointsPerLogin = req.PointsPerLogin
@@ -1164,6 +1159,7 @@ func AppGetRegisterConfigHandler(c *gin.Context) {
 		"data": gin.H{
 			"register_enabled":              app.RegisterEnabled,
 			"email_verify_enabled":          app.EmailVerifyEnabled,
+			"card_register_enabled":         app.CardRegisterEnabled,
 			"register_limit_enabled":        app.RegisterLimitEnabled,
 			"register_device_limit_enabled": app.RegisterDeviceLimitEnabled,
 			"register_limit_time":           app.RegisterLimitTime,
@@ -1182,6 +1178,7 @@ func AppUpdateRegisterConfigHandler(c *gin.Context) {
 		UUID                       string `json:"uuid"`
 		RegisterEnabled            int    `json:"register_enabled"`
 		EmailVerifyEnabled         int    `json:"email_verify_enabled"`
+		CardRegisterEnabled        int    `json:"card_register_enabled"`
 		RegisterLimitEnabled       int    `json:"register_limit_enabled"`
 		RegisterDeviceLimitEnabled int    `json:"register_device_limit_enabled"`
 		RegisterLimitTime          int    `json:"register_limit_time"`
@@ -1235,6 +1232,7 @@ func AppUpdateRegisterConfigHandler(c *gin.Context) {
 	updates := map[string]interface{}{
 		"register_enabled":              req.RegisterEnabled,
 		"email_verify_enabled":          req.EmailVerifyEnabled,
+		"card_register_enabled":         req.CardRegisterEnabled,
 		"register_limit_enabled":        req.RegisterLimitEnabled,
 		"register_device_limit_enabled": req.RegisterDeviceLimitEnabled,
 		"register_limit_time":           req.RegisterLimitTime,

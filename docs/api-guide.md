@@ -2,6 +2,8 @@
 
 面向客户端（软件端）对接 NetworkAuth 服务端的公开 API。所有业务接口都走**同一个端点** `POST /api/open`，靠请求体里的 `api_type` 区分。
 
+> 后台「应用设置」每一项开关的作用与生效逻辑，见 [app-settings.md](./app-settings.md)。
+
 ---
 
 ## 一、统一入口
@@ -25,6 +27,7 @@ Content-Type: application/json
 
 - 成功：`{ "code": 0, "data": "<按该接口"返回算法"加密的结果密文>" }`
 - 失败：`{ "code": 1, "msg": "错误信息（明文，可直接展示给用户）" }`
+- 强制更新拦截（仅登录接口 `10`/`20`）：`{ "code": 2, "msg": "...", "update": { download_type, need_update, latest_version, download_url } }`——客户端须据此弹更新引导，升级后再登录（`update` 为明文，便于未解密即可展示）。
 
 > 每个应用创建时会自动生成全部接口记录，但**默认禁用且不加密**。对接前需在后台「接口设置」里逐个**启用**并按需配置算法与密钥（可用「批量设置算法」一次性设置并生成密钥，用「导出密钥」导出对接所需的全部密钥与服务器地址）。
 
@@ -79,7 +82,8 @@ sign      = HEX_UPPER( SHA256(raw) )
 ## 五、通用约定
 
 - **登录态**：需要登录的接口都要在 `data` 里带登录返回的 `token`。
-- **运营模式（app 级）**：`mode=0` 时长模式（看 `expired_at`），`mode=1` 点数模式（看 `points`）。多数返回体同时给出 `mode`，客户端据此显示到期或余额。
+- **运营模式（app 级）**：`mode=0` 时长模式（看 `expired_at`），`mode=1` 点数模式（看 `points`），`mode=2` 免费模式。多数返回体同时给出 `mode`，客户端据此显示到期或余额。
+  - **免费模式（`mode=2`）**：不计费。账号即便**已到期 / 无点数也可正常登录使用**；心跳（`41`）照常做令牌与账号状态校验，但**不扣任何费用、不因到期拒绝**；转绑不扣费；`53 功能扣点`返回「当前应用非点数模式」。客户端应忽略 `expired_at` / `points`，视为始终可用。已充值的时长/点数仍保留，只是不再消耗。
 - **心跳与离线**：登录成功返回 `heartbeat_interval`（分钟）。客户端应按该间隔周期性调用 `41 检测账号状态`（或 `40 获取到期`）以刷新在线；超过应用配置的「自动离线时长」未心跳，会话会被后台清理（掉线）。
 - **时间字段**：`expired_at` 为 RFC3339 时间；永久有效对应 `permanent=true`（时间为 2099 年）。
 
@@ -100,12 +104,13 @@ sign      = HEX_UPPER( SHA256(raw) )
   "version": "1.0.0",
   "content": "公告内容",
   "config": {
-    "operation_mode": 1,          // 0时长/1点数
+    "operation_mode": 1,          // 0时长/1点数/2免费
     "points_charge_mode": 1,      // 0按次/1按时
     "points_heartbeat_charge": 0, // 按时:0登录预扣/1心跳触发
     "card_login_enabled": 1,      // 是否开放卡密登录
     "register_enabled": 1,        // 是否开放账号注册
     "email_verify_enabled": 1,    // 注册是否需要邮箱验证码（=1 则需先调 23 取码）
+    "card_register_enabled": 0,   // 注册是否必须提交卡密（=1 则注册须带 card，注册即核销并发放卡面值）
     "register_device_required": 1,// 注册是否必须提交设备码（=1 则注册须带 machine_code）
     "recharge_enabled": 1,        // 是否开放卡密充值
     "trial_enabled": 1,           // 是否开放领取试用
@@ -122,21 +127,25 @@ sign      = HEX_UPPER( SHA256(raw) )
   "interfaces": {                 // 各接口启用状态 api_type -> 1启用/0禁用
     "1": 1, "10": 1, "20": 1, "21": 1, "23": 1, "30": 1, "40": 1, "41": 1
   },
-  "update": { "force_update": false, "download_type": 0, "download_url": "" }
+  "update": { "download_type": 0, "download_url": "" }
+  // download_type 更新方式：0不启用/1强制更新/2自由更新（=1 即强制）
 }
 ```
 > 客户端**开机调一次 type 1** 即可拿到：能力开关(`config`)、换绑能力(`rebind`)、以及**每个接口的启用状态**(`interfaces`)，据此渲染界面、决定哪些功能可用，无需再逐个探测。
 > **注册要不要验证码**：看 `config.email_verify_enabled`——为 `1` 时注册前需先调 `23` 发验证码、注册时带上 `code`。
 > **注册要不要设备码**：看 `config.register_device_required`——为 `1` 时注册须带 `machine_code`，否则被拒。
+> **注册要不要卡密**：看 `config.card_register_enabled`——为 `1` 时注册须带有效 `card`，注册成功即核销该卡并按面值发放时长/点数。
 > **换绑是否开放**：看 `rebind.machine.enabled` / `rebind.ip.enabled`。
 
 #### `2` 获取更新地址
 - 请求：无
-- 返回：`{ download_type, download_url }`（`download_type`：0 不启用 / 1 自动更新 / 2 手动下载）
+- 返回：`{ download_type, download_url }`（`download_type` **更新方式**：0 不启用 / 1 强制更新 / 2 自由更新）
 
 #### `3` 检测最新版本
 - 请求：`{ version: "客户端当前版本" }`
-- 返回：`{ latest_version, need_update(bool), force_update(bool), download_type, download_url }`
+- 返回：`{ latest_version, need_update(bool), download_type, download_url }`
+  - `download_type`：更新方式（0 不启用 / 1 强制更新 / 2 自由更新）。**是否必须更新看 `download_type==1`**。
+  - ⚠️ 语义已变更：原「强制更新开关(`force_update`) + 更新方式(自动/手动)」已合并为单一 `download_type` 三态。`force_update` 字段**已移除**，不再下发；客户端改用 `download_type`（=1 强制、=2 自由）判断，拿到 `download_url` 自行处理下载。
 
 #### `4` 获取卡密信息
 - 请求：`{ card: "卡号" }`
@@ -147,16 +156,27 @@ sign      = HEX_UPPER( SHA256(raw) )
 
 #### `10` 卡密登录
 - 触发条件：应用「卡密登录」开启。首次用某卡登录会**自动创建绑定该卡的账号**（用户名=卡号）并核销该卡。
-- 请求：`{ card: "卡号", machine_code: "机器码" }`
-- 返回（`LoginResult`）：`{ token, username, type, mode, permanent, expired_at, points, heartbeat_interval }`
+- 请求：`{ card: "卡号", machine_code: "机器码", version: "客户端版本" }`
+  - `version`：客户端当前版本。**更新方式开启（`download_type != 0`）时应提交**，用于登录时判断是否需更新。
+- 成功返回（`LoginResult`）：`{ token, username, type, mode, permanent, expired_at, points, heartbeat_interval, update? }`
+- **强制更新（`download_type=1`）且版本过旧 → 直接拒绝登录**：不发 token、不核销卡、不建号、不开会话；返回 **`code=2`** 的失败响应：
+  ```json
+  { "code": 2, "msg": "客户端版本过低，请更新至 X 后再登录",
+    "update": { "download_type": 1, "need_update": true, "latest_version": "X", "download_url": "..." } }
+  ```
+  客户端收到 `code=2` 即弹强制更新引导（`download_url`），升级后再登录。
+- **自由更新（`download_type=2`）**：登录**照常成功**，`LoginResult.update` 带 `need_update` 标记，客户端**提示**可更新但不阻断。
+- **`update` 对象**（成功响应，仅更新方式非「不启用」时出现）：`{ download_type, need_update, latest_version, download_url }`。强制更新成功登录时 `need_update` 必为 `false`（否则已被 `code=2` 拒绝）。
+- 未提交 `version`（视为最旧）：强制更新下会被 `code=2` 拒绝。**心跳不做版本判断**（避免打断使用），仅登录判定一次。
 
 ### 账号体系
 
 #### `21` 账号注册（邮箱即账号）
 - 触发条件：应用「账号注册」开启；开启邮箱验证时需先调 `23` 拿验证码。
-- 请求：`{ email, password, code, machine_code }`（未开邮箱验证时 `code` 可空）
+- 请求：`{ email, password, code, card, machine_code }`（未开邮箱验证时 `code` 可空；未开卡密注册时 `card` 可空）
 - 返回（`StatusResult`）：`{ username, status, mode, permanent, expired_at, points }`
-- 说明：注册成功**不下发 token**（无试用时账号初始即过期），需再登录/充值/领试用。
+- 说明：注册成功**不下发 token**（无试用/卡密时账号初始即过期），需再登录/充值/领试用。
+- **卡密注册**：开启**卡密注册**（`config.card_register_enabled=1`）时，`card` **必传**且须为本应用**未使用**的有效卡，否则返回「请提供注册卡密」「卡号不存在」「该卡已被使用」等。注册成功即核销该卡，并按运营模式把卡面值发放给新账号（时长模式发到期时长、点数模式发点数）。
 - **注册限制**：可按 IP 和/或设备限流（后台「注册设置」分别开关，共用限制时间/次数）。开启**设备注册限制**时，`machine_code` **必传**，否则返回「注册需提供设备码」；换 IP 不能绕过设备限制。
 
 #### `23` 发送注册验证码
@@ -184,8 +204,8 @@ sign      = HEX_UPPER( SHA256(raw) )
 - 返回（`StatusResult`）
 
 #### `20` 账号登录
-- 请求：`{ username, password, machine_code }`
-- 返回（`LoginResult`）：同 `10`
+- 请求：`{ username, password, machine_code, version: "客户端版本" }`（`version` 同 `10`，更新方式开启时提交）
+- 返回（`LoginResult`）：同 `10`（含 `update?` 对象）
 
 ### 登出
 
@@ -200,9 +220,10 @@ sign      = HEX_UPPER( SHA256(raw) )
 - 返回（`StatusResult`）：`{ username, status, mode, permanent, expired_at, points }`
 
 #### `41` 检测账号状态（心跳）
-- 请求：`{ token, charge?: bool }`
+- 请求：`{ token, no_charge?: bool }`
 - 返回（`StatusResult`，含 `heartbeat_interval`）：既是心跳也是状态查询，返回用户基本信息 + 心跳间隔,客户端可据返回的 `heartbeat_interval` **动态调整**下次心跳时间。点数「按时」模式会在此结算并顺延周期。账号被封停/拉黑/到期/点数耗尽时返回异常，客户端据此登出。
-- **`charge` 参数**（仅点数-按时 + 应用开启「扣费触发=心跳触发」时有效）：本次心跳是否触发按周期扣费。用免费功能时传 `false`（不扣），用计费功能时传 `true`（按周期扣点）。其它模式忽略该参数。可实现「功能A免费 / 功能B计费」：登录不预扣，只有发 `charge:true` 的心跳才消耗点数。
+- **`no_charge` 参数**（仅点数-按时模式有效）：点数-按时模式下心跳**默认按周期扣费**；对免费功能传 `no_charge:true` 可**跳过本次扣费**（点数不变、仍可用）。免费模式/时长模式/按次模式忽略该参数。可实现「功能A免费 / 功能B计费」：功能A的心跳传 `no_charge:true`，功能B的心跳照常（默认扣）。
+  - ⚠️ 语义相较旧版**已反转**：旧字段 `charge`（默认不扣、传 `true` 才扣）已废弃为 `no_charge`（默认扣、传 `true` 才不扣）。升级需同步调整客户端心跳参数。
 
 #### `42` 获取程序数据
 - 请求：`{ token }`
@@ -234,12 +255,13 @@ sign      = HEX_UPPER( SHA256(raw) )
   - `machine_code`：仅当开启「机器码转绑」时必传，为新机器码
 - **凭凭据鉴权，不需登录令牌** —— 这样设备/IP 对不上、登不进的用户也能转绑（避免死循环）。
 - 行为：按应用配置转绑已开启的维度 —— 机器码转绑替换为 `machine_code`；IP 转绑以服务端识别的**当前请求 IP** 为准（客户端须**从新 IP 调用**）。两维度都开则依次转绑、各自独立计次/扣费。
-- 返回（`StatusResult`）；受各自「转绑开关/免费次数/次数上限/扣费」约束。
+- 返回（`StatusResult`）；受各自「转绑开关/免费次数/次数上限/扣费」约束。**免费模式下转绑一律不扣费**（仍照常计次）。
 - 后台「接口设置」里只需启用**一个「转绑」**接口。**统一用类型号 `51`**；原「IP转绑(52)」已彻底移除（历史记录会在服务启动时自动清理），客户端不要再调 `52`。
 
 #### `53` 功能扣点（点数模式）
 - 请求：`{ token, points: 扣除点数 }`
 - 返回（`StatusResult`）；原子扣减，余额不足则失败。
+- 仅**点数模式**可用；时长模式/免费模式调用返回「当前应用非点数模式」。
 
 #### `54` 设置账号数据
 - 请求：`{ token, data: "要保存的数据字符串" }`
@@ -272,11 +294,12 @@ sign      = HEX_UPPER( SHA256(raw) )
 | `token` | 会话令牌，后续需登录接口都要带 |
 | `username` | 用户名（卡密账号为卡号） |
 | `type` | 来源类型：0 注册账号 / 1 卡密账号 |
-| `mode` | 运营模式：0 时长 / 1 点数 |
+| `mode` | 运营模式：0 时长 / 1 点数 / 2 免费 |
 | `permanent` | 是否永久有效 |
 | `expired_at` | 到期时间（时长模式） |
 | `points` | 点数余额（点数模式） |
 | `heartbeat_interval` | 心跳间隔（分钟） |
+| `update` | 更新判断结果，仅更新方式开启时出现：`{ download_type, need_update, latest_version, download_url }` |
 
 **StatusResult（状态/到期/充值/转绑/扣点等）**
 

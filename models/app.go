@@ -18,6 +18,14 @@ import (
 const (
 	OperationModeTime   = 0 // 时长模式（按到期时间）
 	OperationModePoints = 1 // 点数模式（按点数余额）
+	OperationModeFree   = 2 // 免费模式（不计费：账号过期/无点也可正常登录使用；心跳照常校验但不扣费；转绑不扣费）
+)
+
+// 更新方式（download_type）：合并原「强制更新 + 更新方式」为单一三态。
+const (
+	DownloadTypeDisabled = 0 // 不启用更新
+	DownloadTypeForce    = 1 // 强制更新（有新版本必须更新才能继续）
+	DownloadTypeFree     = 2 // 自由更新（提示有新版本，可自行选择是否更新）
 )
 
 // 点数扣费方式
@@ -53,10 +61,9 @@ type App struct {
 	Secret string `gorm:"size:255;not null;comment:应用密钥，用于API认证" json:"secret"`
 	// Version：应用版本号
 	Version string `gorm:"size:50;default:'1.0.0';comment:应用版本号" json:"version"`
-	// ForceUpdate：强制更新（0=不开启，1=开启）
-	ForceUpdate int `gorm:"default:0;not null;comment:强制更新，0=不开启，1=开启" json:"force_update"`
-	// DownloadType：下载方式（0=不启用更新，1=自动更新，2=手动下载）
-	DownloadType int `gorm:"default:0;not null;comment:更新方式，0=不启用更新，1=自动更新，2=手动下载" json:"download_type"`
+	// DownloadType：更新方式（0=不启用，1=强制更新，2=自由更新）。启用（非0）时须配 DownloadURL。
+	// 强制与否由本字段表达（=1 为强制），客户端据此判断，无需单独的 force_update。
+	DownloadType int `gorm:"default:0;not null;comment:更新方式，0=不启用，1=强制更新，2=自由更新" json:"download_type"`
 	// DownloadURL：下载地址
 	DownloadURL string `gorm:"size:500;comment:下载地址" json:"download_url"`
 
@@ -107,8 +114,8 @@ type App struct {
 	// IPRebindDeduct：IP地址重绑扣除（默认0，单位：分钟）
 	IPRebindDeduct int `gorm:"default:0;not null;comment:IP地址重绑扣除，单位分钟" json:"ip_rebind_deduct"`
 
-	// OperationMode：运营模式（0=时长模式，1=点数模式）
-	OperationMode int `gorm:"default:0;not null;comment:运营模式，0=时长模式，1=点数模式" json:"operation_mode"`
+	// OperationMode：运营模式（0=时长模式，1=点数模式，2=免费模式）
+	OperationMode int `gorm:"default:0;not null;comment:运营模式，0=时长模式，1=点数模式，2=免费模式" json:"operation_mode"`
 	// PointsChargeMode：点数扣费方式（0=按次，1=按时/预扣费）
 	PointsChargeMode int `gorm:"default:0;not null;comment:点数扣费方式，0=按次，1=按时" json:"points_charge_mode"`
 	// PointsPerLogin：按次模式每次登录扣除的点数
@@ -131,6 +138,8 @@ type App struct {
 	RegisterEnabled int `gorm:"default:1;not null;comment:账号注册开关，0=关闭，1=开启" json:"register_enabled"`
 	// EmailVerifyEnabled：注册邮箱验证开关（0=关闭，1=开启）。开启后注册须校验邮箱验证码，依赖系统SMTP配置
 	EmailVerifyEnabled int `gorm:"default:0;not null;comment:注册邮箱验证开关，0=关闭，1=开启" json:"email_verify_enabled"`
+	// CardRegisterEnabled：卡密注册开关（0=关闭，1=开启）。开启后邮箱注册须额外提交有效卡密，注册即核销该卡并按面值发放时长/点数
+	CardRegisterEnabled int `gorm:"default:0;not null;comment:卡密注册开关，0=关闭，1=开启" json:"card_register_enabled"`
 	// RegisterLimitEnabled：IP注册限制开关（0=关闭，1=开启）
 	RegisterLimitEnabled int `gorm:"default:0;not null;comment:IP注册限制开关，0=关闭，1=开启" json:"register_limit_enabled"`
 	// RegisterDeviceLimitEnabled：设备注册限制开关（0=关闭，1=开启）；开启后注册须提交设备码

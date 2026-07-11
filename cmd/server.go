@@ -93,6 +93,10 @@ func runServer(cmd *cobra.Command, args []string) {
 			if err := database.AutoMigrate(); err != nil {
 				logrus.WithError(err).Fatal("数据库自动迁移失败")
 			}
+			// 规整更新策略字段（旧版 force_update + download_type 合并为新三态，幂等）
+			if err := database.NormalizeUpdateStrategy(); err != nil {
+				logrus.WithError(err).Error("更新策略字段规整失败")
+			}
 			// 初始化默认系统设置
 			if err := database.SeedDefaultSettings(); err != nil {
 				logrus.WithError(err).Fatal("默认系统设置初始化失败")

@@ -72,6 +72,10 @@ func rebindCore(db *gorm.DB, app *models.App, member *models.Member, newValue st
 	if used >= p.freeCount {
 		deduct = p.deduct
 	}
+	// 免费模式：转绑一律不扣费（仍照常计次、执行绑定替换）
+	if app.OperationMode == models.OperationModeFree {
+		deduct = 0
+	}
 	pointsMode := app.OperationMode == models.OperationModePoints
 
 	err := db.Transaction(func(tx *gorm.DB) error {

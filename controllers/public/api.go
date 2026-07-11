@@ -6,6 +6,7 @@ import (
 	"NetworkAuth/services"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -29,6 +30,21 @@ import (
 // fail 返回明文错误
 func fail(c *gin.Context, msg string) {
 	c.JSON(http.StatusOK, gin.H{"code": 1, "msg": msg})
+}
+
+// failForceUpdate 强制更新拦截响应：code=2 表示「须强制更新，登录被拒」，
+// 附带更新信息（明文，与失败通道的 msg 一致；下载地址非敏感）供客户端弹更新引导。
+func failForceUpdate(c *gin.Context, e *services.ForceUpdateError) {
+	resp := gin.H{"code": 2, "msg": e.Error()}
+	if u := e.Update; u != nil {
+		resp["update"] = gin.H{
+			"download_type":  u.DownloadType,
+			"need_update":    true,
+			"latest_version": u.LatestVersion,
+			"download_url":   u.DownloadURL,
+		}
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // OpenAPIHandler 公开 API 分发入口
@@ -95,6 +111,12 @@ func OpenAPIHandler(c *gin.Context) {
 	// 按接口类型分发业务
 	result, bizErr := dispatch(c, &app, envelope.APIType, plainParams)
 	if bizErr != nil {
+		// 强制更新拦截：返回专用 code 与更新信息，客户端据此引导升级后再登录
+		var fue *services.ForceUpdateError
+		if errors.As(bizErr, &fue) {
+			failForceUpdate(c, fue)
+			return
+		}
 		fail(c, bizErr.Error())
 		return
 	}
@@ -225,6 +247,8 @@ func handleBulletin(app *models.App) (any, error) {
 			"card_login_enabled":      app.CardLoginEnabled,
 			"register_enabled":        app.RegisterEnabled,
 			"email_verify_enabled":    app.EmailVerifyEnabled,
+			// 卡密注册：=1 时客户端注册须收集并提交 card（有效卡号），否则会被拒
+			"card_register_enabled": app.CardRegisterEnabled,
 			// 设备注册限制：=1 时客户端注册须收集并提交 machine_code，否则会被拒
 			"register_device_required": app.RegisterDeviceLimitEnabled,
 			"recharge_enabled":         app.RechargeEnabled,
@@ -252,9 +276,8 @@ func handleBulletin(app *models.App) (any, error) {
 		},
 		// 各接口启用状态映射：{ "20": 1, "21": 0, ... }
 		"interfaces": interfaces,
-		// 更新策略：启动即可判断是否强制更新/下载方式
+		// 更新策略：download_type 0不启用/1强制/2自由，客户端据此决定是否/如何更新
 		"update": gin.H{
-			"force_update":  app.ForceUpdate == 1,
 			"download_type": app.DownloadType,
 			"download_url":  app.DownloadURL,
 		},
@@ -266,11 +289,12 @@ func handleCardLogin(c *gin.Context, app *models.App, plainParams string) (any, 
 	var params struct {
 		Card        string `json:"card"`
 		MachineCode string `json:"machine_code"`
+		Version     string `json:"version"` // 客户端版本号，更新方式开启时用于判断是否需更新
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.CardLogin(app.UUID, params.Card, params.MachineCode, c.ClientIP())
+	return services.CardLogin(app.UUID, params.Card, params.MachineCode, c.ClientIP(), params.Version)
 }
 
 // handleAccountLogin 账号登录（type 20）
@@ -279,11 +303,12 @@ func handleAccountLogin(c *gin.Context, app *models.App, plainParams string) (an
 		Username    string `json:"username"`
 		Password    string `json:"password"`
 		MachineCode string `json:"machine_code"`
+		Version     string `json:"version"` // 客户端版本号，更新方式开启时用于判断是否需更新
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.AccountLogin(app.UUID, params.Username, params.Password, params.MachineCode, c.ClientIP())
+	return services.AccountLogin(app.UUID, params.Username, params.Password, params.MachineCode, c.ClientIP(), params.Version)
 }
 
 // handleAccountRegister 账号注册（type 21，邮箱即账号）
@@ -292,12 +317,13 @@ func handleAccountRegister(c *gin.Context, app *models.App, plainParams string) 
 		Email       string `json:"email"`
 		Password    string `json:"password"`
 		Code        string `json:"code"`
+		Card        string `json:"card"`
 		MachineCode string `json:"machine_code"`
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.AccountRegister(app.UUID, params.Email, params.Password, params.Code, c.ClientIP(), params.MachineCode)
+	return services.AccountRegister(app.UUID, params.Email, params.Password, params.Code, params.Card, c.ClientIP(), params.MachineCode)
 }
 
 // handleSendEmailCode 发送注册验证码（type 23）
@@ -360,16 +386,17 @@ func handleRecharge(app *models.App, plainParams string) (any, error) {
 }
 
 // handleCheckStatus 检测账号状态/心跳（type 41）
-// charge：点数-按时且「心跳触发扣费」模式下，本次心跳是否触发扣费（用功能A传false、用功能B传true）。
+// no_charge：点数-按时模式下本次心跳是否跳过扣费。心跳**默认扣费**，免费功能传 no_charge=true 跳过；
+// 免费/时长/按次模式忽略该参数。
 func handleCheckStatus(app *models.App, plainParams string) (any, error) {
 	var params struct {
-		Token  string `json:"token"`
-		Charge bool   `json:"charge"`
+		Token    string `json:"token"`
+		NoCharge bool   `json:"no_charge"`
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.CheckMemberStatus(app.UUID, params.Token, params.Charge)
+	return services.CheckMemberStatus(app.UUID, params.Token, params.NoCharge)
 }
 
 // handleGetExpired 获取到期时间（type 40）

@@ -6,6 +6,7 @@ export interface FormProps {
   formInline: {
     register_enabled: number;
     email_verify_enabled: number;
+    card_register_enabled: number;
     register_limit_enabled: number;
     register_device_limit_enabled: number;
     register_limit_time: number;
@@ -21,6 +22,7 @@ const props = withDefaults(defineProps<FormProps>(), {
   formInline: () => ({
     register_enabled: 0,
     email_verify_enabled: 0,
+    card_register_enabled: 0,
     register_limit_enabled: 0,
     register_device_limit_enabled: 0,
     register_limit_time: 0,
@@ -60,6 +62,15 @@ defineExpose({ getRef, newFormInline });
         <el-radio :value="0">关闭</el-radio>
         <el-radio :value="1">开启</el-radio>
       </el-radio-group>
+    </el-form-item>
+    <el-form-item label="卡密注册" prop="card_register_enabled">
+      <el-radio-group v-model="newFormInline.card_register_enabled">
+        <el-radio :value="0">关闭</el-radio>
+        <el-radio :value="1">开启</el-radio>
+      </el-radio-group>
+      <span class="ml-2 text-gray-400 text-xs">
+        开启后注册须额外提交有效卡密，注册即核销并发放卡面值
+      </span>
     </el-form-item>
     <el-form-item label="IP限制" prop="register_limit_enabled">
       <el-radio-group v-model="newFormInline.register_limit_enabled">

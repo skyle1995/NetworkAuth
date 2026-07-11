@@ -32,6 +32,54 @@ type LoginResult struct {
 	ExpiredAt         time.Time `json:"expired_at"`         // 时长模式有效
 	Points            int       `json:"points"`             // 点数模式有效
 	HeartbeatInterval int       `json:"heartbeat_interval"` // 心跳间隔（分钟），客户端据此周期心跳
+	// Update：更新判断结果。仅当应用更新方式非「不启用」时返回；据登录提交的版本号判断是否需要更新。
+	Update *LoginUpdate `json:"update,omitempty"`
+}
+
+// LoginUpdate 登录时的更新判断结果（仅 download_type != 0 时随登录返回）。
+// 客户端据 download_type 决定强制/自由更新；need_update 为本次登录版本是否落后。
+type LoginUpdate struct {
+	DownloadType  int    `json:"download_type"`  // 更新方式：1 强制 / 2 自由
+	NeedUpdate    bool   `json:"need_update"`    // 客户端版本低于应用版本
+	LatestVersion string `json:"latest_version"` // 应用当前版本
+	DownloadURL   string `json:"download_url"`   // 下载/更新地址
+}
+
+// buildLoginUpdate 依据应用更新方式与客户端提交的版本号，构造登录返回中的更新结果。
+// 更新方式为「不启用」(download_type=0) 时返回 nil —— 登录不带更新信息。
+func buildLoginUpdate(app *models.App, clientVersion string) *LoginUpdate {
+	if app.DownloadType == models.DownloadTypeDisabled {
+		return nil
+	}
+	return &LoginUpdate{
+		DownloadType:  app.DownloadType,
+		NeedUpdate:    compareVersion(clientVersion, app.Version) < 0,
+		LatestVersion: app.Version,
+		DownloadURL:   app.DownloadURL,
+	}
+}
+
+// ForceUpdateError 强制更新拦截：应用为「强制更新」且客户端版本过旧时拒绝登录，
+// 附带更新信息供客户端引导用户升级后再登录。
+type ForceUpdateError struct {
+	Update *LoginUpdate
+}
+
+func (e *ForceUpdateError) Error() string {
+	if e.Update != nil {
+		return "客户端版本过低，请更新至 " + e.Update.LatestVersion + " 后再登录"
+	}
+	return "客户端版本过低，请更新后再登录"
+}
+
+// checkForceUpdate 强制更新登录门禁：仅「强制更新」(download_type=1) 且客户端版本落后时拒绝。
+// 必须在任何登录副作用（核销卡密、建号、开会话）之前调用，避免拒绝时已产生消费。
+func checkForceUpdate(app *models.App, version string) error {
+	upd := buildLoginUpdate(app, version)
+	if upd != nil && upd.NeedUpdate && upd.DownloadType == models.DownloadTypeForce {
+		return &ForceUpdateError{Update: upd}
+	}
+	return nil
 }
 
 // StatusResult 账号状态查询返回的信息
@@ -62,6 +110,10 @@ func isPermanent(expiredAt time.Time) bool {
 
 // checkMemberUsable 按运营模式校验账号是否可用（时长：未到期；点数：余额>0）。
 func checkMemberUsable(app *models.App, m *models.Member) error {
+	// 免费模式：不计费，账号即便已到期/无点数也放行（仅令牌、账号状态等仍由调用方校验）。
+	if app.OperationMode == models.OperationModeFree {
+		return nil
+	}
 	if app.OperationMode == models.OperationModePoints {
 		if app.PointsChargeMode == models.PointsChargePerTime {
 			// 按时：仍在已预扣周期内，或余额够买下一个周期
@@ -171,7 +223,7 @@ func buildStatusResult(app *models.App, m *models.Member) *StatusResult {
 
 // CardLogin 卡密登录：卡号即身份。
 // 未使用的卡首次登录激活并自动创建绑定该卡的账号；已使用的卡走登录校验。
-func CardLogin(appUUID, cardNo, machineCode, ip string) (*LoginResult, error) {
+func CardLogin(appUUID, cardNo, machineCode, ip, version string) (*LoginResult, error) {
 	appUUID = strings.TrimSpace(appUUID)
 	cardNo = strings.TrimSpace(cardNo)
 	if appUUID == "" || cardNo == "" {
@@ -193,6 +245,10 @@ func CardLogin(appUUID, cardNo, machineCode, ip string) (*LoginResult, error) {
 	}
 	if app.CardLoginEnabled != 1 {
 		return nil, errors.New("该应用未开启卡密登录")
+	}
+	// 强制更新门禁：须在核销卡密/建号前拦截，避免拒绝登录却已消费卡
+	if err := checkForceUpdate(&app, version); err != nil {
+		return nil, err
 	}
 
 	var member models.Member
@@ -239,11 +295,12 @@ func CardLogin(appUUID, cardNo, machineCode, ip string) (*LoginResult, error) {
 		return nil, err
 	}
 
-	return finishMemberLogin(db, &app, &member, machineCode, ip)
+	return finishMemberLogin(db, &app, &member, machineCode, ip, version)
 }
 
 // finishMemberLogin 完成登录的公共收尾：状态/到期校验、机器码绑定、多开会话管理、颁发令牌。
-func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, machineCode, ip string) (*LoginResult, error) {
+// version 为客户端提交的版本号：更新方式开启时用于判断是否需要更新，结果随登录返回。
+func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, machineCode, ip, version string) (*LoginResult, error) {
 	if member.Status == models.MemberStatusBlack {
 		return nil, errors.New("账号已被拉黑")
 	}
@@ -351,10 +408,19 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 		if err := tx.Create(&session).Error; err != nil {
 			return err
 		}
-		return tx.Model(member).Updates(map[string]interface{}{
+		updates := map[string]interface{}{
 			"last_login_at": &now,
 			"last_login_ip": ip,
-		}).Error
+		}
+		// 账号尚无注册设备时，用本次登录设备回填为注册设备。
+		// 后台建号 / 卡密登录 / 未开设备限制时注册的账号 register_machine 为空，
+		// 回填后设备维度注册限制与风控才有据可依。
+		if strings.TrimSpace(member.RegisterMachine) == "" && strings.TrimSpace(machineCode) != "" {
+			mc := strings.TrimSpace(machineCode)
+			updates["register_machine"] = mc
+			member.RegisterMachine = mc
+		}
+		return tx.Model(member).Updates(updates).Error
 	})
 	if err != nil {
 		return nil, err
@@ -375,6 +441,7 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 		ExpiredAt:         member.ExpiredAt,
 		Points:            member.Points,
 		HeartbeatInterval: heartbeatMinutes(app),
+		Update:            buildLoginUpdate(app, version),
 	}, nil
 }
 
@@ -567,9 +634,9 @@ func authMemberByCredential(db *gorm.DB, appUUID, username, password string) (*m
 // CheckMemberStatus 心跳/状态查询：校验令牌有效、账号正常且可用。
 // 按时点数模式在心跳时结算：过了预扣周期则自动续扣下一周期。
 // CheckMemberStatus 检测账号状态/心跳（type 41）。
-// charge 为心跳是否触发扣费：仅在点数-按时且「心跳触发扣费」模式下用于决定本次心跳是否结算；
-// 其它模式忽略该参数（按时默认心跳自动结算，时长/按次登录时已扣）。
-func CheckMemberStatus(appUUID, token string, charge bool) (*StatusResult, error) {
+// noCharge：本次心跳是否跳过扣费。点数-按时模式下心跳**默认结算扣费**，客户端传 no_charge=true 才跳过
+// （用于免费功能）；免费模式/时长模式/按次模式本就不在心跳扣费，忽略该参数。
+func CheckMemberStatus(appUUID, token string, noCharge bool) (*StatusResult, error) {
 	db, err := database.GetDB()
 	if err != nil {
 		return nil, err
@@ -585,9 +652,10 @@ func CheckMemberStatus(appUUID, token string, charge bool) (*StatusResult, error
 	if err != nil {
 		return nil, err
 	}
-	// 按时预扣费结算：心跳触发模式下仅当客户端要求扣费(charge)时才结算；否则默认心跳自动结算。
+	// 按时预扣费结算：心跳**默认结算扣费**，客户端传 no_charge=true 才跳过本次扣费（免费功能）。
+	// 免费/时长/按次模式下 settlePointsTime 自身即会跳过，不受影响。
 	// 尽力续期，忽略无法续期的错误，交由 usable 判定。
-	if app.PointsHeartbeatCharge != 1 || charge {
+	if !noCharge {
 		_ = settlePointsTime(db, app, member)
 	}
 	if err := checkMemberUsable(app, member); err != nil {
@@ -692,9 +760,9 @@ func enforceRegisterLimit(db *gorm.DB, app *models.App, registerIP, machineCode 
 }
 
 // AccountRegister 账号注册（邮箱即账号）：邮箱作为登录名创建注册型账号。
-// 应用开启邮箱验证时须校验验证码。不颁发会话令牌——注册账号在无试用时初始即过期，
-// 需登录（或先充值）后方可使用。
-func AccountRegister(appUUID, email, password, code, registerIP, machineCode string) (*StatusResult, error) {
+// 应用开启邮箱验证时须校验验证码；开启卡密注册时须额外提交有效卡密，注册即核销该卡并按面值发放时长/点数。
+// 不颁发会话令牌——注册账号在无试用/卡密时初始即过期，需登录（或先充值）后方可使用。
+func AccountRegister(appUUID, email, password, code, card, registerIP, machineCode string) (*StatusResult, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" || password == "" {
 		return nil, errors.New("邮箱与密码不能为空")
@@ -714,6 +782,13 @@ func AccountRegister(appUUID, email, password, code, registerIP, machineCode str
 	if app.RegisterEnabled != 1 {
 		return nil, errors.New("该应用未开启账号注册")
 	}
+
+	// 卡密注册：开启后须提交卡号，注册时核销该卡并按面值发放（先校验非空，落库前占用）
+	cardNo := strings.TrimSpace(card)
+	if app.CardRegisterEnabled == 1 && cardNo == "" {
+		return nil, errors.New("请提供注册卡密")
+	}
+
 	if err := enforceRegisterLimit(db, app, registerIP, machineCode); err != nil {
 		return nil, err
 	}
@@ -754,16 +829,48 @@ func AccountRegister(appUUID, email, password, code, registerIP, machineCode str
 		RegisterMachine: strings.TrimSpace(machineCode),
 	}
 	if app.OperationMode == models.OperationModePoints {
-		// 点数模式：注册初始 0 点，需充值；ExpiredAt 留零值
+		// 点数模式：默认注册初始 0 点，需充值；ExpiredAt 留零值
 		member.Points = 0
 	} else {
 		member.ExpiredAt = registerInitialExpiry()
 	}
-	if err := db.Create(&member).Error; err != nil {
-		return nil, errors.New("注册失败")
+
+	logDetail := ""
+	if app.CardRegisterEnabled == 1 {
+		// 事务内：校验并核销卡密、按面值发放、创建账号（一卡一号，避免并发双花）
+		err = db.Transaction(func(tx *gorm.DB) error {
+			var cardRec models.Card
+			if err := tx.Where("app_uuid = ? AND card_no = ?", app.UUID, cardNo).First(&cardRec).Error; err != nil {
+				return errors.New("卡号不存在")
+			}
+			if cardRec.Status == models.CardStatusFrozen {
+				return errors.New("卡密已被冻结")
+			}
+			if cardRec.Status != models.CardStatusUnused {
+				return errors.New("该卡已被使用")
+			}
+			// 按运营模式发放卡面值：点数模式发点数，时长模式发到期时长（-1 为永久）
+			if app.OperationMode == models.OperationModePoints {
+				member.Points = cardRec.Points
+			} else {
+				member.ExpiredAt = expiryFromDuration(cardRec.Duration)
+			}
+			if err := tx.Create(&member).Error; err != nil {
+				return errors.New("注册失败")
+			}
+			return MarkCardUsed(tx, cardRec.ID, member.UUID)
+		})
+		if err != nil {
+			return nil, err
+		}
+		logDetail = "卡号 " + cardNo
+	} else {
+		if err := db.Create(&member).Error; err != nil {
+			return nil, errors.New("注册失败")
+		}
 	}
 
-	AddMemberLog(app.UUID, member.UUID, member.Username, "注册", "", "")
+	AddMemberLog(app.UUID, member.UUID, member.Username, "注册", logDetail, "")
 	return buildStatusResult(app, &member), nil
 }
 
@@ -832,7 +939,7 @@ func ClaimTrial(appUUID, username, password string) (*StatusResult, error) {
 }
 
 // AccountLogin 账号登录：校验用户名密码后颁发令牌。
-func AccountLogin(appUUID, username, password, machineCode, ip string) (*LoginResult, error) {
+func AccountLogin(appUUID, username, password, machineCode, ip, version string) (*LoginResult, error) {
 	username = strings.TrimSpace(username)
 	if username == "" || password == "" {
 		return nil, errors.New("用户名与密码不能为空")
@@ -854,8 +961,12 @@ func AccountLogin(appUUID, username, password, machineCode, ip string) (*LoginRe
 	if !utils.VerifyPasswordWithSalt(password, member.PasswordSalt, member.Password) {
 		return nil, errors.New("账号或密码错误")
 	}
+	// 强制更新门禁：版本过旧拒绝登录（在开会话前）
+	if err := checkForceUpdate(app, version); err != nil {
+		return nil, err
+	}
 
-	return finishMemberLogin(db, app, &member, machineCode, ip)
+	return finishMemberLogin(db, app, &member, machineCode, ip, version)
 }
 
 // RechargeByCard 用一张卡为账号充值：把卡面值加到该账号到期时间，并核销卡密。

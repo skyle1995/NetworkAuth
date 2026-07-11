@@ -42,7 +42,6 @@ func CheckVersion(appUUID, clientVersion string) (any, error) {
 	return map[string]any{
 		"latest_version": app.Version,
 		"need_update":    needUpdate,
-		"force_update":   app.ForceUpdate == 1,
 		"download_type":  app.DownloadType,
 		"download_url":   app.DownloadURL,
 	}, nil

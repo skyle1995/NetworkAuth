@@ -70,7 +70,6 @@ function openDialog(title = "新增", row?: any) {
         name: row?.name ?? "",
         version: row?.version ?? "1.0.0",
         status: row?.status ?? 1,
-        force_update: row?.force_update ?? 0,
         download_type: row?.download_type ?? 0,
         download_url: row?.download_url ?? "",
         operation_mode: row?.operation_mode ?? 0,
@@ -362,6 +361,7 @@ async function openRegisterConfigDialog(uuid: string, operationMode = 0) {
           formInline: res.data || {
             register_enabled: 0,
             email_verify_enabled: 0,
+            card_register_enabled: 0,
             register_limit_enabled: 0,
             register_device_limit_enabled: 0,
             register_limit_time: 0,

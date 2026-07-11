@@ -6,6 +6,7 @@ import (
 	"NetworkAuth/utils/encrypt"
 	b64 "encoding/base64"
 	"encoding/hex"
+	"errors"
 	"testing"
 	"time"
 
@@ -117,7 +118,7 @@ func TestCardLoginActivateStatusLogout(t *testing.T) {
 	}
 
 	// 首次登录 → 激活并创建卡密账号
-	res, err := CardLogin("APP-1", "KM-TESTCARD", "", "1.2.3.4")
+	res, err := CardLogin("APP-1", "KM-TESTCARD", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("first CardLogin: %v", err)
 	}
@@ -143,7 +144,7 @@ func TestCardLoginActivateStatusLogout(t *testing.T) {
 	}
 
 	// 再次登录（已使用卡）→ 顶号：旧令牌失效，新令牌有效
-	res2, err := CardLogin("APP-1", "KM-TESTCARD", "", "1.2.3.4")
+	res2, err := CardLogin("APP-1", "KM-TESTCARD", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("second CardLogin: %v", err)
 	}
@@ -175,7 +176,7 @@ func TestCardLoginFrozenRejected(t *testing.T) {
 	if err := db.Create(&card).Error; err != nil {
 		t.Fatalf("seed card: %v", err)
 	}
-	if _, err := CardLogin("APP-1", "KM-FROZEN", "", "1.2.3.4"); err == nil {
+	if _, err := CardLogin("APP-1", "KM-FROZEN", "", "1.2.3.4", ""); err == nil {
 		t.Fatalf("frozen card login should be rejected")
 	}
 }
@@ -187,7 +188,7 @@ func TestAccountRegisterLoginRecharge(t *testing.T) {
 		Updates(map[string]interface{}{"register_enabled": 1, "recharge_enabled": 1})
 
 	// 注册（无试用 → 注册即过期，不返回令牌）
-	reg, err := AccountRegister("APP-1", "alice@test.com", "secret1", "", "1.2.3.4", "")
+	reg, err := AccountRegister("APP-1", "alice@test.com", "secret1", "", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("AccountRegister: %v", err)
 	}
@@ -195,11 +196,11 @@ func TestAccountRegisterLoginRecharge(t *testing.T) {
 		t.Fatalf("unexpected register result: %+v", reg)
 	}
 	// 重复注册应失败
-	if _, err := AccountRegister("APP-1", "alice@test.com", "x", "", "1.2.3.4", ""); err == nil {
+	if _, err := AccountRegister("APP-1", "alice@test.com", "x", "", "", "1.2.3.4", ""); err == nil {
 		t.Fatalf("duplicate register should fail")
 	}
 	// 未充值（已过期）登录应失败
-	if _, err := AccountLogin("APP-1", "alice@test.com", "secret1", "", "1.2.3.4"); err == nil {
+	if _, err := AccountLogin("APP-1", "alice@test.com", "secret1", "", "1.2.3.4", ""); err == nil {
 		t.Fatalf("login should fail before recharge (expired)")
 	}
 
@@ -227,11 +228,11 @@ func TestAccountRegisterLoginRecharge(t *testing.T) {
 	}
 
 	// 错误密码登录失败
-	if _, err := AccountLogin("APP-1", "alice@test.com", "wrong", "", "1.2.3.4"); err == nil {
+	if _, err := AccountLogin("APP-1", "alice@test.com", "wrong", "", "1.2.3.4", ""); err == nil {
 		t.Fatalf("login with wrong password should fail")
 	}
 	// 充值后正确密码登录成功
-	login, err := AccountLogin("APP-1", "alice@test.com", "secret1", "", "1.2.3.4")
+	login, err := AccountLogin("APP-1", "alice@test.com", "secret1", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("AccountLogin after recharge: %v", err)
 	}
@@ -245,6 +246,295 @@ func TestAccountRegisterLoginRecharge(t *testing.T) {
 	}
 }
 
+func TestCardRegister(t *testing.T) {
+	db := setupPublicTestDB(t)
+	// 开启注册 + 卡密注册（时长模式，OperationMode 默认 0）
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").
+		Updates(map[string]interface{}{"register_enabled": 1, "card_register_enabled": 1})
+
+	// 未提交卡密 → 拒绝
+	if _, err := AccountRegister("APP-1", "cr1@test.com", "pw123456", "", "", "1.2.3.4", ""); err == nil {
+		t.Fatalf("register without card should be rejected when card register on")
+	}
+	// 不存在的卡 → 拒绝
+	if _, err := AccountRegister("APP-1", "cr1@test.com", "pw123456", "", "KM-NOPE", "1.2.3.4", ""); err == nil {
+		t.Fatalf("register with unknown card should be rejected")
+	}
+
+	// 冻结卡 → 拒绝
+	frozen := models.Card{CardNo: "KM-CRFROZEN", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusFrozen}
+	db.Create(&frozen)
+	if _, err := AccountRegister("APP-1", "cr1@test.com", "pw123456", "", "KM-CRFROZEN", "1.2.3.4", ""); err == nil {
+		t.Fatalf("register with frozen card should be rejected")
+	}
+
+	// 有效未用卡（30 天）→ 注册成功，账号获得约 30 天到期，卡被核销
+	card := models.Card{CardNo: "KM-CRREG", AppUUID: "APP-1", Duration: 30 * 24 * 60, Status: models.CardStatusUnused}
+	if err := db.Create(&card).Error; err != nil {
+		t.Fatalf("seed card: %v", err)
+	}
+	reg, err := AccountRegister("APP-1", "cr1@test.com", "pw123456", "", "KM-CRREG", "1.2.3.4", "")
+	if err != nil {
+		t.Fatalf("card register should succeed: %v", err)
+	}
+	if reg.ExpiredAt.Before(time.Now().Add(29 * 24 * time.Hour)) {
+		t.Fatalf("card register did not grant card duration: %v", reg.ExpiredAt)
+	}
+	// 卡应被核销并记录去向
+	var reloaded models.Card
+	db.First(&reloaded, card.ID)
+	if reloaded.Status != models.CardStatusUsed {
+		t.Fatalf("register card not marked used")
+	}
+	// 注册即带时长 → 可直接登录
+	if _, err := AccountLogin("APP-1", "cr1@test.com", "pw123456", "", "1.2.3.4", ""); err != nil {
+		t.Fatalf("login right after card register should succeed: %v", err)
+	}
+
+	// 同一张卡不能被第二个账号复用
+	if _, err := AccountRegister("APP-1", "cr2@test.com", "pw123456", "", "KM-CRREG", "1.2.3.4", ""); err == nil {
+		t.Fatalf("reusing consumed card for register should fail")
+	}
+	// 复用失败时不应残留 cr2 账号（事务回滚）
+	var leaked int64
+	db.Model(&models.Member{}).Where("username = ?", "cr2@test.com").Count(&leaked)
+	if leaked != 0 {
+		t.Fatalf("failed card register should not create member, found %d", leaked)
+	}
+}
+
+func TestCardRegisterPointsMode(t *testing.T) {
+	db := setupPublicTestDB(t)
+	// 点数模式 + 卡密注册：注册即发放卡面值点数
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").
+		Updates(map[string]interface{}{"register_enabled": 1, "card_register_enabled": 1, "operation_mode": models.OperationModePoints})
+
+	card := models.Card{CardNo: "KM-CRPTS", AppUUID: "APP-1", Points: 500, Status: models.CardStatusUnused}
+	db.Create(&card)
+	reg, err := AccountRegister("APP-1", "pts@test.com", "pw123456", "", "KM-CRPTS", "1.2.3.4", "")
+	if err != nil {
+		t.Fatalf("points-mode card register should succeed: %v", err)
+	}
+	if reg.Points != 500 {
+		t.Fatalf("card points not granted, got %d", reg.Points)
+	}
+}
+
+func TestBackfillRegisterMachineOnLogin(t *testing.T) {
+	db := setupPublicTestDB(t)
+
+	// 后台建号：register_machine 为空，给足时长使其可登录
+	m, err := CreateMember("APP-1", "bf@test.com", "pw123456", 24*60, 0, "")
+	if err != nil {
+		t.Fatalf("CreateMember: %v", err)
+	}
+	if m.RegisterMachine != "" {
+		t.Fatalf("precondition: register_machine should be empty, got %q", m.RegisterMachine)
+	}
+
+	// 首次带设备码登录 → 回填为注册设备
+	if _, err := AccountLogin("APP-1", "bf@test.com", "pw123456", "MC-FIRST", "1.2.3.4", ""); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	var after models.Member
+	db.Where("username = ?", "bf@test.com").First(&after)
+	if after.RegisterMachine != "MC-FIRST" {
+		t.Fatalf("register_machine not backfilled, got %q", after.RegisterMachine)
+	}
+
+	// 再次用不同设备码登录 → 已有注册设备，不覆盖
+	if _, err := AccountLogin("APP-1", "bf@test.com", "pw123456", "MC-SECOND", "1.2.3.4", ""); err != nil {
+		t.Fatalf("login2: %v", err)
+	}
+	db.Where("username = ?", "bf@test.com").First(&after)
+	if after.RegisterMachine != "MC-FIRST" {
+		t.Fatalf("register_machine should not be overwritten, got %q", after.RegisterMachine)
+	}
+
+	// 不带设备码登录不应把注册设备清空（另建一个无注册设备的号验证）
+	if _, err := CreateMember("APP-1", "bf2@test.com", "pw123456", 24*60, 0, ""); err != nil {
+		t.Fatalf("CreateMember2: %v", err)
+	}
+	if _, err := AccountLogin("APP-1", "bf2@test.com", "pw123456", "", "1.2.3.4", ""); err != nil {
+		t.Fatalf("login3: %v", err)
+	}
+	var after2 models.Member
+	db.Where("username = ?", "bf2@test.com").First(&after2)
+	if after2.RegisterMachine != "" {
+		t.Fatalf("empty machine code should not backfill, got %q", after2.RegisterMachine)
+	}
+}
+
+func TestFreeModeUsableWhenExpired(t *testing.T) {
+	db := setupPublicTestDB(t)
+	// 切换为免费模式
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("operation_mode", models.OperationModeFree)
+
+	// 建号后置为已过期
+	m, err := CreateMember("APP-1", "free@test.com", "pw123456", 1, 0, "")
+	if err != nil {
+		t.Fatalf("CreateMember: %v", err)
+	}
+	past := time.Now().Add(-24 * time.Hour)
+	if err := db.Model(&models.Member{}).Where("uuid = ?", m.UUID).Update("expired_at", past).Error; err != nil {
+		t.Fatalf("force expire: %v", err)
+	}
+
+	// 免费模式：过期账号仍可登录
+	res, err := AccountLogin("APP-1", "free@test.com", "pw123456", "MC-1", "1.2.3.4", "")
+	if err != nil {
+		t.Fatalf("free-mode login should succeed even when expired: %v", err)
+	}
+
+	// 免费模式：走默认扣费路径（no_charge=false）心跳也不扣费、不因过期拒绝
+	if _, err := CheckMemberStatus("APP-1", res.Token, false); err != nil {
+		t.Fatalf("free-mode heartbeat should be usable when expired: %v", err)
+	}
+
+	// 对照：切回时长模式后，同一过期账号登录应被拒
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("operation_mode", models.OperationModeTime)
+	if _, err := AccountLogin("APP-1", "free@test.com", "pw123456", "MC-1", "1.2.3.4", ""); err == nil {
+		t.Fatalf("time-mode expired account should be rejected")
+	}
+}
+
+func TestNormalizeUpdateStrategy(t *testing.T) {
+	db := setupPublicTestDB(t)
+	// 模拟旧库：补一个已废弃的 force_update 列
+	if err := db.Exec("ALTER TABLE apps ADD COLUMN force_update integer NOT NULL DEFAULT 0").Error; err != nil {
+		t.Fatalf("add legacy column: %v", err)
+	}
+	// 造旧数据：download_type(旧:1自动/2手动) × force_update(0/1)
+	seed := func(uuid string, dt, fu int) {
+		if err := db.Exec(
+			"INSERT INTO apps (uuid, name, secret, status, download_type, force_update) VALUES (?,?,?,?,?,?)",
+			uuid, uuid, "S", 1, dt, fu).Error; err != nil {
+			t.Fatalf("seed %s: %v", uuid, err)
+		}
+	}
+	seed("UP-A", 1, 1) // 自动+强制 → 强制(1)
+	seed("UP-B", 1, 0) // 自动+非强制 → 自由(2)
+	seed("UP-C", 2, 1) // 手动+强制 → 强制(1)
+	seed("UP-D", 2, 0) // 手动+非强制 → 自由(2)
+	seed("UP-E", 0, 1) // 未启用 → 不启用(0)
+
+	if err := database.NormalizeUpdateStrategy(); err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	// 幂等：列已删，再跑应直接跳过、不报错
+	if err := database.NormalizeUpdateStrategy(); err != nil {
+		t.Fatalf("normalize idempotent: %v", err)
+	}
+	// force_update 列应已被删除
+	if db.Migrator().HasColumn(&models.App{}, "force_update") {
+		t.Fatalf("force_update column should be dropped")
+	}
+
+	want := map[string]int{"UP-A": 1, "UP-B": 2, "UP-C": 1, "UP-D": 2, "UP-E": 0}
+	for uuid, w := range want {
+		var dt int
+		if err := db.Raw("SELECT download_type FROM apps WHERE uuid = ?", uuid).Scan(&dt).Error; err != nil {
+			t.Fatalf("read %s: %v", uuid, err)
+		}
+		if dt != w {
+			t.Fatalf("%s: got download_type=%d, want %d", uuid, dt, w)
+		}
+	}
+}
+
+func TestLoginVersionUpdate(t *testing.T) {
+	db := setupPublicTestDB(t)
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
+		"version":       "2.0.0",
+		"download_type": models.DownloadTypeFree,
+		"download_url":  "http://x/app",
+	})
+	card := models.Card{CardNo: "KM-VER", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
+	db.Create(&card)
+
+	// 旧版本登录 → 需更新，返回更新信息
+	res, err := CardLogin("APP-1", "KM-VER", "", "1.2.3.4", "1.0.0")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if res.Update == nil {
+		t.Fatalf("update info should be returned when download_type != 0")
+	}
+	if !res.Update.NeedUpdate || res.Update.DownloadType != models.DownloadTypeFree ||
+		res.Update.LatestVersion != "2.0.0" || res.Update.DownloadURL != "http://x/app" {
+		t.Fatalf("unexpected update info: %+v", res.Update)
+	}
+
+	// 新版本登录 → 仍返回 update 对象，但 need_update=false
+	res2, err := CardLogin("APP-1", "KM-VER", "", "1.2.3.4", "2.0.0")
+	if err != nil {
+		t.Fatalf("login2: %v", err)
+	}
+	if res2.Update == nil || res2.Update.NeedUpdate {
+		t.Fatalf("up-to-date client should not need update: %+v", res2.Update)
+	}
+
+	// 关闭更新（download_type=0）→ 登录不带 update 信息
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").
+		Update("download_type", models.DownloadTypeDisabled)
+	res3, err := CardLogin("APP-1", "KM-VER", "", "1.2.3.4", "1.0.0")
+	if err != nil {
+		t.Fatalf("login3: %v", err)
+	}
+	if res3.Update != nil {
+		t.Fatalf("no update info expected when download_type=0, got %+v", res3.Update)
+	}
+}
+
+func TestForceUpdateRejectsOldClient(t *testing.T) {
+	db := setupPublicTestDB(t)
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
+		"version":       "2.0.0",
+		"download_type": models.DownloadTypeForce,
+		"download_url":  "http://x/app",
+	})
+	card := models.Card{CardNo: "KM-FU", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
+	db.Create(&card)
+
+	// 强制更新 + 版本过旧 → 拒绝登录，返回带更新信息的 ForceUpdateError
+	_, err := CardLogin("APP-1", "KM-FU", "", "1.2.3.4", "1.0.0")
+	if err == nil {
+		t.Fatalf("force update should reject old client login")
+	}
+	var fue *ForceUpdateError
+	if !errors.As(err, &fue) {
+		t.Fatalf("expected ForceUpdateError, got %T: %v", err, err)
+	}
+	if fue.Update.LatestVersion != "2.0.0" || fue.Update.DownloadURL != "http://x/app" ||
+		fue.Update.DownloadType != models.DownloadTypeForce {
+		t.Fatalf("unexpected update info: %+v", fue.Update)
+	}
+	// 关键：拒绝时不得核销卡、不得建号、不得开会话
+	var reloaded models.Card
+	db.First(&reloaded, card.ID)
+	if reloaded.Status != models.CardStatusUnused {
+		t.Fatalf("card must NOT be consumed on force-update rejection, status=%d", reloaded.Status)
+	}
+	var members, sessions int64
+	db.Model(&models.Member{}).Count(&members)
+	db.Model(&models.MemberSession{}).Count(&sessions)
+	if members != 0 || sessions != 0 {
+		t.Fatalf("no member/session should be created on rejection, members=%d sessions=%d", members, sessions)
+	}
+
+	// 版本达标 → 正常登录、下发令牌
+	res, err := CardLogin("APP-1", "KM-FU", "", "1.2.3.4", "2.0.0")
+	if err != nil {
+		t.Fatalf("up-to-date client should log in: %v", err)
+	}
+	if res.Token == "" {
+		t.Fatalf("expected token on success")
+	}
+	if res.Update == nil || res.Update.NeedUpdate {
+		t.Fatalf("up-to-date force-update app should return update object with need_update=false: %+v", res.Update)
+	}
+}
+
 func TestRegisterLimitByIP(t *testing.T) {
 	db := setupPublicTestDB(t)
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
@@ -254,13 +544,13 @@ func TestRegisterLimitByIP(t *testing.T) {
 		"register_count":         1,
 	})
 
-	if _, err := AccountRegister("APP-1", "limit1@test.com", "pw123456", "", "8.8.8.8", ""); err != nil {
+	if _, err := AccountRegister("APP-1", "limit1@test.com", "pw123456", "", "", "8.8.8.8", ""); err != nil {
 		t.Fatalf("first register should pass: %v", err)
 	}
-	if _, err := AccountRegister("APP-1", "limit2@test.com", "pw123456", "", "8.8.8.8", ""); err == nil {
+	if _, err := AccountRegister("APP-1", "limit2@test.com", "pw123456", "", "", "8.8.8.8", ""); err == nil {
 		t.Fatalf("second register from same IP should be rejected")
 	}
-	if _, err := AccountRegister("APP-1", "limit3@test.com", "pw123456", "", "8.8.4.4", ""); err != nil {
+	if _, err := AccountRegister("APP-1", "limit3@test.com", "pw123456", "", "", "8.8.4.4", ""); err != nil {
 		t.Fatalf("register from another IP should pass: %v", err)
 	}
 }
@@ -275,18 +565,18 @@ func TestRegisterLimitByDevice(t *testing.T) {
 	})
 
 	// 开启设备限制但未提交设备码 → 拒绝
-	if _, err := AccountRegister("APP-1", "d0@test.com", "pw123456", "", "1.1.1.1", ""); err == nil {
+	if _, err := AccountRegister("APP-1", "d0@test.com", "pw123456", "", "", "1.1.1.1", ""); err == nil {
 		t.Fatalf("register without machine code should be rejected when device limit on")
 	}
 	// 同一设备第一次通过、第二次被拦（不同 IP 也拦，证明是按设备而非 IP）
-	if _, err := AccountRegister("APP-1", "d1@test.com", "pw123456", "", "1.1.1.1", "MC-AAA"); err != nil {
+	if _, err := AccountRegister("APP-1", "d1@test.com", "pw123456", "", "", "1.1.1.1", "MC-AAA"); err != nil {
 		t.Fatalf("first register on device should pass: %v", err)
 	}
-	if _, err := AccountRegister("APP-1", "d2@test.com", "pw123456", "", "9.9.9.9", "MC-AAA"); err == nil {
+	if _, err := AccountRegister("APP-1", "d2@test.com", "pw123456", "", "", "9.9.9.9", "MC-AAA"); err == nil {
 		t.Fatalf("second register on same device (different IP) should be rejected")
 	}
 	// 换设备可继续
-	if _, err := AccountRegister("APP-1", "d3@test.com", "pw123456", "", "1.1.1.1", "MC-BBB"); err != nil {
+	if _, err := AccountRegister("APP-1", "d3@test.com", "pw123456", "", "", "1.1.1.1", "MC-BBB"); err != nil {
 		t.Fatalf("register on another device should pass: %v", err)
 	}
 }
@@ -300,7 +590,7 @@ func TestClaimTrialLimits(t *testing.T) {
 		"trial_duration":   60,
 	})
 
-	reg, err := AccountRegister("APP-1", "trial@test.com", "pw123456", "", "1.2.3.4", "")
+	reg, err := AccountRegister("APP-1", "trial@test.com", "pw123456", "", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -336,7 +626,7 @@ func TestDataInterfacesAndChangePassword(t *testing.T) {
 	}
 
 	// 注册 + 充值 + 登录，拿到有效令牌
-	if _, err := AccountRegister("APP-1", "carl@test.com", "pw123456", "", "1.2.3.4", ""); err != nil {
+	if _, err := AccountRegister("APP-1", "carl@test.com", "pw123456", "", "", "1.2.3.4", ""); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 	card := models.Card{CardNo: "KM-DATA", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
@@ -344,7 +634,7 @@ func TestDataInterfacesAndChangePassword(t *testing.T) {
 	if _, err := RechargeByCard("APP-1", "carl@test.com", "KM-DATA"); err != nil {
 		t.Fatalf("recharge: %v", err)
 	}
-	login, err := AccountLogin("APP-1", "carl@test.com", "pw123456", "", "1.2.3.4")
+	login, err := AccountLogin("APP-1", "carl@test.com", "pw123456", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}
@@ -384,7 +674,7 @@ func TestDataInterfacesAndChangePassword(t *testing.T) {
 		t.Fatalf("token should be invalidated after password change")
 	}
 	// 用新密码可再次登录
-	if _, err := AccountLogin("APP-1", "carl@test.com", "newpass1", "", "1.2.3.4"); err != nil {
+	if _, err := AccountLogin("APP-1", "carl@test.com", "newpass1", "", "1.2.3.4", ""); err != nil {
 		t.Fatalf("login with new password: %v", err)
 	}
 }
@@ -393,7 +683,7 @@ func TestChangePasswordRejectedForCardAccount(t *testing.T) {
 	db := setupPublicTestDB(t)
 	card := models.Card{CardNo: "KM-CARDPWD", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
 	db.Create(&card)
-	login, err := CardLogin("APP-1", "KM-CARDPWD", "", "1.2.3.4")
+	login, err := CardLogin("APP-1", "KM-CARDPWD", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("CardLogin: %v", err)
 	}
@@ -421,7 +711,7 @@ func TestRebindMachineLimitsAndDeduct(t *testing.T) {
 	// 卡密登录（带机器码），账号有 10 天
 	card := models.Card{CardNo: "KM-RB", AppUUID: "APP-1", Duration: 10 * 24 * 60, Status: models.CardStatusUnused}
 	db.Create(&card)
-	login, err := CardLogin("APP-1", "KM-RB", "MC-OLD", "1.2.3.4")
+	login, err := CardLogin("APP-1", "KM-RB", "MC-OLD", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("CardLogin: %v", err)
 	}
@@ -471,7 +761,7 @@ func TestRebindSameDeviceIsNoOp(t *testing.T) {
 	})
 	card := models.Card{CardNo: "KM-SAME", AppUUID: "APP-1", Duration: 10 * 24 * 60, Status: models.CardStatusUnused}
 	db.Create(&card)
-	if _, err := CardLogin("APP-1", "KM-SAME", "MC-A", "1.2.3.4"); err != nil {
+	if _, err := CardLogin("APP-1", "KM-SAME", "MC-A", "1.2.3.4", ""); err != nil {
 		t.Fatalf("CardLogin: %v", err)
 	}
 
@@ -514,20 +804,20 @@ func TestIPVerifyBindingAndRebind(t *testing.T) {
 
 	card := models.Card{CardNo: "KM-IP", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
 	db.Create(&card)
-	if _, err := CardLogin("APP-1", "KM-IP", "", "10.0.0.1"); err != nil {
+	if _, err := CardLogin("APP-1", "KM-IP", "", "10.0.0.1", ""); err != nil {
 		t.Fatalf("first IP login should bind IP: %v", err)
 	}
-	if _, err := CardLogin("APP-1", "KM-IP", "", "10.0.0.2"); err == nil {
+	if _, err := CardLogin("APP-1", "KM-IP", "", "10.0.0.2", ""); err == nil {
 		t.Fatalf("login from unbound IP should be rejected")
 	}
 	// 死循环验证：新 IP 登录被拒，但凭卡号转绑无需令牌，转绑后即可登录
 	if _, err := Rebind("APP-1", "KM-IP", "", "", "10.0.0.2"); err != nil {
 		t.Fatalf("Rebind IP: %v", err)
 	}
-	if _, err := CardLogin("APP-1", "KM-IP", "", "10.0.0.2"); err != nil {
+	if _, err := CardLogin("APP-1", "KM-IP", "", "10.0.0.2", ""); err != nil {
 		t.Fatalf("login from rebound IP should pass: %v", err)
 	}
-	if _, err := CardLogin("APP-1", "KM-IP", "", "10.0.0.1"); err == nil {
+	if _, err := CardLogin("APP-1", "KM-IP", "", "10.0.0.1", ""); err == nil {
 		t.Fatalf("old IP should be rejected after rebind")
 	}
 }
@@ -536,7 +826,7 @@ func TestRebindDisabledRejected(t *testing.T) {
 	db := setupPublicTestDB(t)
 	card := models.Card{CardNo: "KM-NOREBIND", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
 	db.Create(&card)
-	if _, err := CardLogin("APP-1", "KM-NOREBIND", "", "1.2.3.4"); err != nil {
+	if _, err := CardLogin("APP-1", "KM-NOREBIND", "", "1.2.3.4", ""); err != nil {
 		t.Fatalf("CardLogin: %v", err)
 	}
 	if _, err := Rebind("APP-1", "KM-NOREBIND", "", "MC-X", "1.2.3.4"); err == nil {
@@ -604,7 +894,7 @@ func TestExecuteRemoteFunction(t *testing.T) {
 	// 登录拿有效令牌
 	card := models.Card{CardNo: "KM-FN", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
 	db.Create(&card)
-	login, err := CardLogin("APP-1", "KM-FN", "", "1.2.3.4")
+	login, err := CardLogin("APP-1", "KM-FN", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}
@@ -654,7 +944,7 @@ func TestRemoteFunctionReadOnlyHelpers(t *testing.T) {
 
 	card := models.Card{CardNo: "KM-WHO", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
 	db.Create(&card)
-	login, err := CardLogin("APP-1", "KM-WHO", "", "9.9.9.9")
+	login, err := CardLogin("APP-1", "KM-WHO", "", "9.9.9.9", "")
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}
@@ -771,17 +1061,17 @@ func TestMultiOpenSessions(t *testing.T) {
 	}
 
 	// 前两次登录成功（2 个会话）
-	if _, err := CardLogin("APP-1", "KM-MO", "", "1.1.1.1"); err != nil {
+	if _, err := CardLogin("APP-1", "KM-MO", "", "1.1.1.1", ""); err != nil {
 		t.Fatalf("login1: %v", err)
 	}
-	if _, err := CardLogin("APP-1", "KM-MO", "", "1.1.1.2"); err != nil {
+	if _, err := CardLogin("APP-1", "KM-MO", "", "1.1.1.2", ""); err != nil {
 		t.Fatalf("login2: %v", err)
 	}
 	if sessionCount() != 2 {
 		t.Fatalf("expected 2 sessions, got %d", sessionCount())
 	}
 	// 第三次（非顶号）应被拒，会话数不变
-	if _, err := CardLogin("APP-1", "KM-MO", "", "1.1.1.3"); err == nil {
+	if _, err := CardLogin("APP-1", "KM-MO", "", "1.1.1.3", ""); err == nil {
 		t.Fatalf("third login should be rejected (non-preempt, limit 2)")
 	}
 	if sessionCount() != 2 {
@@ -790,7 +1080,7 @@ func TestMultiOpenSessions(t *testing.T) {
 
 	// 切换为顶号：新登录成功且会话数仍为 2（踢掉了最早的一个）
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("login_type", 0)
-	l4, err := CardLogin("APP-1", "KM-MO", "", "1.1.1.4")
+	l4, err := CardLogin("APP-1", "KM-MO", "", "1.1.1.4", "")
 	if err != nil {
 		t.Fatalf("preempt login should succeed: %v", err)
 	}
@@ -821,27 +1111,27 @@ func TestMultiOpenScopeMachine(t *testing.T) {
 	}
 
 	// 机器 A 登录 → 1 个开
-	if _, err := CardLogin("APP-1", "KM-MS", "MC-A", "1.1.1.1"); err != nil {
+	if _, err := CardLogin("APP-1", "KM-MS", "MC-A", "1.1.1.1", ""); err != nil {
 		t.Fatalf("login A: %v", err)
 	}
 	if sessCount() != 1 {
 		t.Fatalf("expected 1 session, got %d", sessCount())
 	}
 	// 同机器 A 再登录 → 仍是同一个开，会话数不增
-	if _, err := CardLogin("APP-1", "KM-MS", "MC-A", "2.2.2.2"); err != nil {
+	if _, err := CardLogin("APP-1", "KM-MS", "MC-A", "2.2.2.2", ""); err != nil {
 		t.Fatalf("re-login A: %v", err)
 	}
 	if sessCount() != 1 {
 		t.Fatalf("same machine re-login should stay 1 session, got %d", sessCount())
 	}
 	// 不同机器 B（非顶号）→ 超出，拒绝
-	if _, err := CardLogin("APP-1", "KM-MS", "MC-B", "3.3.3.3"); err == nil {
+	if _, err := CardLogin("APP-1", "KM-MS", "MC-B", "3.3.3.3", ""); err == nil {
 		t.Fatalf("second machine should be rejected (non-preempt, scope=machine, count=1)")
 	}
 
 	// 切顶号 → 机器 B 登录成功，踢掉机器 A
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("login_type", 0)
-	if _, err := CardLogin("APP-1", "KM-MS", "MC-B", "3.3.3.3"); err != nil {
+	if _, err := CardLogin("APP-1", "KM-MS", "MC-B", "3.3.3.3", ""); err != nil {
 		t.Fatalf("preempt login B: %v", err)
 	}
 	if sessCount() != 1 {
@@ -858,7 +1148,7 @@ func TestRiskControl(t *testing.T) {
 	db := setupPublicTestDB(t)
 	card := models.Card{CardNo: "KM-RISK", AppUUID: "APP-1", Duration: 10 * 24 * 60, Status: models.CardStatusUnused}
 	db.Create(&card)
-	login, err := CardLogin("APP-1", "KM-RISK", "", "1.2.3.4")
+	login, err := CardLogin("APP-1", "KM-RISK", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("CardLogin: %v", err)
 	}
@@ -912,19 +1202,19 @@ func TestEmailValidationAndRegister(t *testing.T) {
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("register_enabled", 1)
 
 	// 非法邮箱注册被拒
-	if _, err := AccountRegister("APP-1", "notanemail", "pw123456", "", "1.2.3.4", ""); err == nil {
+	if _, err := AccountRegister("APP-1", "notanemail", "pw123456", "", "", "1.2.3.4", ""); err == nil {
 		t.Fatalf("register with invalid email should fail")
 	}
 
 	// 开启邮箱验证后，无有效验证码注册应失败（测试环境无 Redis → 验证码服务不可用亦属拒绝）
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("email_verify_enabled", 1)
-	if _, err := AccountRegister("APP-1", "eve@test.com", "pw123456", "000000", "1.2.3.4", ""); err == nil {
+	if _, err := AccountRegister("APP-1", "eve@test.com", "pw123456", "000000", "", "1.2.3.4", ""); err == nil {
 		t.Fatalf("register should fail without valid email code when verification enabled")
 	}
 
 	// 关闭验证：邮箱注册账号 username=email 且 Email 字段落库
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("email_verify_enabled", 0)
-	if _, err := AccountRegister("APP-1", "frank@test.com", "pw123456", "", "1.2.3.4", ""); err != nil {
+	if _, err := AccountRegister("APP-1", "frank@test.com", "pw123456", "", "", "1.2.3.4", ""); err != nil {
 		t.Fatalf("register should succeed with verification off: %v", err)
 	}
 	var reg models.Member
@@ -948,7 +1238,7 @@ func TestPointsPerCountMode(t *testing.T) {
 	db.Create(&card)
 
 	// 卡密登录 → 激活 3 点，登录扣 1 → 余 2
-	res, err := CardLogin("APP-1", "KM-PC", "", "1.2.3.4")
+	res, err := CardLogin("APP-1", "KM-PC", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("CardLogin: %v", err)
 	}
@@ -991,13 +1281,13 @@ func TestPointsPerCountLoginRejectedWhenEmpty(t *testing.T) {
 	// 1 点卡：首登扣光
 	card := models.Card{CardNo: "KM-PC1", AppUUID: "APP-1", Points: 1, Status: models.CardStatusUnused}
 	db.Create(&card)
-	res, err := CardLogin("APP-1", "KM-PC1", "", "1.2.3.4")
+	res, err := CardLogin("APP-1", "KM-PC1", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("first login: %v", err)
 	}
 	_ = MemberLogout("APP-1", res.Token)
 	// 余额 0 再登录 → 点数不足
-	if _, err := CardLogin("APP-1", "KM-PC1", "", "1.2.3.4"); err == nil {
+	if _, err := CardLogin("APP-1", "KM-PC1", "", "1.2.3.4", ""); err == nil {
 		t.Fatalf("login with 0 points should fail")
 	}
 }
@@ -1015,7 +1305,7 @@ func TestPointsPerTimeMode(t *testing.T) {
 	db.Create(&card)
 
 	// 登录 → 预扣一个周期：余 1 点，到期在约 60 分钟后
-	res, err := CardLogin("APP-1", "KM-PT", "", "1.2.3.4")
+	res, err := CardLogin("APP-1", "KM-PT", "", "1.2.3.4", "")
 	if err != nil {
 		t.Fatalf("CardLogin: %v", err)
 	}
@@ -1027,15 +1317,20 @@ func TestPointsPerTimeMode(t *testing.T) {
 		t.Fatalf("paid window should be ~60min ahead, got %v", m.ExpiredAt)
 	}
 
-	// 心跳仍在窗口内 → 不再扣点
-	if st, _ := CheckMemberStatus("APP-1", res.Token, true); st.Points != 1 {
+	// 心跳仍在窗口内 → 不再扣点（默认扣费路径，窗口内也不扣）
+	if st, _ := CheckMemberStatus("APP-1", res.Token, false); st.Points != 1 {
 		t.Fatalf("heartbeat within window should not deduct, got %d", st.Points)
 	}
 
-	// 模拟窗口已过：把到期时间拨到过去，心跳应续扣 1 点 → 0
+	// 模拟窗口已过：no_charge=true 的心跳跳过扣费（免费功能）——点数不变且仍可用
 	db.Model(&models.Member{}).Where("uuid = ?", m.UUID).
 		Update("expired_at", time.Now().Add(-time.Minute))
-	st, err := CheckMemberStatus("APP-1", res.Token, true)
+	if st, err := CheckMemberStatus("APP-1", res.Token, true); err != nil || st.Points != 1 {
+		t.Fatalf("no_charge heartbeat should skip billing yet stay usable, points=%d err=%v", st.Points, err)
+	}
+
+	// 窗口已过：默认心跳（no_charge=false）续扣 1 点 → 0
+	st, err := CheckMemberStatus("APP-1", res.Token, false)
 	if err != nil {
 		t.Fatalf("renew heartbeat: %v", err)
 	}
@@ -1043,10 +1338,10 @@ func TestPointsPerTimeMode(t *testing.T) {
 		t.Fatalf("expired window should renew and deduct to 0, got %d", st.Points)
 	}
 
-	// 再次窗口过期且余额 0 → 不可用
+	// 再次窗口过期且余额 0 → 默认心跳不可用
 	db.Model(&models.Member{}).Where("uuid = ?", m.UUID).
 		Update("expired_at", time.Now().Add(-time.Minute))
-	if _, err := CheckMemberStatus("APP-1", res.Token, true); err == nil {
+	if _, err := CheckMemberStatus("APP-1", res.Token, false); err == nil {
 		t.Fatalf("should be unusable when window expired and points exhausted")
 	}
 }
@@ -1068,7 +1363,7 @@ func TestAccountRegisterDisabled(t *testing.T) {
 	db := setupPublicTestDB(t)
 	// 显式关闭注册（App.RegisterEnabled 带 default:1，需强制置 0）
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("register_enabled", 0)
-	if _, err := AccountRegister("APP-1", "bob@test.com", "pw", "", "1.2.3.4", ""); err == nil {
+	if _, err := AccountRegister("APP-1", "bob@test.com", "pw", "", "", "1.2.3.4", ""); err == nil {
 		t.Fatalf("register should be rejected when disabled")
 	}
 }
