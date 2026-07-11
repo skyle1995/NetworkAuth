@@ -68,9 +68,6 @@ defineExpose({ getRef, newFormInline });
         <el-radio :value="0">关闭</el-radio>
         <el-radio :value="1">开启</el-radio>
       </el-radio-group>
-      <span class="ml-2 text-gray-400 text-xs">
-        开启后注册须额外提交有效卡密，注册即核销并发放卡面值
-      </span>
     </el-form-item>
     <el-form-item label="IP限制" prop="register_limit_enabled">
       <el-radio-group v-model="newFormInline.register_limit_enabled">
