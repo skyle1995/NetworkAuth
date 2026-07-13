@@ -1167,6 +1167,7 @@ func AppGetRegisterConfigHandler(c *gin.Context) {
 			"trial_enabled":                 app.TrialEnabled,
 			"trial_limit_time":              app.TrialLimitTime,
 			"trial_duration":                app.TrialDuration,
+			"trial_claim_mode":              app.TrialClaimMode,
 		},
 	})
 }
@@ -1186,6 +1187,7 @@ func AppUpdateRegisterConfigHandler(c *gin.Context) {
 		TrialEnabled               int    `json:"trial_enabled"`
 		TrialLimitTime             int    `json:"trial_limit_time"`
 		TrialDuration              int    `json:"trial_duration"`
+		TrialClaimMode             int    `json:"trial_claim_mode"`
 	}
 
 	if !appBaseController.BindJSON(c, &req) {
@@ -1240,6 +1242,7 @@ func AppUpdateRegisterConfigHandler(c *gin.Context) {
 		"trial_enabled":                 req.TrialEnabled,
 		"trial_limit_time":              req.TrialLimitTime,
 		"trial_duration":                req.TrialDuration,
+		"trial_claim_mode":              req.TrialClaimMode,
 	}
 
 	if err := db.Model(&app).Updates(updates).Error; err != nil {

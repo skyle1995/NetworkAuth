@@ -630,6 +630,61 @@ func TestClaimTrialLimits(t *testing.T) {
 	}
 }
 
+func TestClaimTrialRequiresExhausted(t *testing.T) {
+	db := setupPublicTestDB(t)
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
+		"register_enabled": 1, "trial_enabled": 1, "trial_limit_time": 0, "trial_duration": 60,
+		"trial_claim_mode": models.TrialClaimExhaustedOnly,
+	})
+
+	// 时长模式：未到期不能领
+	if _, err := AccountRegister("APP-1", "act@test.com", "pw123456", "", "", "1.2.3.4", ""); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	db.Model(&models.Member{}).Where("username = ?", "act@test.com").
+		Update("expired_at", time.Now().Add(24*time.Hour))
+	if _, err := ClaimTrial("APP-1", "act@test.com", "pw123456"); err == nil {
+		t.Fatalf("active (not expired) account should NOT claim trial")
+	}
+	// 到期后可领
+	db.Model(&models.Member{}).Where("username = ?", "act@test.com").
+		Update("expired_at", time.Now().Add(-time.Hour))
+	if _, err := ClaimTrial("APP-1", "act@test.com", "pw123456"); err != nil {
+		t.Fatalf("expired account should claim trial: %v", err)
+	}
+
+	// 点数模式：有余额不能领，0 可领
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("operation_mode", models.OperationModePoints)
+	if _, err := AccountRegister("APP-1", "pt@test.com", "pw123456", "", "", "1.2.3.4", ""); err != nil {
+		t.Fatalf("register pt: %v", err)
+	}
+	db.Model(&models.Member{}).Where("username = ?", "pt@test.com").Update("points", 5)
+	if _, err := ClaimTrial("APP-1", "pt@test.com", "pw123456"); err == nil {
+		t.Fatalf("account with points should NOT claim trial")
+	}
+	db.Model(&models.Member{}).Where("username = ?", "pt@test.com").Update("points", 0)
+	if _, err := ClaimTrial("APP-1", "pt@test.com", "pw123456"); err != nil {
+		t.Fatalf("zero-point account should claim trial: %v", err)
+	}
+}
+
+func TestClaimTrialUnlimitedAllowsActive(t *testing.T) {
+	db := setupPublicTestDB(t)
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
+		"register_enabled": 1, "trial_enabled": 1, "trial_limit_time": 0,
+		"trial_duration": 60, "trial_claim_mode": models.TrialClaimUnlimited,
+	})
+	if _, err := AccountRegister("APP-1", "unl@test.com", "pw123456", "", "", "1.2.3.4", ""); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	// 未到期账号，在「无限制」方案下仍可领取
+	db.Model(&models.Member{}).Where("username = ?", "unl@test.com").
+		Update("expired_at", time.Now().Add(24*time.Hour))
+	if _, err := ClaimTrial("APP-1", "unl@test.com", "pw123456"); err != nil {
+		t.Fatalf("unlimited mode should allow active account to claim: %v", err)
+	}
+}
+
 func TestDataInterfacesAndChangePassword(t *testing.T) {
 	db := setupPublicTestDB(t)
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").

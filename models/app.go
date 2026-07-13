@@ -21,6 +21,12 @@ const (
 	OperationModeFree   = 2 // 免费模式（不计费：账号过期/无点也可正常登录使用；心跳照常校验但不扣费；转绑不扣费）
 )
 
+// 试用领取方案
+const (
+	TrialClaimUnlimited     = 0 // 无限制：满足次数限制即可领取
+	TrialClaimExhaustedOnly = 1 // 到期可领：仅账号资源耗尽（时长到期/点数为0）时可领取
+)
+
 // 更新方式（download_type）：合并原「强制更新 + 更新方式」为单一三态。
 const (
 	DownloadTypeDisabled = 0 // 不启用更新
@@ -156,6 +162,8 @@ type App struct {
 	TrialLimitTime int `gorm:"default:1;not null;comment:试用限制时间，0=每天，1=永久" json:"trial_limit_time"`
 	// TrialDuration：试用时间（单位：分钟）
 	TrialDuration int `gorm:"default:0;not null;comment:试用时间，单位分钟" json:"trial_duration"`
+	// TrialClaimMode：试用领取方案（0=无限制，1=到期可领）
+	TrialClaimMode int `gorm:"default:1;not null;comment:试用领取方案，0=无限制，1=到期可领" json:"trial_claim_mode"`
 
 	// CreatedAt/UpdatedAt：时间字段，返回为 created_at/updated_at，便于前端展示
 	CreatedAt time.Time `gorm:"comment:创建时间" json:"created_at"`

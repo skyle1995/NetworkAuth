@@ -14,6 +14,7 @@ export interface FormProps {
     trial_enabled: number;
     trial_limit_time: number;
     trial_duration: number;
+    trial_claim_mode: number;
   };
 }
 
@@ -29,7 +30,8 @@ const props = withDefaults(defineProps<FormProps>(), {
     register_count: 1,
     trial_enabled: 0,
     trial_limit_time: 0,
-    trial_duration: 1
+    trial_duration: 1,
+    trial_claim_mode: 1
   })
 });
 
@@ -102,6 +104,12 @@ defineExpose({ getRef, newFormInline });
       <el-radio-group v-model="newFormInline.trial_limit_time">
         <el-radio :value="0">每天</el-radio>
         <el-radio :value="1">永久</el-radio>
+      </el-radio-group>
+    </el-form-item>
+    <el-form-item label="领取方案" prop="trial_claim_mode">
+      <el-radio-group v-model="newFormInline.trial_claim_mode">
+        <el-radio :value="0">无限制</el-radio>
+        <el-radio :value="1">到期可领</el-radio>
       </el-radio-group>
     </el-form-item>
     <el-form-item :label="trialLabel" prop="trial_duration">

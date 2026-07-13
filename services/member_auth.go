@@ -878,7 +878,22 @@ func AccountRegister(appUUID, email, password, code, card, registerIP, machineCo
 	return buildStatusResult(app, &member), nil
 }
 
-// ClaimTrial 领取试用：按应用配置限制账号每天/永久领取次数。
+// trialEligible 账号资源是否已耗尽——仅耗尽的账号才允许领取试用：
+//   - 点数模式：点数 <= 0
+//   - 时长模式：非永久且已到期
+//   - 免费模式：恒可用，不允许领取
+func trialEligible(app *models.App, m *models.Member) bool {
+	switch app.OperationMode {
+	case models.OperationModePoints:
+		return m.Points <= 0
+	case models.OperationModeFree:
+		return false
+	default:
+		return !isPermanent(m.ExpiredAt) && !m.ExpiredAt.After(time.Now())
+	}
+}
+
+// ClaimTrial 领取试用：仅当账号资源已耗尽（到期/点数为0）且未超每天/永久领取次数时发放。
 // trial_duration 按运营模式解释——时长模式为分钟数，点数模式为点数。
 func ClaimTrial(appUUID, username, password string) (*StatusResult, error) {
 	username = strings.TrimSpace(username)
@@ -906,6 +921,10 @@ func ClaimTrial(appUUID, username, password string) (*StatusResult, error) {
 	}
 	if member.Status != models.MemberStatusNormal {
 		return nil, errors.New("账号状态异常")
+	}
+	// 「到期可领」方案：仅资源已耗尽（到期/点数为0）才可领取，避免有效期内反复叠加
+	if app.TrialClaimMode == models.TrialClaimExhaustedOnly && !trialEligible(app, &member) {
+		return nil, errors.New("账号仍可用，无需领取试用")
 	}
 
 	today := time.Now().Format("2006-01-02")
