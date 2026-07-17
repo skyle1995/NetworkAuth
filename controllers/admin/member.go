@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -112,6 +113,25 @@ func MemberListHandler(c *gin.Context) {
 		}
 	}
 
+	// 批量取会员等级名，用于列表展示
+	levelNameByUUID := make(map[string]string)
+	if len(members) > 0 {
+		levelUUIDs := make([]string, 0, len(members))
+		for _, m := range members {
+			if m.LevelUUID != "" {
+				levelUUIDs = append(levelUUIDs, m.LevelUUID)
+			}
+		}
+		if len(levelUUIDs) > 0 {
+			var rows []struct{ UUID, Name string }
+			db.Model(&models.MemberLevel{}).Select("uuid, name").
+				Where("uuid IN ?", levelUUIDs).Find(&rows)
+			for _, row := range rows {
+				levelNameByUUID[row.UUID] = row.Name
+			}
+		}
+	}
+
 	type MemberResponse struct {
 		ID                uint   `json:"id"`
 		UUID              string `json:"uuid"`
@@ -124,6 +144,9 @@ func MemberListHandler(c *gin.Context) {
 		Mode              int    `json:"mode"`
 		ExpiredAt         string `json:"expired_at"`
 		Points            int    `json:"points"`
+		TotalRecharge     int    `json:"total_recharge"`
+		LevelUUID         string `json:"level_uuid"`
+		LevelName         string `json:"level_name"`
 		Email             string `json:"email"`
 		CardUUID          string `json:"card_uuid"`
 		RegisterIP        string `json:"register_ip"`
@@ -159,6 +182,9 @@ func MemberListHandler(c *gin.Context) {
 			Mode:              modeByApp[m.AppUUID],
 			ExpiredAt:         expiredAt,
 			Points:            m.Points,
+			TotalRecharge:     m.TotalRecharge,
+			LevelUUID:         m.LevelUUID,
+			LevelName:         levelNameByUUID[m.LevelUUID],
 			Email:             m.Email,
 			CardUUID:          m.CardUUID,
 			RegisterIP:        m.RegisterIP,
@@ -223,6 +249,55 @@ func MemberCreateHandler(c *gin.Context) {
 
 	recordMemberLog(c, "创建账号", fmt.Sprintf("为应用 %s 创建用户 %s", req.AppUUID, member.Username))
 	memberBaseController.HandleSuccess(c, "创建成功", gin.H{"id": member.ID, "uuid": member.UUID})
+}
+
+// MemberUpdateHandler 编辑账号资料：到期时间 / 点数 / 累计充值 / 备注。
+// 只修改提交了的字段；expired_at 传 "permanent" 设为永久，否则为 "2006-01-02 15:04:05"。
+// 改动累计充值会按新值重新校准会员等级。
+func MemberUpdateHandler(c *gin.Context) {
+	var req struct {
+		ID            uint    `json:"id"`
+		ExpiredAt     *string `json:"expired_at"`
+		Points        *int    `json:"points"`
+		TotalRecharge *int    `json:"total_recharge"`
+		Remark        *string `json:"remark"`
+	}
+	if !memberBaseController.BindJSON(c, &req) {
+		return
+	}
+	if req.ID == 0 {
+		memberBaseController.HandleValidationError(c, "账号ID不能为空")
+		return
+	}
+
+	up := services.MemberProfileUpdate{
+		Points:        req.Points,
+		TotalRecharge: req.TotalRecharge,
+		Remark:        req.Remark,
+	}
+	if req.ExpiredAt != nil {
+		s := strings.TrimSpace(*req.ExpiredAt)
+		if s == "permanent" {
+			perm := true
+			up.Permanent = &perm
+		} else if s != "" {
+			t, err := time.ParseInLocation("2006-01-02 15:04:05", s, time.Local)
+			if err != nil {
+				memberBaseController.HandleValidationError(c, "到期时间格式无效")
+				return
+			}
+			up.ExpiredAt = &t
+		}
+	}
+
+	member, err := services.UpdateMemberProfile(req.ID, up)
+	if err != nil {
+		memberBaseController.HandleValidationError(c, err.Error())
+		return
+	}
+
+	recordMemberLog(c, "编辑账号", fmt.Sprintf("编辑了账号 %s 的资料", member.Username))
+	memberBaseController.HandleSuccess(c, "保存成功", nil)
 }
 
 // MemberSetStatusHandler 批量设置账号状态API处理器（正常/封停/黑名单）

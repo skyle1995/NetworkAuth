@@ -44,7 +44,7 @@ func CardDurationToMinutes(value int, unit string) (int, error) {
 // BatchCreateCards 为指定应用批量制卡。
 // durationMinutes 为面值时长（-1 表示永久，时长模式用）；points 为面值点数（点数模式用）。
 // 返回生成的卡密记录及本次批次号。
-func BatchCreateCards(appUUID, prefix string, randomLen, count, durationMinutes, points int, remark string) ([]models.Card, string, error) {
+func BatchCreateCards(appUUID, prefix string, randomLen, count int, packageUUID, remark string) ([]models.Card, string, error) {
 	if count <= 0 {
 		return nil, "", errors.New("生成数量必须大于0")
 	}
@@ -55,12 +55,18 @@ func BatchCreateCards(appUUID, prefix string, randomLen, count, durationMinutes,
 	}
 
 	// 校验应用存在
-	var appCount int64
-	if err := db.Model(&models.App{}).Where("uuid = ?", appUUID).Count(&appCount).Error; err != nil {
+	var app models.App
+	if err := db.Where("uuid = ?", appUUID).First(&app).Error; err != nil {
+		return nil, "", errors.New("应用不存在")
+	}
+
+	// 面值与售价取自套餐
+	pkg, err := LoadEnabledPackage(db, appUUID, packageUUID)
+	if err != nil {
 		return nil, "", err
 	}
-	if appCount == 0 {
-		return nil, "", errors.New("应用不存在")
+	if err := checkPackageMatchesApp(&app, pkg); err != nil {
+		return nil, "", err
 	}
 
 	codes, err := models.GenerateCardNos(prefix, randomLen, count)
@@ -72,14 +78,17 @@ func BatchCreateCards(appUUID, prefix string, randomLen, count, durationMinutes,
 	batchNo := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	cards := make([]models.Card, 0, count)
 	for _, code := range codes {
+		// 面值与售价快照进卡：套餐后续改动不影响已售出的卡
 		cards = append(cards, models.Card{
-			CardNo:   code,
-			AppUUID:  appUUID,
-			BatchNo:  batchNo,
-			Duration: durationMinutes,
-			Points:   points,
-			Status:   models.CardStatusUnused,
-			Remark:   remark,
+			CardNo:      code,
+			AppUUID:     appUUID,
+			BatchNo:     batchNo,
+			PackageUUID: pkg.UUID,
+			Duration:    pkg.Duration,
+			Points:      pkg.Points,
+			Price:       pkg.Price,
+			Status:      models.CardStatusUnused,
+			Remark:      remark,
 		})
 	}
 

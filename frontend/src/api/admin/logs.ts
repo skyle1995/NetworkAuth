@@ -21,9 +21,13 @@ export const clearLoginLogs = () => {
 
 /** 按 ID 批量删除登录日志 */
 export const batchDeleteLoginLogs = (ids: Array<number | string>) => {
-  return http.request<LogsResult>("post", "/api/admin/login_logs/batch-delete", {
-    data: { ids }
-  });
+  return http.request<LogsResult>(
+    "post",
+    "/api/admin/login_logs/batch-delete",
+    {
+      data: { ids }
+    }
+  );
 };
 
 /** 获取操作日志列表 */

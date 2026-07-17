@@ -177,8 +177,7 @@ class PureHttp {
               return new Promise(resolve => {
                 PureHttp.requests.push((token: string) => {
                   originalConfig.headers = originalConfig.headers || {};
-                  originalConfig.headers["Authorization"] =
-                    formatToken(token);
+                  originalConfig.headers["Authorization"] = formatToken(token);
                   resolve(PureHttp.axiosInstance.request(originalConfig));
                 });
               });
@@ -190,8 +189,7 @@ class PureHttp {
               .then(res => {
                 const newToken = res.data.accessToken;
                 originalConfig.headers = originalConfig.headers || {};
-                originalConfig.headers["Authorization"] =
-                  formatToken(newToken);
+                originalConfig.headers["Authorization"] = formatToken(newToken);
                 PureHttp.requests.forEach(cb => cb(newToken));
                 PureHttp.requests = [];
                 return PureHttp.axiosInstance.request(originalConfig);

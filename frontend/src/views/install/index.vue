@@ -186,7 +186,9 @@ const handleInstall = async () => {
         <div class="section-title mt-6">2. Redis 配置（可选）</div>
         <el-form-item label="启用 Redis">
           <el-switch v-model="form.redis_enabled" />
-          <span class="redis-tip">启用后用于设置缓存、会话等场景；未启用时系统以内存缓存运行</span>
+          <span class="redis-tip"
+            >启用后用于设置缓存、会话等场景；未启用时系统以内存缓存运行</span
+          >
         </el-form-item>
         <template v-if="form.redis_enabled">
           <el-form-item label="主机地址" prop="redis_host">

@@ -77,6 +77,12 @@ type Member struct {
 	// Points：点数余额（点数模式）。显式功能扣点消耗，余额>0 方可使用
 	Points int `gorm:"default:0;not null;comment:点数余额，点数模式使用" json:"points"`
 
+	// TotalRecharge：累计充值金额（单位：分），按卡密售价快照累加，用于会员等级升级
+	TotalRecharge int `gorm:"default:0;not null;comment:累计充值金额，单位分" json:"total_recharge"`
+
+	// LevelUUID：当前会员等级UUID（空=无等级），由累充自动结算，只升不降
+	LevelUUID string `gorm:"size:36;index;comment:当前会员等级UUID" json:"level_uuid"`
+
 	// RegisterIP：注册时的客户端IP，用于应用注册次数限制
 	RegisterIP string `gorm:"size:50;index;comment:注册IP" json:"register_ip"`
 

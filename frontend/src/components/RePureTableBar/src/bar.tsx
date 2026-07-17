@@ -72,13 +72,25 @@ export default defineComponent({
 
     const withEmptyFormatter = (columns: any[]) => {
       return columns.map(col => {
-        if (col.type === "selection" || col.type === "index" || col.type === "expand") return col;
+        if (
+          col.type === "selection" ||
+          col.type === "index" ||
+          col.type === "expand"
+        )
+          return col;
         if (col.slot || col.cellRenderer) return col;
 
         const originalFormatter = col.formatter;
-        col.formatter = (row: any, column: any, cellValue: any, index: number) => {
-          let val = originalFormatter ? originalFormatter(row, column, cellValue, index) : cellValue;
-          return (val === "" || val === null || val === undefined) ? "-" : val;
+        col.formatter = (
+          row: any,
+          column: any,
+          cellValue: any,
+          index: number
+        ) => {
+          const val = originalFormatter
+            ? originalFormatter(row, column, cellValue, index)
+            : cellValue;
+          return val === "" || val === null || val === undefined ? "-" : val;
         };
         return col;
       });

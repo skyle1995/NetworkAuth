@@ -1,6 +1,18 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from "element-plus";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref
+} from "vue";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules
+} from "element-plus";
 import Sortable from "sortablejs";
 import {
   createPortalNavigation,
@@ -63,7 +75,9 @@ const groupOptions = computed(() =>
  * 将表格插槽行转换为导航数据
  * Element Plus 的插槽默认行类型较宽，运行时数据实际来自 tableData
  */
-const toNavigationItem = (row: PortalNavigationTableRow): PortalNavigationItem => ({
+const toNavigationItem = (
+  row: PortalNavigationTableRow
+): PortalNavigationItem => ({
   id: Number(row.id || 0),
   name: String(row.name || ""),
   type: row.type === "group" ? "group" : "link",
@@ -119,7 +133,9 @@ const initSortable = async () => {
   await nextTick();
   destroySortable();
 
-  const tbody = tableRef.value?.$el?.querySelector?.(".el-table__body-wrapper tbody");
+  const tbody = tableRef.value?.$el?.querySelector?.(
+    ".el-table__body-wrapper tbody"
+  );
   if (!tbody) {
     return;
   }
@@ -128,7 +144,11 @@ const initSortable = async () => {
     animation: 200,
     handle: ".drag-handle",
     onEnd: async ({ oldIndex, newIndex }) => {
-      switch (oldIndex === undefined || newIndex === undefined || oldIndex === newIndex) {
+      switch (
+        oldIndex === undefined ||
+        newIndex === undefined ||
+        oldIndex === newIndex
+      ) {
         case true:
           return;
         default:
@@ -255,7 +275,9 @@ const handleSubmit = async () => {
 
     switch (res.code) {
       case 0:
-        ElMessage.success(dialogMode.value === "edit" ? "更新成功" : "创建成功");
+        ElMessage.success(
+          dialogMode.value === "edit" ? "更新成功" : "创建成功"
+        );
         handleDialogClose();
         fetchPortalNavigationList();
         break;
@@ -274,7 +296,10 @@ const handleSubmit = async () => {
  * 保存单行导航状态
  * 用于表格中的首页和隐藏开关即时更新
  */
-const saveRowState = async (row: PortalNavigationTableRow, successMessage: string) => {
+const saveRowState = async (
+  row: PortalNavigationTableRow,
+  successMessage: string
+) => {
   const item = toNavigationItem(row);
   try {
     const res = await updatePortalNavigation({
@@ -372,7 +397,9 @@ const handleSortChange = async (oldIndex: number, newIndex: number) => {
     default:
       break;
   }
-  const unlockedList = tableData.value.filter(item => !isLockedAdminEntry(item));
+  const unlockedList = tableData.value.filter(
+    item => !isLockedAdminEntry(item)
+  );
   const unlockedOldIndex = tableData.value
     .slice(0, oldIndex)
     .filter(item => !isLockedAdminEntry(item)).length;
@@ -398,7 +425,9 @@ const handleSortChange = async (oldIndex: number, newIndex: number) => {
   if (adminItem) {
     adminItem.sort = 999;
   }
-  const nextTableData = adminItem ? [...unlockedList, adminItem] : [...unlockedList];
+  const nextTableData = adminItem
+    ? [...unlockedList, adminItem]
+    : [...unlockedList];
   tableData.value = nextTableData;
 
   loading.value = true;
@@ -508,21 +537,40 @@ onBeforeUnmount(() => {
         </div>
       </template>
 
-      <el-table ref="tableRef" v-loading="loading" :data="tableData" row-key="id" border class="w-full">
+      <el-table
+        ref="tableRef"
+        v-loading="loading"
+        :data="tableData"
+        row-key="id"
+        border
+        class="w-full"
+      >
         <el-table-column label="拖拽" min-width="70" align="center">
           <template #default="{ row }">
             <span
               class="select-none text-gray-400"
-              :class="isLockedAdminEntry(row) ? 'cursor-not-allowed opacity-50' : 'drag-handle cursor-move'"
+              :class="
+                isLockedAdminEntry(row)
+                  ? 'cursor-not-allowed opacity-50'
+                  : 'drag-handle cursor-move'
+              "
             >
               拖动
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="sort" label="排序" min-width="90" align="center" />
+        <el-table-column
+          prop="sort"
+          label="排序"
+          min-width="90"
+          align="center"
+        />
         <el-table-column label="类型" min-width="100" align="center">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.type === 'group' ? 'warning' : 'info'">
+            <el-tag
+              size="small"
+              :type="row.type === 'group' ? 'warning' : 'info'"
+            >
               {{ getTypeLabel(row) }}
             </el-tag>
           </template>
@@ -564,12 +612,21 @@ onBeforeUnmount(() => {
           <template #default="{ row }">
             <el-switch
               v-model="row.is_home"
-              :disabled="isLockedAdminEntry(row) || row.type === 'group' || row.parent_id > 0"
+              :disabled="
+                isLockedAdminEntry(row) ||
+                row.type === 'group' ||
+                row.parent_id > 0
+              "
               @change="handleHomeSwitch(row)"
             />
           </template>
         </el-table-column>
-        <el-table-column label="操作" min-width="180" align="center" fixed="right">
+        <el-table-column
+          label="操作"
+          min-width="180"
+          align="center"
+          fixed="right"
+        >
           <template #default="{ row }">
             <div class="flex items-center justify-center gap-3">
               <el-button
@@ -595,8 +652,8 @@ onBeforeUnmount(() => {
     </el-card>
 
     <el-dialog
-      :title="dialogTitle"
       v-model="dialogVisible"
+      :title="dialogTitle"
       width="560px"
       destroy-on-close
       @closed="handleDialogClose"
@@ -618,7 +675,12 @@ onBeforeUnmount(() => {
           <el-input v-model="form.name" placeholder="请输入导航名称" />
         </el-form-item>
         <el-form-item v-if="form.type === 'link'" label="所属分组">
-          <el-select v-model="form.parent_id" placeholder="请选择所属分组，留空表示顶级链接" clearable class="w-full">
+          <el-select
+            v-model="form.parent_id"
+            placeholder="请选择所属分组，留空表示顶级链接"
+            clearable
+            class="w-full"
+          >
             <el-option :value="0" label="顶级链接" />
             <el-option
               v-for="item in groupOptions"

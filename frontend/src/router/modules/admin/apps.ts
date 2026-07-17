@@ -106,6 +106,22 @@ export default [
         meta: {
           title: "卡密管理"
         }
+      },
+      {
+        path: "/admin/cards/packages",
+        name: "PackagesIndex",
+        component: () => import("@/views/admin/application/packages/index.vue"),
+        meta: {
+          title: "卡密套餐"
+        }
+      },
+      {
+        path: "/admin/cards/levels",
+        name: "LevelsIndex",
+        component: () => import("@/views/admin/application/levels/index.vue"),
+        meta: {
+          title: "会员等级"
+        }
       }
     ]
   },

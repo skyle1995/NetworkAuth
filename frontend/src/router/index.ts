@@ -29,11 +29,7 @@ import {
   type RouteComponent,
   createRouter
 } from "vue-router";
-import {
-  type DataInfo,
-  userKey,
-  removeToken
-} from "@/utils/auth";
+import { type DataInfo, userKey, removeToken } from "@/utils/auth";
 
 /** 自动导入全部静态路由，无需再手动引入！匹配 src/router/modules 目录（任何嵌套级别）中具有 .ts 扩展名的所有文件，除了 remaining.ts 文件
  * 如何匹配所有文件请看：https://github.com/mrmlnc/fast-glob#basic-syntax
@@ -111,8 +107,6 @@ export function resetRouter() {
   usePermissionStoreHook().clearAllCachePage();
   resetLoadedPaths();
 }
-
-
 
 const { VITE_HIDE_HOME } = import.meta.env;
 

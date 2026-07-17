@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import { formRules } from "./rule";
+import { getCardPackages } from "@/api/admin/cardPackage";
 
 export interface FormProps {
   formInline: {
@@ -8,9 +9,7 @@ export interface FormProps {
     prefix: string;
     length: number;
     count: number;
-    duration_value: number;
-    duration_unit: string;
-    points: number;
+    package_uuid: string;
     remark: string;
   };
   apps: Array<{
@@ -27,9 +26,7 @@ const props = withDefaults(defineProps<FormProps>(), {
     prefix: "",
     length: 16,
     count: 10,
-    duration_value: 30,
-    duration_unit: "day",
-    points: 10,
+    package_uuid: "",
     remark: ""
   }),
   apps: () => []
@@ -37,17 +34,47 @@ const props = withDefaults(defineProps<FormProps>(), {
 
 const ruleFormRef = ref();
 const newFormInline = ref(props.formInline);
+const packages = ref<any[]>([]);
 
-// 永久时不需要填写时长数值
-const isPermanent = computed(
-  () => newFormInline.value.duration_unit === "permanent"
+// 面值与售价由套餐决定，制卡时快照进卡
+async function loadPackages(appUUID: string) {
+  packages.value = [];
+  if (!appUUID) return;
+  try {
+    const { code, data } = await getCardPackages({
+      app_uuid: appUUID,
+      enabled: 1
+    });
+    if (code === 0 && Array.isArray(data)) {
+      packages.value = data;
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+watch(
+  () => newFormInline.value.app_uuid,
+  (uuid, old) => {
+    if (old !== undefined) newFormInline.value.package_uuid = "";
+    loadPackages(uuid);
+  },
+  { immediate: true }
 );
 
-// 依所选应用的运营模式决定面值填时长还是点数
-const isPoints = computed(() => {
-  const app = props.apps.find(a => a.uuid === newFormInline.value.app_uuid);
-  return app?.operation_mode === 1;
-});
+function packageLabel(pkg: any) {
+  const value =
+    pkg.type === 1
+      ? `${pkg.points} 点`
+      : pkg.duration === -1
+        ? "永久"
+        : `${pkg.duration} 分钟`;
+  return `${pkg.name}（${value} / ${(pkg.price / 100).toFixed(2)} 元）`;
+}
+
+const noPackage = computed(
+  () => !!newFormInline.value.app_uuid && packages.value.length === 0
+);
 
 function getRef() {
   return ruleFormRef.value;
@@ -77,6 +104,27 @@ defineExpose({ getRef });
               :key="app.uuid"
               :label="`${app.name} (ID: ${app.id})`"
               :value="app.uuid"
+            />
+          </el-select>
+        </el-form-item>
+      </el-col>
+    </el-row>
+
+    <el-row>
+      <el-col :span="24">
+        <el-form-item label="卡密套餐" prop="package_uuid">
+          <el-select
+            v-model="newFormInline.package_uuid"
+            :placeholder="noPackage ? '该应用暂无可用套餐' : '请选择卡密套餐'"
+            :disabled="noPackage"
+            class="w-full"
+            clearable
+          >
+            <el-option
+              v-for="pkg in packages"
+              :key="pkg.uuid"
+              :label="packageLabel(pkg)"
+              :value="pkg.uuid"
             />
           </el-select>
         </el-form-item>
@@ -114,48 +162,6 @@ defineExpose({ getRef });
             placeholder="可选，如 VIP（仅字母数字，用于区分注册用户名）"
             maxlength="16"
           />
-        </el-form-item>
-      </el-col>
-    </el-row>
-
-    <!-- 点数模式：面值点数 -->
-    <el-row v-if="isPoints">
-      <el-col :span="24">
-        <el-form-item label="面值点数" prop="points">
-          <el-input-number
-            v-model="newFormInline.points"
-            :min="1"
-            class="!w-full"
-          />
-          <span class="ml-2 text-xs text-gray-400"
-            >当前应用为点数模式，卡面值为点数</span
-          >
-        </el-form-item>
-      </el-col>
-    </el-row>
-
-    <!-- 时长模式：面值时长 -->
-    <el-row v-else :gutter="16">
-      <el-col :span="12">
-        <el-form-item label="卡密时长" prop="duration_value">
-          <el-input-number
-            v-model="newFormInline.duration_value"
-            :min="1"
-            :disabled="isPermanent"
-            class="!w-full"
-          />
-        </el-form-item>
-      </el-col>
-      <el-col :span="12">
-        <el-form-item label="时长单位" prop="duration_unit">
-          <el-select v-model="newFormInline.duration_unit" class="w-full">
-            <el-option label="分钟" value="minute" />
-            <el-option label="小时" value="hour" />
-            <el-option label="天" value="day" />
-            <el-option label="月" value="month" />
-            <el-option label="年" value="year" />
-            <el-option label="永久" value="permanent" />
-          </el-select>
         </el-form-item>
       </el-col>
     </el-row>

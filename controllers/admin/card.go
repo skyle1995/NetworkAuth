@@ -37,6 +37,30 @@ func attachCardUsedByNames(db *gorm.DB, resp []cardResponse) {
 	}
 }
 
+// attachCardPackageNames 将 package_uuid 批量映射为套餐名，回填 package_name。
+// 套餐被删除时引用已清空，此处自然留空，不影响卡密自身的面值快照。
+func attachCardPackageNames(db *gorm.DB, resp []cardResponse) {
+	pkgUUIDs := make([]string, 0)
+	for _, r := range resp {
+		if r.PackageUUID != "" {
+			pkgUUIDs = append(pkgUUIDs, r.PackageUUID)
+		}
+	}
+	if len(pkgUUIDs) == 0 {
+		return
+	}
+	var rows []struct{ UUID, Name string }
+	db.Model(&models.CardPackage{}).Select("uuid, name").
+		Where("uuid IN ?", pkgUUIDs).Find(&rows)
+	nameByUUID := make(map[string]string, len(rows))
+	for _, row := range rows {
+		nameByUUID[row.UUID] = row.Name
+	}
+	for i := range resp {
+		resp[i].PackageName = nameByUUID[resp[i].PackageUUID]
+	}
+}
+
 // ============================================================================
 // 全局变量
 // ============================================================================
@@ -131,6 +155,7 @@ func CardListHandler(c *gin.Context) {
 
 	resp := toCardResponses(cards)
 	attachCardUsedByNames(db, resp)
+	attachCardPackageNames(db, resp)
 
 	c.JSON(http.StatusOK, gin.H{
 		"code":  0,
@@ -147,6 +172,9 @@ type cardResponse struct {
 	CardNo       string `json:"card_no"`
 	AppUUID      string `json:"app_uuid"`
 	BatchNo      string `json:"batch_no"`
+	PackageUUID  string `json:"package_uuid"`
+	PackageName  string `json:"package_name"`
+	Price        int    `json:"price"`
 	Duration     int    `json:"duration"`
 	DurationText string `json:"duration_text"`
 	Points       int    `json:"points"`
@@ -173,6 +201,8 @@ func toCardResponses(cards []models.Card) []cardResponse {
 			CardNo:       card.CardNo,
 			AppUUID:      card.AppUUID,
 			BatchNo:      card.BatchNo,
+			PackageUUID:  card.PackageUUID,
+			Price:        card.Price,
 			Duration:     card.Duration,
 			DurationText: formatCardDuration(card.Duration),
 			Points:       card.Points,
@@ -247,14 +277,12 @@ func CardExportHandler(c *gin.Context) {
 // CardCreateHandler 批量制卡API处理器
 func CardCreateHandler(c *gin.Context) {
 	var req struct {
-		AppUUID       string `json:"app_uuid"`
-		Prefix        string `json:"prefix"`
-		Length        int    `json:"length"`
-		Count         int    `json:"count"`
-		DurationValue int    `json:"duration_value"`
-		DurationUnit  string `json:"duration_unit"`
-		Points        int    `json:"points"`
-		Remark        string `json:"remark"`
+		AppUUID     string `json:"app_uuid"`
+		Prefix      string `json:"prefix"`
+		Length      int    `json:"length"`
+		Count       int    `json:"count"`
+		PackageUUID string `json:"package_uuid"`
+		Remark      string `json:"remark"`
 	}
 
 	if !cardBaseController.BindJSON(c, &req) {
@@ -263,6 +291,7 @@ func CardCreateHandler(c *gin.Context) {
 
 	if !cardBaseController.ValidateRequired(c, map[string]interface{}{
 		"应用UUID": req.AppUUID,
+		"套餐":     req.PackageUUID,
 	}) {
 		return
 	}
@@ -275,30 +304,13 @@ func CardCreateHandler(c *gin.Context) {
 		req.Length = 16
 	}
 
-	// 时长模式换算面值时长；点数模式不传时长单位，durationMinutes 置 0
-	durationMinutes := 0
-	if req.DurationUnit != "" {
-		var err error
-		durationMinutes, err = services.CardDurationToMinutes(req.DurationValue, req.DurationUnit)
-		if err != nil {
-			cardBaseController.HandleValidationError(c, err.Error())
-			return
-		}
-	}
-
-	// 面值校验：时长模式须有时长（含永久=-1），点数模式须 points>=1；避免生成 0 值废卡
-	if durationMinutes == 0 && req.Points <= 0 {
-		cardBaseController.HandleValidationError(c, "请设置卡密面值：时长或点数至少填写一项")
-		return
-	}
-
+	// 面值与售价由套餐决定，制卡时快照进卡
 	cards, batchNo, err := services.BatchCreateCards(
 		strings.TrimSpace(req.AppUUID),
 		strings.TrimSpace(req.Prefix),
 		req.Length,
 		req.Count,
-		durationMinutes,
-		req.Points,
+		strings.TrimSpace(req.PackageUUID),
 		strings.TrimSpace(req.Remark),
 	)
 	if err != nil {

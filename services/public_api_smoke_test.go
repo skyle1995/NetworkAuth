@@ -21,7 +21,7 @@ func setupPublicTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.App{}, &models.Card{}, &models.Member{}, &models.Binding{}, &models.API{}, &models.Variable{}, &models.Function{}, &models.MemberSession{}); err != nil {
+	if err := db.AutoMigrate(&models.App{}, &models.Card{}, &models.Member{}, &models.Binding{}, &models.API{}, &models.Variable{}, &models.Function{}, &models.MemberSession{}, &models.CardPackage{}, &models.MemberLevel{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
 	app := models.App{
@@ -553,6 +553,179 @@ func TestLoginRequiresVersion(t *testing.T) {
 	db.Where("token = ?", res.Token).First(&s)
 	if s.Version != "3.1.4" {
 		t.Fatalf("session should record client version, got %q", s.Version)
+	}
+}
+
+func TestCardPackageSnapshot(t *testing.T) {
+	db := setupPublicTestDB(t)
+	pkg := models.CardPackage{
+		AppUUID: "APP-1", Name: "月卡", Type: models.PackageTypeTime,
+		Duration: 30 * 24 * 60, Price: 1000, Status: 1,
+	}
+	db.Create(&pkg)
+
+	cards, _, err := BatchCreateCards("APP-1", "SNAP", 12, 1, pkg.UUID, "")
+	if err != nil {
+		t.Fatalf("BatchCreateCards: %v", err)
+	}
+	if cards[0].Duration != 30*24*60 || cards[0].Price != 1000 || cards[0].PackageUUID != pkg.UUID {
+		t.Fatalf("card should snapshot package value/price: %+v", cards[0])
+	}
+
+	// 套餐改面值与售价 → 已售出的卡不受影响
+	db.Model(&models.CardPackage{}).Where("uuid = ?", pkg.UUID).
+		Updates(map[string]interface{}{"duration": 1, "price": 9999})
+	var c models.Card
+	db.Where("card_no = ?", cards[0].CardNo).First(&c)
+	if c.Duration != 30*24*60 || c.Price != 1000 {
+		t.Fatalf("snapshot polluted by package change: duration=%d price=%d", c.Duration, c.Price)
+	}
+
+	// 套餐类型须与运营模式一致：时长模式应用不能用点数套餐
+	ptPkg := models.CardPackage{
+		AppUUID: "APP-1", Name: "100点", Type: models.PackageTypePoints,
+		Points: 100, Price: 500, Status: 1,
+	}
+	db.Create(&ptPkg)
+	if _, _, err := BatchCreateCards("APP-1", "X", 12, 1, ptPkg.UUID, ""); err == nil {
+		t.Fatalf("time-mode app should reject points package")
+	}
+}
+
+func TestMemberLevelRebateAndUpgrade(t *testing.T) {
+	db := setupPublicTestDB(t)
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
+		"operation_mode":   models.OperationModePoints,
+		"recharge_enabled": 1,
+		"points_per_login": 0, // 登录不扣点，便于断言面值
+	})
+	pkg := models.CardPackage{
+		AppUUID: "APP-1", Name: "100点", Type: models.PackageTypePoints,
+		Points: 100, Price: 1000, Status: 1,
+	}
+	db.Create(&pkg)
+	lv := models.MemberLevel{
+		AppUUID: "APP-1", Name: "白银", Threshold: 1000, RebateRate: 10, Status: 1,
+	}
+	db.Create(&lv)
+
+	cards, _, err := BatchCreateCards("APP-1", "PK", 12, 2, pkg.UUID, "")
+	if err != nil {
+		t.Fatalf("BatchCreateCards: %v", err)
+	}
+
+	// 卡1 激活：新号无等级 → 按原面值 100 点；累充 1000 → 升级白银
+	res, err := CardLogin("APP-1", cards[0].CardNo, "", "1.2.3.4", "1.0.0")
+	if err != nil {
+		t.Fatalf("CardLogin: %v", err)
+	}
+	if res.Points != 100 {
+		t.Fatalf("new account should get face value 100 (no rebate), got %d", res.Points)
+	}
+	var m models.Member
+	db.Where("username = ?", cards[0].CardNo).First(&m)
+	if m.TotalRecharge != 1000 || m.LevelUUID != lv.UUID {
+		t.Fatalf("should accumulate 1000 and upgrade to silver, got total=%d level=%q", m.TotalRecharge, m.LevelUUID)
+	}
+
+	// 卡2 充值：白银返利 10% → 发 110 点，余额 100+110=210；累充 2000
+	st, err := RechargeByCard("APP-1", cards[0].CardNo, cards[1].CardNo)
+	if err != nil {
+		t.Fatalf("RechargeByCard: %v", err)
+	}
+	if st.Points != 210 {
+		t.Fatalf("silver 10%% rebate should grant 110 (total 210), got %d", st.Points)
+	}
+	db.Where("username = ?", cards[0].CardNo).First(&m)
+	if m.TotalRecharge != 2000 {
+		t.Fatalf("total recharge want 2000, got %d", m.TotalRecharge)
+	}
+
+	// 登录返回应带累计充值与会员等级信息
+	relog, err := CardLogin("APP-1", cards[0].CardNo, "", "1.2.3.4", "1.0.0")
+	if err != nil {
+		t.Fatalf("relogin: %v", err)
+	}
+	if relog.TotalRecharge != 2000 || relog.LevelName != "白银" || relog.RebateRate != 10 {
+		t.Fatalf("login should return recharge/level info, got total=%d level=%q rebate=%d",
+			relog.TotalRecharge, relog.LevelName, relog.RebateRate)
+	}
+}
+
+func TestUpdateMemberProfileRecalibratesLevel(t *testing.T) {
+	db := setupPublicTestDB(t)
+	silver := models.MemberLevel{
+		AppUUID: "APP-1", Name: "白银", Threshold: 1000, RebateRate: 10, Status: 1,
+	}
+	gold := models.MemberLevel{
+		AppUUID: "APP-1", Name: "黄金", Threshold: 5000, RebateRate: 20, Status: 1,
+	}
+	db.Create(&silver)
+	db.Create(&gold)
+
+	m, err := CreateMember("APP-1", "tr@test.com", "pw123456", 24*60, 0, "")
+	if err != nil {
+		t.Fatalf("CreateMember: %v", err)
+	}
+	// 初始：无等级 = 免费账号
+	if m.TotalRecharge != 0 || m.LevelUUID != "" {
+		t.Fatalf("new member should start at free level, got total=%d level=%q", m.TotalRecharge, m.LevelUUID)
+	}
+
+	setRecharge := func(v int) (*models.Member, error) {
+		return UpdateMemberProfile(m.ID, MemberProfileUpdate{TotalRecharge: &v})
+	}
+
+	// 手动改累充到黄金门槛 → 升到黄金
+	got, err := setRecharge(5000)
+	if err != nil {
+		t.Fatalf("UpdateMemberProfile: %v", err)
+	}
+	if got.TotalRecharge != 5000 || got.LevelUUID != gold.UUID {
+		t.Fatalf("should calibrate to gold, got total=%d level=%q", got.TotalRecharge, got.LevelUUID)
+	}
+
+	// 手动改低到白银区间 → 相应降级为白银（手动改写按新值校准）
+	got, err = setRecharge(1200)
+	if err != nil {
+		t.Fatalf("UpdateMemberProfile down: %v", err)
+	}
+	if got.LevelUUID != silver.UUID {
+		t.Fatalf("lowering recharge should calibrate down to silver, got %q", got.LevelUUID)
+	}
+
+	// 改为 0 → 回到「免费账号」（无等级）
+	got, err = setRecharge(0)
+	if err != nil {
+		t.Fatalf("UpdateMemberProfile zero: %v", err)
+	}
+	if got.LevelUUID != "" {
+		t.Fatalf("zero recharge should fall back to free level, got %q", got.LevelUUID)
+	}
+
+	// 负数拒绝
+	if _, err := setRecharge(-1); err == nil {
+		t.Fatalf("negative recharge should be rejected")
+	}
+
+	// 编辑点数与备注：不传的字段不动（累充仍为 0）
+	pts, remark := 66, "vip客户"
+	got, err = UpdateMemberProfile(m.ID, MemberProfileUpdate{Points: &pts, Remark: &remark})
+	if err != nil {
+		t.Fatalf("UpdateMemberProfile points: %v", err)
+	}
+	if got.Points != 66 || got.Remark != "vip客户" || got.TotalRecharge != 0 {
+		t.Fatalf("partial update wrong: points=%d remark=%q total=%d", got.Points, got.Remark, got.TotalRecharge)
+	}
+
+	// 设为永久
+	perm := true
+	got, err = UpdateMemberProfile(m.ID, MemberProfileUpdate{Permanent: &perm})
+	if err != nil {
+		t.Fatalf("UpdateMemberProfile permanent: %v", err)
+	}
+	if !got.ExpiredAt.Equal(models.PermanentTime) {
+		t.Fatalf("should be permanent, got %v", got.ExpiredAt)
 	}
 }
 

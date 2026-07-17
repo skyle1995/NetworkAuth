@@ -10,11 +10,13 @@ import memberDetail from "./memberDetail.vue";
 import bindingsView from "./bindingsView.vue";
 import blacklistForm from "./blacklistForm.vue";
 import batchRechargeForm from "./batchRechargeForm.vue";
+import profileForm from "./profileForm.vue";
 import {
   getMembers,
   createMember,
   rechargeMember,
   deductMember,
+  updateMemberProfile,
   resetMemberPassword,
   updateMemberRemark,
   getMemberData,
@@ -96,6 +98,22 @@ export function useMember() {
       minWidth: 160,
       cellRenderer: ({ row }) =>
         row.mode === 1 ? `${row.points} 点` : row.expired_at
+    },
+    {
+      label: "会员等级",
+      prop: "level_name",
+      minWidth: 110,
+      // 无等级即默认的「免费账号」，其他等级由累充自动升级
+      cellRenderer: ({ row }) =>
+        row.level_name
+          ? h(ElTag, { type: "warning", effect: "light" }, () => row.level_name)
+          : h(ElTag, { type: "info", effect: "plain" }, () => "免费账号")
+    },
+    {
+      label: "累计充值",
+      prop: "total_recharge",
+      minWidth: 110,
+      cellRenderer: ({ row }) => `${(row.total_recharge / 100).toFixed(2)} 元`
     },
     {
       label: "最近登录",
@@ -195,6 +213,67 @@ export function useMember() {
                 message(msg || "创建失败", { type: "error" });
               }
             });
+          }
+        }
+      ]
+    });
+  }
+
+  // 编辑账号：按运营模式改点数或到期时间，另可改累计充值（元→分）与备注。
+  // 改累充后端会按新值重新校准会员等级。
+  function openProfileDialog(row: any) {
+    const dialogFormRef = ref();
+    const pointsMode = row.mode === 1;
+    const permanent = !pointsMode && row.expired_at === "永久";
+    addDialog({
+      title: `编辑账号 - ${row.username}`,
+      props: {
+        formInline: {
+          username: row.username,
+          permanent,
+          expired_at: permanent ? "" : row.expired_at,
+          points: row.points ?? 0,
+          total_recharge_yuan: (row.total_recharge ?? 0) / 100,
+          remark: row.remark ?? ""
+        },
+        pointsMode
+      },
+      width: "480px",
+      draggable: true,
+      closeOnClickModal: false,
+      contentRenderer: () => h(profileForm, { ref: dialogFormRef } as any),
+      footerButtons: [
+        {
+          label: "取消",
+          text: true,
+          bg: true,
+          btnClick: ({ dialog: { options } }) => (options.visible = false)
+        },
+        {
+          label: "保存",
+          type: "primary",
+          text: true,
+          bg: true,
+          btnClick: async ({ dialog: { options } }) => {
+            const cur = options.props.formInline;
+            const payload: any = {
+              id: row.id,
+              total_recharge: Math.round(cur.total_recharge_yuan * 100),
+              remark: cur.remark
+            };
+            if (pointsMode) {
+              payload.points = cur.points;
+            } else {
+              payload.expired_at = cur.permanent ? "permanent" : cur.expired_at;
+            }
+            const { code, msg } = await updateMemberProfile(payload);
+            if (code === 0) {
+              message("保存成功", { type: "success" });
+              options.visible = false;
+              onSearch();
+            } else {
+              message(msg || "保存失败", { type: "error" });
+            }
           }
         }
       ]
@@ -469,7 +548,9 @@ export function useMember() {
               }
             } else {
               if (!selectedIds.length) {
-                message("请先勾选账号，或改为『全体账号』", { type: "warning" });
+                message("请先勾选账号，或改为『全体账号』", {
+                  type: "warning"
+                });
                 return;
               }
               payload.ids = selectedIds;
@@ -589,6 +670,7 @@ export function useMember() {
     resetFormSearch,
     openCreateDialog,
     openDurationDialog,
+    openProfileDialog,
     handleResetPassword,
     handleUpdateRemark,
     handleSetStatus,

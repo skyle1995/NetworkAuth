@@ -302,6 +302,9 @@ sign      = HEX_UPPER( SHA256(raw) )
 | `expired_at` | 到期时间（时长模式） |
 | `points` | 点数余额（点数模式） |
 | `heartbeat_interval` | 心跳间隔（分钟） |
+| `total_recharge` | 累计充值金额（单位：**分**，展示时 ÷100 为元） |
+| `level_name` | 会员等级名，空字符串 = 默认「免费账号」 |
+| `rebate_rate` | 当前等级充值返利比例（%），0 = 无返利 |
 | `update` | 更新判断结果，仅更新方式开启时出现：`{ download_type, need_update, latest_version, download_url }` |
 
 **StatusResult（状态/到期/充值/转绑/扣点等）**

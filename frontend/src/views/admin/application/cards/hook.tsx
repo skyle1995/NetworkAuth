@@ -64,11 +64,24 @@ export function useCard() {
       }
     },
     {
+      label: "套餐",
+      prop: "package_name",
+      minWidth: 120,
+      cellRenderer: ({ row }) => row.package_name || "—"
+    },
+    {
       label: "面值",
       prop: "duration_text",
       minWidth: 100,
       cellRenderer: ({ row }) =>
         row.points > 0 ? `${row.points} 点` : row.duration_text
+    },
+    {
+      label: "售价",
+      prop: "price",
+      minWidth: 90,
+      cellRenderer: ({ row }) =>
+        row.price > 0 ? `${(row.price / 100).toFixed(2)} 元` : "—"
     },
     {
       label: "状态",
@@ -163,9 +176,7 @@ export function useCard() {
           prefix: "",
           length: 16,
           count: 10,
-          duration_value: 30,
-          duration_unit: "day",
-          points: 10,
+          package_uuid: "",
           remark: ""
         },
         apps: apps.value

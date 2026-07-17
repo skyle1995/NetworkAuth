@@ -32,6 +32,11 @@ export const deductMember = (data?: object) => {
   return http.request<Result>("post", "/api/admin/member/deduct", { data });
 };
 
+/** 编辑账号资料：到期时间 / 点数 / 累计充值 / 备注（只改提交的字段） */
+export const updateMemberProfile = (data?: object) => {
+  return http.request<Result>("post", "/api/admin/member/update", { data });
+};
+
 /** 批量加时/加点（指定 ids 或全体 all，可限定 app_uuid） */
 export const batchRechargeMembers = (data?: object) => {
   return http.request<Result>("post", "/api/admin/member/batch_recharge", {

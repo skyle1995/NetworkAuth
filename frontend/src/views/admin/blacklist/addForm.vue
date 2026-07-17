@@ -31,7 +31,11 @@ const model = ref(props.formInline);
 <template>
   <el-form :model="model" label-width="90px" class="py-1">
     <el-form-item label="所属应用" required>
-      <el-select v-model="model.app_uuid" placeholder="请选择应用" class="w-full">
+      <el-select
+        v-model="model.app_uuid"
+        placeholder="请选择应用"
+        class="w-full"
+      >
         <el-option
           v-for="app in apps"
           :key="app.uuid"

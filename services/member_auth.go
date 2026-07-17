@@ -32,6 +32,10 @@ type LoginResult struct {
 	ExpiredAt         time.Time `json:"expired_at"`         // 时长模式有效
 	Points            int       `json:"points"`             // 点数模式有效
 	HeartbeatInterval int       `json:"heartbeat_interval"` // 心跳间隔（分钟），客户端据此周期心跳
+	// 会员信息：累计充值（分）+ 当前会员等级名与返利比例（空等级即默认「免费账号」）
+	TotalRecharge int    `json:"total_recharge"` // 累计充值金额（单位：分）
+	LevelName     string `json:"level_name"`     // 会员等级名，空=免费账号
+	RebateRate    int    `json:"rebate_rate"`    // 当前等级充值返利比例（%）
 	// Update：更新判断结果。仅当应用更新方式非「不启用」时返回；据登录提交的版本号判断是否需要更新。
 	Update *LoginUpdate `json:"update,omitempty"`
 }
@@ -273,6 +277,7 @@ func CardLogin(appUUID, cardNo, machineCode, ip, version string) (*LoginResult, 
 				CardUUID: card.UUID,
 				Status:   models.MemberStatusNormal,
 			}
+			// 新号无等级、返利为 0，故按原面值发放
 			if app.OperationMode == models.OperationModePoints {
 				// 点数模式：卡面值为点数；ExpiredAt 留零值——按次不参与、按时首登即购一个周期
 				member.Points = card.Points
@@ -281,6 +286,9 @@ func CardLogin(appUUID, cardNo, machineCode, ip, version string) (*LoginResult, 
 			}
 			if err := tx.Create(&member).Error; err != nil {
 				return errors.New("激活卡密失败")
+			}
+			if err := settleMemberLevel(tx, appUUID, &member, card.Price); err != nil {
+				return err
 			}
 			if err := MarkCardUsed(tx, card.ID, member.UUID); err != nil {
 				return errors.New("核销卡密失败")
@@ -436,6 +444,7 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 	}
 	AddMemberLog(member.AppUUID, member.UUID, member.Username, loginAction, machineCode, ip)
 
+	levelName, rebateRate := memberLevelInfo(db, member)
 	return &LoginResult{
 		Token:             token,
 		Username:          member.Username,
@@ -445,6 +454,9 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 		ExpiredAt:         member.ExpiredAt,
 		Points:            member.Points,
 		HeartbeatInterval: heartbeatMinutes(app),
+		TotalRecharge:     member.TotalRecharge,
+		LevelName:         levelName,
+		RebateRate:        rebateRate,
 		Update:            buildLoginUpdate(app, version),
 	}, nil
 }
@@ -854,6 +866,7 @@ func AccountRegister(appUUID, email, password, code, card, registerIP, machineCo
 				return errors.New("该卡已被使用")
 			}
 			// 按运营模式发放卡面值：点数模式发点数，时长模式发到期时长（-1 为永久）
+			// 新号无等级、返利为 0，故按原面值发放
 			if app.OperationMode == models.OperationModePoints {
 				member.Points = cardRec.Points
 			} else {
@@ -861,6 +874,9 @@ func AccountRegister(appUUID, email, password, code, card, registerIP, machineCo
 			}
 			if err := tx.Create(&member).Error; err != nil {
 				return errors.New("注册失败")
+			}
+			if err := settleMemberLevel(tx, app.UUID, &member, cardRec.Price); err != nil {
+				return err
 			}
 			return MarkCardUsed(tx, cardRec.ID, member.UUID)
 		})
@@ -1029,13 +1045,19 @@ func RechargeByCard(appUUID, username, cardNo string) (*StatusResult, error) {
 			return errors.New("该卡已被使用或冻结")
 		}
 
+		// 会员返利：按「充值前」等级放大面值，之后再结算累充升级
+		grantDuration, grantPoints := rebatedCardValue(tx, &member, &card)
+
 		if app.OperationMode == models.OperationModePoints {
 			// 点数模式：卡面值为点数，累加到余额
-			newPoints := member.Points + card.Points
+			newPoints := member.Points + grantPoints
 			if err := tx.Model(&member).Update("points", newPoints).Error; err != nil {
 				return err
 			}
 			member.Points = newPoints
+			if err := settleMemberLevel(tx, app.UUID, &member, card.Price); err != nil {
+				return err
+			}
 			return MarkCardUsed(tx, card.ID, member.UUID)
 		}
 
@@ -1044,20 +1066,23 @@ func RechargeByCard(appUUID, username, cardNo string) (*StatusResult, error) {
 		if isPermanent(member.ExpiredAt) {
 			return errors.New("账号已是永久，无需充值")
 		}
-		if card.Duration == models.CardDurationPermanent {
+		if grantDuration == models.CardDurationPermanent {
 			newExpiry = models.PermanentTime
 		} else {
 			base := member.ExpiredAt
 			if base.Before(time.Now()) {
 				base = time.Now()
 			}
-			newExpiry = base.Add(time.Duration(card.Duration) * time.Minute)
+			newExpiry = base.Add(time.Duration(grantDuration) * time.Minute)
 		}
 
 		if err := tx.Model(&member).Update("expired_at", newExpiry).Error; err != nil {
 			return err
 		}
 		member.ExpiredAt = newExpiry
+		if err := settleMemberLevel(tx, app.UUID, &member, card.Price); err != nil {
+			return err
+		}
 		return MarkCardUsed(tx, card.ID, member.UUID)
 	})
 	if err != nil {

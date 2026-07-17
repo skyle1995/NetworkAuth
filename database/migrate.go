@@ -68,6 +68,8 @@ func AllModels() []any {
 		&models.Function{},
 		&models.RefreshToken{},
 		&models.ApiKey{},
+		&models.CardPackage{},
+		&models.MemberLevel{},
 		&models.Card{},
 		&models.Member{},
 		&models.Binding{},

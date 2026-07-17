@@ -13,17 +13,9 @@ export const formRules = reactive(<FormRules>{
       trigger: "blur"
     }
   ],
-  duration_value: [
-    {
-      required: true,
-      message: "请输入时长数值",
-      trigger: "blur"
-    }
-  ],
-  // 点数模式下面值点数必填且需 >=1（该表单项仅在点数模式渲染时规则才生效）
-  points: [
-    { required: true, message: "请输入面值点数", trigger: "blur" },
-    { type: "number", min: 1, message: "面值点数需大于等于 1", trigger: "blur" }
+  // 面值与售价由套餐决定
+  package_uuid: [
+    { required: true, message: "请选择卡密套餐", trigger: "change" }
   ],
   prefix: [
     {

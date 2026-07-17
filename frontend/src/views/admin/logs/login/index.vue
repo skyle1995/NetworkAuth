@@ -122,7 +122,9 @@ const { deleting, handleDelete } = useSmartDelete({
           @click="handleExport"
         >
           {{
-            selectedRows.length ? `导出选中(${selectedRows.length})` : "导出筛选"
+            selectedRows.length
+              ? `导出选中(${selectedRows.length})`
+              : "导出筛选"
           }}
         </el-button>
         <el-button
@@ -133,7 +135,9 @@ const { deleting, handleDelete } = useSmartDelete({
           @click="handleDelete"
         >
           {{
-            selectedRows.length ? `删除选中(${selectedRows.length})` : "清空日志"
+            selectedRows.length
+              ? `删除选中(${selectedRows.length})`
+              : "清空日志"
           }}
         </el-button>
       </template>
@@ -148,12 +152,12 @@ const { deleting, handleDelete } = useSmartDelete({
           :size="size"
           :data="dataList"
           :columns="dynamicColumns"
-          @selection-change="handleSelectionChange"
           :header-cell-style="{
             background: 'var(--el-fill-color-light)',
             color: 'var(--el-text-color-primary)'
           }"
           class="w-full"
+          @selection-change="handleSelectionChange"
         />
         <div class="flex mt-4 w-full overflow-x-auto">
           <div class="ml-auto shrink-0">

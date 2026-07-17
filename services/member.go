@@ -18,6 +18,75 @@ import (
 // 账号（Member）是应用的最终用户，区别于后台管理员（User）。
 // 注册账号与卡密账号统一存储于 members 表，本服务负责后台对其的管理操作。
 
+// MemberProfileUpdate 后台编辑账号的可选字段：nil 表示不修改该项。
+type MemberProfileUpdate struct {
+	ExpiredAt     *time.Time // 到期时间（时长模式）
+	Permanent     *bool      // true=设为永久，优先于 ExpiredAt
+	Points        *int       // 点数余额（点数模式）
+	TotalRecharge *int       // 累计充值（分），改动后按新值重新校准会员等级
+	Remark        *string
+}
+
+// UpdateMemberProfile 后台编辑账号资料：按需修改到期/点数/累充/备注，只改提交了的字段。
+// 改动累充会按新值重新校准会员等级（改低也会降级），与 SetMemberTotalRecharge 语义一致。
+func UpdateMemberProfile(id uint, up MemberProfileUpdate) (*models.Member, error) {
+	db, err := database.GetDB()
+	if err != nil {
+		return nil, err
+	}
+	var member models.Member
+	if err := db.First(&member, id).Error; err != nil {
+		return nil, errors.New("账号不存在")
+	}
+
+	updates := map[string]interface{}{}
+
+	switch {
+	case up.Permanent != nil && *up.Permanent:
+		updates["expired_at"] = models.PermanentTime
+		member.ExpiredAt = models.PermanentTime
+	case up.ExpiredAt != nil:
+		updates["expired_at"] = *up.ExpiredAt
+		member.ExpiredAt = *up.ExpiredAt
+	}
+
+	if up.Points != nil {
+		if *up.Points < 0 {
+			return nil, errors.New("点数不能为负")
+		}
+		updates["points"] = *up.Points
+		member.Points = *up.Points
+	}
+
+	if up.Remark != nil {
+		updates["remark"] = *up.Remark
+		member.Remark = *up.Remark
+	}
+
+	// 累充改动需同步校准等级，避免「累充与等级不一致」
+	if up.TotalRecharge != nil {
+		if *up.TotalRecharge < 0 {
+			return nil, errors.New("累计充值不能为负")
+		}
+		levelUUID, err := resolveLevelUUID(db, member.AppUUID, *up.TotalRecharge)
+		if err != nil {
+			return nil, err
+		}
+		updates["total_recharge"] = *up.TotalRecharge
+		updates["level_uuid"] = levelUUID
+		member.TotalRecharge = *up.TotalRecharge
+		member.LevelUUID = levelUUID
+	}
+
+	if len(updates) == 0 {
+		return &member, nil
+	}
+	if err := db.Model(&member).Updates(updates).Error; err != nil {
+		return nil, err
+	}
+	return &member, nil
+}
+
 // CreateMember 后台手动创建一个注册型账号。
 // durationMinutes 为初始时长（分钟），models.CardDurationPermanent(-1) 表示永久。
 // CreateMember 后台创建注册型账号。

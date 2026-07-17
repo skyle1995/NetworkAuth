@@ -152,6 +152,22 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			cardGroup.POST("/delete_batch", adminctl.CardDeleteByBatchHandler)
 		}
 
+		// 卡密套餐API（制卡的售卖单元：面值 + 售价）
+		packageGroup := authorized.Group("/card_package")
+		{
+			packageGroup.GET("/list", adminctl.CardPackageListHandler)
+			packageGroup.POST("/save", adminctl.CardPackageSaveHandler)
+			packageGroup.POST("/delete", adminctl.CardPackageDeleteHandler)
+		}
+
+		// 会员等级API（累充门槛 + 充值返利）
+		levelGroup := authorized.Group("/member_level")
+		{
+			levelGroup.GET("/list", adminctl.MemberLevelListHandler)
+			levelGroup.POST("/save", adminctl.MemberLevelSaveHandler)
+			levelGroup.POST("/delete", adminctl.MemberLevelDeleteHandler)
+		}
+
 		// 账号管理API
 		memberGroup := authorized.Group("/member")
 		{
@@ -161,6 +177,7 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			memberGroup.POST("/recharge", adminctl.MemberRechargeHandler)
 			memberGroup.POST("/batch_recharge", adminctl.MemberBatchRechargeHandler)
 			memberGroup.POST("/deduct", adminctl.MemberDeductHandler)
+			memberGroup.POST("/update", adminctl.MemberUpdateHandler)
 			memberGroup.POST("/reset_password", adminctl.MemberResetPasswordHandler)
 			memberGroup.POST("/update_remark", adminctl.MemberUpdateRemarkHandler)
 			memberGroup.GET("/bindings", adminctl.MemberBindingsHandler)

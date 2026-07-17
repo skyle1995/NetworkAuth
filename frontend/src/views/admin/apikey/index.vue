@@ -264,7 +264,10 @@ onMounted(() => {
               </el-tag>
             </template>
             <template #status="{ row }">
-              <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
+              <el-tag
+                :type="row.status === 1 ? 'success' : 'info'"
+                size="small"
+              >
                 {{ row.status === 1 ? "启用" : "停用" }}
               </el-tag>
             </template>
@@ -275,7 +278,12 @@ onMounted(() => {
               {{ fmtTime(row.last_used_at) }}
             </template>
             <template #operation="{ row }">
-              <el-button link type="primary" :icon="Edit" @click="openEdit(row)">
+              <el-button
+                link
+                type="primary"
+                :icon="Edit"
+                @click="openEdit(row)"
+              >
                 编辑
               </el-button>
               <el-button
@@ -303,7 +311,10 @@ onMounted(() => {
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="520px">
       <el-form :model="form" label-width="90px">
         <el-form-item label="用途名称" required>
-          <el-input v-model="form.name" placeholder="如：开放平台、第三方对接" />
+          <el-input
+            v-model="form.name"
+            placeholder="如：开放平台、第三方对接"
+          />
         </el-form-item>
         <el-form-item label="密钥能力" required>
           <el-select

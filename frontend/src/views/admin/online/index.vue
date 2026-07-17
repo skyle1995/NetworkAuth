@@ -214,9 +214,7 @@ function openBlacklistDialog(row: any) {
             blacklist_account: f.blacklist_account
           });
           if (code === 0) {
-            ElMessage.success(
-              `已拉黑（踢下线 ${data?.kicked ?? 0} 个会话）`
-            );
+            ElMessage.success(`已拉黑（踢下线 ${data?.kicked ?? 0} 个会话）`);
             options.visible = false;
             onSearch();
           } else {

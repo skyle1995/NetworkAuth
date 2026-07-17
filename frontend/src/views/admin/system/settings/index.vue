@@ -367,7 +367,10 @@ onMounted(() => {
                 :max="3600"
                 :step="10"
               />
-              <span class="ml-2 text-xs" style="color: var(--el-text-color-secondary)">
+              <span
+                class="ml-2 text-xs"
+                style="color: var(--el-text-color-secondary)"
+              >
                 秒 —— 同一邮箱两次发送验证码的最小间隔
               </span>
             </el-form-item>

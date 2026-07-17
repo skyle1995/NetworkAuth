@@ -89,7 +89,10 @@ function onMove(e: MouseEvent | TouchEvent) {
   let dx = clientX(e) - drag.startX;
   dx = Math.max(0, Math.min(dx, max));
   drag.handleX = dx;
-  drag.tileX = Math.max(0, Math.min(d.tile_x + dx, d.master_width - d.tile_width));
+  drag.tileX = Math.max(
+    0,
+    Math.min(d.tile_x + dx, d.master_width - d.tile_width)
+  );
 }
 
 async function onUp() {

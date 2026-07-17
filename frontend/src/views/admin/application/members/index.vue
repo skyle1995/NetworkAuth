@@ -24,6 +24,7 @@ const {
   resetFormSearch,
   openCreateDialog,
   openDurationDialog,
+  openProfileDialog,
   handleResetPassword,
   handleUpdateRemark,
   handleSetStatus,
@@ -56,6 +57,9 @@ function onRowCommand(command: string, row: any) {
       break;
     case "remark":
       handleUpdateRemark(row);
+      break;
+    case "editProfile":
+      openProfileDialog(row);
       break;
     case "bindings":
       openBindingsDialog(row);
@@ -305,6 +309,9 @@ async function onBatchDel() {
                       >
                       <el-dropdown-item command="remark"
                         >修改备注</el-dropdown-item
+                      >
+                      <el-dropdown-item command="editProfile"
+                        >编辑账号</el-dropdown-item
                       >
                       <el-dropdown-item command="bindings"
                         >绑定信息</el-dropdown-item

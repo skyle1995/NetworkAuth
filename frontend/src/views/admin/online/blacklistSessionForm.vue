@@ -59,7 +59,8 @@ const hasRegion = computed(() => !!(f.value.province && f.value.city));
     </el-checkbox>
     <br />
     <el-checkbox v-model="f.blacklist_account">
-      同时拉黑账号：<b>{{ f.username }}</b>（该账号置黑并全部下线）
+      同时拉黑账号：<b>{{ f.username }}</b
+      >（该账号置黑并全部下线）
     </el-checkbox>
     <p class="mt-2 text-xs" style="color: var(--el-text-color-secondary)">
       地区按「地级市」粒度封禁，范围较大请谨慎；未能识别归属地时地区项不可选。

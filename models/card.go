@@ -52,6 +52,12 @@ type Card struct {
 	// BatchNo：制卡批次号，用于批量导出/删除/统计
 	BatchNo string `gorm:"size:32;index;comment:制卡批次号" json:"batch_no"`
 
+	// PackageUUID：来源套餐UUID，仅作追溯；面值与售价已快照到本表，套餐改动不影响已售卡
+	PackageUUID string `gorm:"size:36;index;comment:来源套餐UUID" json:"package_uuid"`
+
+	// Price：售价快照（单位：分），制卡时从套餐复制；核销时按此累加账号累充
+	Price int `gorm:"not null;default:0;comment:售价快照，单位分" json:"price"`
+
 	// Duration：面值时长（单位：分钟，时长模式），-1 表示永久
 	Duration int `gorm:"not null;default:0;comment:面值时长，单位分钟，-1为永久" json:"duration"`
 

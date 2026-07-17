@@ -49,7 +49,9 @@ async function onBatchDel() {
         dangerouslyUseHTMLString: true
       }
     );
-    const { code, msg } = await batchDeleteFunctions({ ids: selectedIds.value });
+    const { code, msg } = await batchDeleteFunctions({
+      ids: selectedIds.value
+    });
     if (code === 0) {
       ElMessage.success("批量删除成功");
       onSearch();
@@ -79,7 +81,7 @@ async function onBatchDel() {
           @keyup.enter="onSearch"
         />
       </el-form-item>
-      
+
       <el-form-item label="所属应用" prop="app_uuid">
         <el-select
           v-model="form.app_uuid"
@@ -137,63 +139,63 @@ async function onBatchDel() {
       </div>
 
       <PureTableBar title="公共函数管理" :columns="columns" @refresh="onSearch">
-      <template v-slot="{ size, dynamicColumns }">
-        <pure-table
-          ref="tableRef"
-          row-key="id"
-          table-layout="auto"
-          show-overflow-tooltip
-          border
-          :loading="loading"
-          :size="size"
-          :data="dataList"
-          :columns="dynamicColumns"
-          :header-cell-style="{
-            background: 'var(--el-fill-color-light)',
-            color: 'var(--el-text-color-primary)'
-          }"
-          class="w-full"
-          @selection-change="handleSelectionChangeVue"
-        >
-          <template #operation="{ row }">
-            <el-button
-              class="reset-margin"
-              link
-              type="primary"
-              :size="size"
-              :icon="useRenderIcon('ep:edit-pen')"
-              @click="openDialog('编辑', row)"
-            >
-              编辑
-            </el-button>
-            <el-button
-              class="reset-margin"
-              link
-              type="danger"
-              :size="size"
-              :icon="useRenderIcon('ep:delete')"
-              @click="handleDelete(row)"
-            >
-              删除
-            </el-button>
-          </template>
-        </pure-table>
-        <div class="flex mt-4 w-full overflow-x-auto">
-          <div class="ml-auto shrink-0">
-            <el-pagination
-              v-model:current-page="pagination.currentPage"
-              v-model:page-size="pagination.pageSize"
-              :page-sizes="[10, 20, 30, 50, 100, 200, 500, 1000]"
-              :background="true"
-              layout="total, sizes, prev, pager, next, jumper"
-              :total="pagination.total"
-              @size-change="handleSizeChange"
-              @current-change="handleCurrentChange"
-            />
+        <template v-slot="{ size, dynamicColumns }">
+          <pure-table
+            ref="tableRef"
+            row-key="id"
+            table-layout="auto"
+            show-overflow-tooltip
+            border
+            :loading="loading"
+            :size="size"
+            :data="dataList"
+            :columns="dynamicColumns"
+            :header-cell-style="{
+              background: 'var(--el-fill-color-light)',
+              color: 'var(--el-text-color-primary)'
+            }"
+            class="w-full"
+            @selection-change="handleSelectionChangeVue"
+          >
+            <template #operation="{ row }">
+              <el-button
+                class="reset-margin"
+                link
+                type="primary"
+                :size="size"
+                :icon="useRenderIcon('ep:edit-pen')"
+                @click="openDialog('编辑', row)"
+              >
+                编辑
+              </el-button>
+              <el-button
+                class="reset-margin"
+                link
+                type="danger"
+                :size="size"
+                :icon="useRenderIcon('ep:delete')"
+                @click="handleDelete(row)"
+              >
+                删除
+              </el-button>
+            </template>
+          </pure-table>
+          <div class="flex mt-4 w-full overflow-x-auto">
+            <div class="ml-auto shrink-0">
+              <el-pagination
+                v-model:current-page="pagination.currentPage"
+                v-model:page-size="pagination.pageSize"
+                :page-sizes="[10, 20, 30, 50, 100, 200, 500, 1000]"
+                :background="true"
+                layout="total, sizes, prev, pager, next, jumper"
+                :total="pagination.total"
+                @size-change="handleSizeChange"
+                @current-change="handleCurrentChange"
+              />
+            </div>
           </div>
-        </div>
-      </template>
-    </PureTableBar>
+        </template>
+      </PureTableBar>
     </el-card>
   </div>
 </template>
