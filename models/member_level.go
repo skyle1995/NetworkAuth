@@ -27,6 +27,9 @@ type MemberLevel struct {
 	// Name：等级名称（如「白银」「黄金」）
 	Name string `gorm:"size:100;not null;comment:等级名称" json:"name"`
 
+	// Level：权限等级（数值，越大权限越高，如 1/2/3…）。随登录下发，供客户端做「≥某等级才解锁」的数值判断
+	Level int `gorm:"default:1;not null;comment:权限等级，数值越大权限越高" json:"level"`
+
 	// Threshold：累充金额门槛（单位：分），累充达到即升级
 	Threshold int `gorm:"default:0;not null;index;comment:累充金额门槛，单位分" json:"threshold"`
 

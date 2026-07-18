@@ -32,8 +32,9 @@ type LoginResult struct {
 	ExpiredAt         time.Time `json:"expired_at"`         // 时长模式有效
 	Points            int       `json:"points"`             // 点数模式有效
 	HeartbeatInterval int       `json:"heartbeat_interval"` // 心跳间隔（分钟），客户端据此周期心跳
-	// 会员信息：累计充值（分）+ 当前会员等级名与返利比例（空等级即默认「免费账号」）
+	// 会员信息：累计充值（分）+ 当前会员等级（权限等级值、名称、返利比例）；空等级即默认「免费账号」
 	TotalRecharge int    `json:"total_recharge"` // 累计充值金额（单位：分）
+	Level         int    `json:"level"`          // 权限等级数值（越大权限越高；0=免费账号），客户端据此做等级判断
 	LevelName     string `json:"level_name"`     // 会员等级名，空=免费账号
 	RebateRate    int    `json:"rebate_rate"`    // 当前等级充值返利比例（%）
 	// Update：更新判断结果。仅当应用更新方式非「不启用」时返回；据登录提交的版本号判断是否需要更新。
@@ -96,6 +97,11 @@ type StatusResult struct {
 	ExpiredAt         time.Time `json:"expired_at"`
 	Points            int       `json:"points"`
 	HeartbeatInterval int       `json:"heartbeat_interval"` // 心跳间隔（分钟），客户端可据此动态调整
+	// 会员信息：随心跳/状态查询实时下发，客户端据此同步权限，避免中途改等级后仍用旧权限
+	TotalRecharge int    `json:"total_recharge"` // 累计充值金额（单位：分）
+	Level         int    `json:"level"`          // 权限等级数值（越大权限越高；0=免费账号）
+	LevelName     string `json:"level_name"`     // 会员等级名，空=免费账号
+	RebateRate    int    `json:"rebate_rate"`    // 当前等级充值返利比例（%）
 }
 
 // generateSessionToken 生成 32 字节随机会话令牌（64 位十六进制）
@@ -213,6 +219,12 @@ func settlePointsTime(tx *gorm.DB, app *models.App, m *models.Member) error {
 
 // buildStatusResult 依据运营模式构造状态返回
 func buildStatusResult(app *models.App, m *models.Member) *StatusResult {
+	// 查当前会员等级信息随状态实时下发（在事务外调用，用全局连接安全）
+	var levelName string
+	var levelValue, rebateRate int
+	if db, err := database.GetDB(); err == nil {
+		levelName, levelValue, rebateRate = memberLevelInfo(db, m)
+	}
 	return &StatusResult{
 		Username:          m.Username,
 		Type:              m.Type,
@@ -222,6 +234,10 @@ func buildStatusResult(app *models.App, m *models.Member) *StatusResult {
 		ExpiredAt:         m.ExpiredAt,
 		Points:            m.Points,
 		HeartbeatInterval: heartbeatMinutes(app),
+		TotalRecharge:     m.TotalRecharge,
+		Level:             levelValue,
+		LevelName:         levelName,
+		RebateRate:        rebateRate,
 	}
 }
 
@@ -445,7 +461,7 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 	}
 	AddMemberLog(member.AppUUID, member.UUID, member.Username, loginAction, machineCode, ip)
 
-	levelName, rebateRate := memberLevelInfo(db, member)
+	levelName, levelValue, rebateRate := memberLevelInfo(db, member)
 	return &LoginResult{
 		Token:             token,
 		Username:          member.Username,
@@ -456,6 +472,7 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 		Points:            member.Points,
 		HeartbeatInterval: heartbeatMinutes(app),
 		TotalRecharge:     member.TotalRecharge,
+		Level:             levelValue,
 		LevelName:         levelName,
 		RebateRate:        rebateRate,
 		Update:            buildLoginUpdate(app, version),

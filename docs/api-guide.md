@@ -227,7 +227,7 @@ sign      = HEX_UPPER( SHA256(raw) )
 
 #### `41` 检测账号状态（心跳）
 - 请求：`{ token, no_charge?: bool }`
-- 返回（`StatusResult`，含 `heartbeat_interval`）：既是心跳也是状态查询，返回用户基本信息 + 心跳间隔,客户端可据返回的 `heartbeat_interval` **动态调整**下次心跳时间。点数「按时」模式会在此结算并顺延周期。账号被封停/拉黑/到期/点数耗尽时返回异常，客户端据此登出。
+- 返回（`StatusResult`，含 `heartbeat_interval`）：既是心跳也是状态查询，返回用户基本信息 + 心跳间隔 + **会员权限信息**（`level`/`level_name`/`rebate_rate`/`total_recharge`）。客户端可据 `heartbeat_interval` **动态调整**下次心跳，并用 `level` **实时同步权限**——管理员中途改了等级，下次心跳即生效，不会继续用旧权限。点数「按时」模式会在此结算并顺延周期。账号被封停/拉黑/到期/点数耗尽时返回异常，客户端据此登出。
 - **`no_charge` 参数**（仅点数-按时模式有效）：点数-按时模式下心跳**默认按周期扣费**；对免费功能传 `no_charge:true` 可**跳过本次扣费**（点数不变、仍可用）。免费模式/时长模式/按次模式忽略该参数。可实现「功能A免费 / 功能B计费」：功能A的心跳传 `no_charge:true`，功能B的心跳照常（默认扣）。
   - ⚠️ 语义相较旧版**已反转**：旧字段 `charge`（默认不扣、传 `true` 才扣）已废弃为 `no_charge`（默认扣、传 `true` 才不扣）。升级需同步调整客户端心跳参数。
 
@@ -312,6 +312,7 @@ sign      = HEX_UPPER( SHA256(raw) )
 | `points` | 点数余额（点数模式） |
 | `heartbeat_interval` | 心跳间隔（分钟） |
 | `total_recharge` | 累计充值金额（单位：**分**，展示时 ÷100 为元） |
+| `level` | 权限等级数值（越大权限越高；**0 = 免费账号**）。客户端用它做「≥某等级才解锁」的判断 |
 | `level_name` | 会员等级名，空字符串 = 默认「免费账号」 |
 | `rebate_rate` | 当前等级充值返利比例（%），0 = 无返利 |
 | `update` | 更新判断结果，仅更新方式开启时出现：`{ download_type, need_update, latest_version, download_url }` |
@@ -324,6 +325,7 @@ sign      = HEX_UPPER( SHA256(raw) )
 | `status` | 状态：0 封停 / 1 正常 / 2 黑名单 |
 | `mode` / `permanent` / `expired_at` / `points` | 同 LoginResult |
 | `heartbeat_interval` | 心跳间隔（分钟）——每次心跳都会返回，客户端可据此**动态调整**心跳频率 |
+| `level` / `level_name` / `rebate_rate` / `total_recharge` | 会员信息，同 LoginResult。**心跳（`41`）等状态返回也实时下发**，管理员中途改等级后客户端下次心跳即同步，避免继续用旧权限 |
 
 ---
 

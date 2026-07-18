@@ -38,16 +38,17 @@ func memberRebateRate(db *gorm.DB, m *models.Member) int {
 	return lv.RebateRate
 }
 
-// memberLevelInfo 取账号当前等级名与返利比例；无等级/查询失败返回 ("", 0)，即默认「免费账号」。
-func memberLevelInfo(db *gorm.DB, m *models.Member) (string, int) {
+// memberLevelInfo 取账号当前等级名、权限等级值、返利比例；无等级即默认「免费账号」，
+// 返回 ("", 0, 0)——权限等级 0 低于任何已配置等级（配置等级最小为 1）。
+func memberLevelInfo(db *gorm.DB, m *models.Member) (name string, level, rebateRate int) {
 	if strings.TrimSpace(m.LevelUUID) == "" {
-		return "", 0
+		return "", 0, 0
 	}
 	var lv models.MemberLevel
 	if err := db.Where("uuid = ?", m.LevelUUID).First(&lv).Error; err != nil {
-		return "", 0
+		return "", 0, 0
 	}
-	return lv.Name, lv.RebateRate
+	return lv.Name, lv.Level, lv.RebateRate
 }
 
 // memberLevelExtras 取账号当前等级的额外福利（额外多开数、赠送免费换绑次数）；无等级返回 (0,0)。
@@ -169,6 +170,9 @@ func SaveMemberLevel(level *models.MemberLevel) error {
 	if level.ExtraMultiOpen < 0 || level.ExtraRebindCount < 0 {
 		return errors.New("额外多开与赠送换绑次数不能为负")
 	}
+	if level.Level < 1 {
+		return errors.New("权限等级至少为 1")
+	}
 
 	if strings.TrimSpace(level.UUID) == "" {
 		return db.Create(level).Error
@@ -179,6 +183,7 @@ func SaveMemberLevel(level *models.MemberLevel) error {
 	}
 	return db.Model(&exists).Updates(map[string]interface{}{
 		"name":               level.Name,
+		"level":              level.Level,
 		"threshold":          level.Threshold,
 		"rebate_rate":        level.RebateRate,
 		"extra_multi_open":   level.ExtraMultiOpen,

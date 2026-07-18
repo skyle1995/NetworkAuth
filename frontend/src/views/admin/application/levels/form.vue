@@ -7,6 +7,7 @@ export interface FormProps {
     uuid: string;
     app_uuid: string;
     name: string;
+    level: number;
     threshold_yuan: number;
     rebate_rate: number;
     extra_multi_open: number;
@@ -23,6 +24,7 @@ const props = withDefaults(defineProps<FormProps>(), {
     uuid: "",
     app_uuid: "",
     name: "",
+    level: 1,
     threshold_yuan: 0,
     rebate_rate: 0,
     extra_multi_open: 0,
@@ -74,6 +76,10 @@ defineExpose({ getRef, newFormInline });
 
     <el-form-item label="等级名称" prop="name">
       <el-input v-model="newFormInline.name" placeholder="如 白银 / 黄金" />
+    </el-form-item>
+
+    <el-form-item label="权限等级" prop="level">
+      <el-input-number v-model="newFormInline.level" :min="1" />
     </el-form-item>
 
     <el-form-item label="累充门槛" prop="threshold_yuan">

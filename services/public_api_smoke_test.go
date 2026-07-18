@@ -605,7 +605,7 @@ func TestMemberLevelRebateAndUpgrade(t *testing.T) {
 	}
 	db.Create(&pkg)
 	lv := models.MemberLevel{
-		AppUUID: "APP-1", Name: "白银", Threshold: 1000, RebateRate: 10, Status: 1,
+		AppUUID: "APP-1", Name: "白银", Level: 2, Threshold: 1000, RebateRate: 10, Status: 1,
 	}
 	db.Create(&lv)
 
@@ -646,9 +646,27 @@ func TestMemberLevelRebateAndUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatalf("relogin: %v", err)
 	}
-	if relog.TotalRecharge != 2000 || relog.LevelName != "白银" || relog.RebateRate != 10 {
-		t.Fatalf("login should return recharge/level info, got total=%d level=%q rebate=%d",
-			relog.TotalRecharge, relog.LevelName, relog.RebateRate)
+	if relog.TotalRecharge != 2000 || relog.LevelName != "白银" || relog.Level != 2 || relog.RebateRate != 10 {
+		t.Fatalf("login should return recharge/level info, got total=%d level=%d name=%q rebate=%d",
+			relog.TotalRecharge, relog.Level, relog.LevelName, relog.RebateRate)
+	}
+
+	// 心跳也应带等级信息；中途管理员改等级 → 下次心跳同步到最新，避免客户端用旧权限
+	hb1, err := CheckMemberStatus("APP-1", relog.Token, false)
+	if err != nil {
+		t.Fatalf("heartbeat: %v", err)
+	}
+	if hb1.Level != 2 || hb1.LevelName != "白银" {
+		t.Fatalf("heartbeat should carry level info, got level=%d name=%q", hb1.Level, hb1.LevelName)
+	}
+	// 管理员把该等级权限调高
+	db.Model(&models.MemberLevel{}).Where("uuid = ?", lv.UUID).Update("level", 5)
+	hb2, err := CheckMemberStatus("APP-1", relog.Token, false)
+	if err != nil {
+		t.Fatalf("heartbeat2: %v", err)
+	}
+	if hb2.Level != 5 {
+		t.Fatalf("heartbeat should reflect updated level 5, got %d", hb2.Level)
 	}
 }
 

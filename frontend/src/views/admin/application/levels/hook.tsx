@@ -22,6 +22,7 @@ export function useMemberLevel() {
   const columns: TableColumnList = [
     { label: "ID", prop: "id", width: 70 },
     { label: "等级名称", prop: "name", minWidth: 140 },
+    { label: "权限等级", prop: "level", width: 90 },
     {
       label: "所属应用",
       prop: "app_uuid",
@@ -107,6 +108,7 @@ export function useMemberLevel() {
           uuid: row?.uuid ?? "",
           app_uuid: row?.app_uuid ?? form.app_uuid ?? "",
           name: row?.name ?? "",
+          level: row?.level ?? 1,
           threshold_yuan: row ? row.threshold / 100 : 0,
           rebate_rate: row?.rebate_rate ?? 0,
           extra_multi_open: row?.extra_multi_open ?? 0,
@@ -146,6 +148,7 @@ export function useMemberLevel() {
                   uuid: cur.uuid,
                   app_uuid: cur.app_uuid,
                   name: cur.name,
+                  level: cur.level,
                   threshold: Math.round(cur.threshold_yuan * 100),
                   rebate_rate: cur.rebate_rate,
                   extra_multi_open: cur.extra_multi_open,
