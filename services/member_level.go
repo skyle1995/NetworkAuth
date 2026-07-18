@@ -38,17 +38,51 @@ func memberRebateRate(db *gorm.DB, m *models.Member) int {
 	return lv.RebateRate
 }
 
-// memberLevelInfo 取账号当前等级名、权限等级值、返利比例；无等级即默认「免费账号」，
-// 返回 ("", 0, 0)——权限等级 0 低于任何已配置等级（配置等级最小为 1）。
-func memberLevelInfo(db *gorm.DB, m *models.Member) (name string, level, rebateRate int) {
-	if strings.TrimSpace(m.LevelUUID) == "" {
-		return "", 0, 0
+// defaultLevelColor 默认档 / 未指定颜色的等级的展示色（灰）。
+const defaultLevelColor = "#909399"
+
+// levelColorOr 等级颜色，空则回退默认灰。
+func levelColorOr(c string) string {
+	if strings.TrimSpace(c) == "" {
+		return defaultLevelColor
 	}
+	return c
+}
+
+// defaultLevelDisplay 默认档（无等级账号）的展示名与颜色：
+// 该应用若配置了 level=1 的启用等级则用其名称/颜色，否则「默认会员」+灰。
+func defaultLevelDisplay(db *gorm.DB, appUUID string) (name, color string) {
 	var lv models.MemberLevel
-	if err := db.Where("uuid = ?", m.LevelUUID).First(&lv).Error; err != nil {
-		return "", 0, 0
+	if err := db.Where("app_uuid = ? AND level = 1 AND status = 1", appUUID).
+		Order("sort ASC, id ASC").First(&lv).Error; err == nil {
+		return lv.Name, levelColorOr(lv.Color)
 	}
-	return lv.Name, lv.Level, lv.RebateRate
+	return "默认会员", defaultLevelColor
+}
+
+// memberLevelInfo 取账号当前等级名、权限等级值、返利比例、显示颜色。
+// 无等级即**默认档**：权限等级为 1、返利 0、名称取该应用 level=1 等级或「默认会员」、颜色默认灰。
+func memberLevelInfo(db *gorm.DB, m *models.Member) (name string, level, rebateRate int, color string) {
+	if strings.TrimSpace(m.LevelUUID) != "" {
+		var lv models.MemberLevel
+		if err := db.Where("uuid = ?", m.LevelUUID).First(&lv).Error; err == nil {
+			return lv.Name, lv.Level, lv.RebateRate, levelColorOr(lv.Color)
+		}
+	}
+	name, color = defaultLevelDisplay(db, m.AppUUID)
+	return name, 1, 0, color
+}
+
+// ResolveMemberLevelName 供后台列表展示：返回账号等级名（含默认档逻辑）、权限等级值、颜色。
+func ResolveMemberLevelName(db *gorm.DB, appUUID, levelUUID string) (name string, level int, color string) {
+	if strings.TrimSpace(levelUUID) != "" {
+		var lv models.MemberLevel
+		if err := db.Where("uuid = ?", levelUUID).First(&lv).Error; err == nil {
+			return lv.Name, lv.Level, levelColorOr(lv.Color)
+		}
+	}
+	name, color = defaultLevelDisplay(db, appUUID)
+	return name, 1, color
 }
 
 // memberLevelExtras 取账号当前等级的额外福利（额外多开数、赠送免费换绑次数）；无等级返回 (0,0)。
@@ -186,6 +220,7 @@ func SaveMemberLevel(level *models.MemberLevel) error {
 		"level":              level.Level,
 		"threshold":          level.Threshold,
 		"rebate_rate":        level.RebateRate,
+		"color":              level.Color,
 		"extra_multi_open":   level.ExtraMultiOpen,
 		"extra_rebind_count": level.ExtraRebindCount,
 		"sort":               level.Sort,

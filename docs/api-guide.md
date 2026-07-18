@@ -312,8 +312,9 @@ sign      = HEX_UPPER( SHA256(raw) )
 | `points` | 点数余额（点数模式） |
 | `heartbeat_interval` | 心跳间隔（分钟） |
 | `total_recharge` | 累计充值金额（单位：**分**，展示时 ÷100 为元） |
-| `level` | 权限等级数值（越大权限越高；**0 = 免费账号**）。客户端用它做「≥某等级才解锁」的判断 |
-| `level_name` | 会员等级名，空字符串 = 默认「免费账号」 |
+| `level` | 权限等级数值（越大权限越高）。**默认档 = 1**（账号未升到任何等级时）。客户端用它做「≥某等级才解锁」的判断 |
+| `level_name` | 会员等级名。默认档为该应用 `level=1` 等级的名称，未配置则「默认会员」（不会为空） |
+| `level_color` | 等级显示颜色（hex，如 `#E6A23C`）。默认档为灰 `#909399`；后台创建/编辑等级可自定义。客户端可用它渲染等级标识 |
 | `rebate_rate` | 当前等级充值返利比例（%），0 = 无返利 |
 | `update` | 更新判断结果，仅更新方式开启时出现：`{ download_type, need_update, latest_version, download_url }` |
 
@@ -325,7 +326,7 @@ sign      = HEX_UPPER( SHA256(raw) )
 | `status` | 状态：0 封停 / 1 正常 / 2 黑名单 |
 | `mode` / `permanent` / `expired_at` / `points` | 同 LoginResult |
 | `heartbeat_interval` | 心跳间隔（分钟）——每次心跳都会返回，客户端可据此**动态调整**心跳频率 |
-| `level` / `level_name` / `rebate_rate` / `total_recharge` | 会员信息，同 LoginResult。**心跳（`41`）等状态返回也实时下发**，管理员中途改等级后客户端下次心跳即同步，避免继续用旧权限 |
+| `level` / `level_name` / `level_color` / `rebate_rate` / `total_recharge` | 会员信息，同 LoginResult。**心跳（`41`）等状态返回也实时下发**，管理员中途改等级后客户端下次心跳即同步，避免继续用旧权限 |
 
 ---
 

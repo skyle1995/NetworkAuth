@@ -36,6 +36,9 @@ type MemberLevel struct {
 	// RebateRate：充值返利比例（百分比），如 10 表示多返 10%
 	RebateRate int `gorm:"default:0;not null;comment:充值返利比例，百分比" json:"rebate_rate"`
 
+	// Color：等级显示颜色（hex，如 #E6A23C）。随登录/心跳下发给客户端；空则用默认灰
+	Color string `gorm:"size:20;comment:等级显示颜色(hex)" json:"color"`
+
 	// ExtraMultiOpen：额外多开数。有效多开 = App.MultiOpenCount + 本值
 	ExtraMultiOpen int `gorm:"default:0;not null;comment:额外多开数" json:"extra_multi_open"`
 

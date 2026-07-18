@@ -29,6 +29,7 @@ import {
   batchDeleteMembers
 } from "@/api/admin/member";
 import { getAppsSimple } from "@/api/admin/app";
+import { getMemberLevels } from "@/api/admin/memberLevel";
 
 // 来源类型：0注册 1卡密
 const TYPE_META: Record<number, { text: string; type: any }> = {
@@ -47,12 +48,14 @@ export function useMember() {
     search: "",
     app_uuid: "",
     type: "",
-    status: ""
+    status: "",
+    level_uuid: ""
   });
 
   const dataList = ref([]);
   const loading = ref(true);
   const apps = ref([]);
+  const levels = ref<any[]>([]);
 
   const pagination = reactive<PaginationProps>({
     total: 0,
@@ -102,12 +105,20 @@ export function useMember() {
     {
       label: "会员等级",
       prop: "level_name",
-      minWidth: 110,
-      // 无等级即默认的「免费账号」，其他等级由累充自动升级
+      minWidth: 120,
+      // 后端已含默认档逻辑与颜色（无等级=默认档 level=1、灰色）
       cellRenderer: ({ row }) =>
-        row.level_name
-          ? h(ElTag, { type: "warning", effect: "light" }, () => row.level_name)
-          : h(ElTag, { type: "info", effect: "plain" }, () => "免费账号")
+        h(
+          ElTag,
+          {
+            effect: "plain",
+            style: {
+              color: row.level_color || "#909399",
+              borderColor: row.level_color || "#909399"
+            }
+          },
+          () => `${row.level_name}（L${row.level}）`
+        )
     },
     {
       label: "累计充值",
@@ -137,6 +148,21 @@ export function useMember() {
     }
   }
 
+  // 会员等级筛选选项随所选应用变化；切换应用时重置已选等级
+  async function fetchLevels() {
+    levels.value = [];
+    form.level_uuid = "";
+    if (!form.app_uuid) return;
+    try {
+      const { code, data } = await getMemberLevels({ app_uuid: form.app_uuid });
+      if (code === 0 && Array.isArray(data)) {
+        levels.value = data;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   async function onSearch() {
     loading.value = true;
     try {
@@ -146,7 +172,8 @@ export function useMember() {
         search: form.search,
         app_uuid: form.app_uuid,
         type: form.type,
-        status: form.status
+        status: form.status,
+        level_uuid: form.level_uuid
       });
       if (code === 0) {
         dataList.value = data || [];
@@ -666,6 +693,8 @@ export function useMember() {
     dataList,
     pagination,
     apps,
+    levels,
+    fetchLevels,
     onSearch,
     resetFormSearch,
     openCreateDialog,

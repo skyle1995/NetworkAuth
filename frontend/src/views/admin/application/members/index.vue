@@ -20,6 +20,8 @@ const {
   dataList,
   pagination,
   apps,
+  levels,
+  fetchLevels,
   onSearch,
   resetFormSearch,
   openCreateDialog,
@@ -44,6 +46,12 @@ const selectedIds = computed(() => selectedRows.value.map(r => r.id));
 
 function handleSelectionChange(val: any[]) {
   selectedRows.value = val;
+}
+
+// 切换应用：刷新该应用的会员等级筛选项（并重置已选等级），再查询
+async function onAppChange() {
+  await fetchLevels();
+  onSearch();
 }
 
 // 行内“更多”下拉命令分发
@@ -144,7 +152,7 @@ async function onBatchDel() {
           placeholder="请选择应用"
           clearable
           class="w-[160px]!"
-          @change="onSearch"
+          @change="onAppChange"
         >
           <el-option label="全部" value="" />
           <el-option
@@ -152,6 +160,26 @@ async function onBatchDel() {
             :key="app.uuid"
             :label="app.name"
             :value="app.uuid"
+          />
+        </el-select>
+      </el-form-item>
+
+      <el-form-item label="会员等级" prop="level_uuid">
+        <el-select
+          v-model="form.level_uuid"
+          :placeholder="form.app_uuid ? '全部' : '先选应用'"
+          :disabled="!form.app_uuid"
+          clearable
+          class="w-[150px]!"
+          @change="onSearch"
+        >
+          <el-option label="全部" value="" />
+          <el-option label="默认会员" value="none" />
+          <el-option
+            v-for="lv in levels"
+            :key="lv.uuid"
+            :label="`${lv.name}（L${lv.level}）`"
+            :value="lv.uuid"
           />
         </el-select>
       </el-form-item>

@@ -685,9 +685,9 @@ func TestUpdateMemberProfileRecalibratesLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateMember: %v", err)
 	}
-	// 初始：无等级 = 免费账号
+	// 初始：无等级记录 = 默认档
 	if m.TotalRecharge != 0 || m.LevelUUID != "" {
-		t.Fatalf("new member should start at free level, got total=%d level=%q", m.TotalRecharge, m.LevelUUID)
+		t.Fatalf("new member should start at default level, got total=%d level=%q", m.TotalRecharge, m.LevelUUID)
 	}
 
 	setRecharge := func(v int) (*models.Member, error) {
@@ -712,7 +712,7 @@ func TestUpdateMemberProfileRecalibratesLevel(t *testing.T) {
 		t.Fatalf("lowering recharge should calibrate down to silver, got %q", got.LevelUUID)
 	}
 
-	// 改为 0 → 回到「免费账号」（无等级）
+	// 改为 0 → 回到默认档（无等级）
 	got, err = setRecharge(0)
 	if err != nil {
 		t.Fatalf("UpdateMemberProfile zero: %v", err)
@@ -1129,6 +1129,33 @@ func TestMultiDeviceRebind(t *testing.T) {
 	// 替换不存在的设备 → 拒绝
 	if _, err := Rebind("APP-1", "KM-MD", "", "MC-D", "MC-ZZZ", "", "1.1.1.1"); err == nil {
 		t.Fatalf("replacing nonexistent device should be rejected")
+	}
+}
+
+func TestDefaultLevelDisplay(t *testing.T) {
+	db := setupPublicTestDB(t)
+	card := models.Card{CardNo: "KM-DL", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
+	db.Create(&card)
+
+	// 没有 level=1 等级 → 默认档：level=1、名称「默认会员」
+	res, err := CardLogin("APP-1", "KM-DL", "", "1.2.3.4", "1.0.0", "")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if res.Level != 1 || res.LevelName != "默认会员" || res.LevelColor != "#909399" {
+		t.Fatalf("default account should be level=1 / 默认会员 / 灰, got level=%d name=%q color=%q",
+			res.Level, res.LevelName, res.LevelColor)
+	}
+
+	// 配置一个 level=1 的等级「青铜」并指定颜色（门槛很高，账号不会被分配到它）→ 默认档名称/颜色随之
+	db.Create(&models.MemberLevel{AppUUID: "APP-1", Name: "青铜", Level: 1, Color: "#CD7F32", Threshold: 999999, Status: 1})
+	res2, err := CardLogin("APP-1", "KM-DL", "", "1.2.3.4", "1.0.0", "")
+	if err != nil {
+		t.Fatalf("login2: %v", err)
+	}
+	if res2.Level != 1 || res2.LevelName != "青铜" || res2.LevelColor != "#CD7F32" {
+		t.Fatalf("default level should follow level=1 config, got level=%d name=%q color=%q",
+			res2.Level, res2.LevelName, res2.LevelColor)
 	}
 }
 

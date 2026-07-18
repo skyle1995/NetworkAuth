@@ -34,8 +34,9 @@ type LoginResult struct {
 	HeartbeatInterval int       `json:"heartbeat_interval"` // 心跳间隔（分钟），客户端据此周期心跳
 	// 会员信息：累计充值（分）+ 当前会员等级（权限等级值、名称、返利比例）；空等级即默认「免费账号」
 	TotalRecharge int    `json:"total_recharge"` // 累计充值金额（单位：分）
-	Level         int    `json:"level"`          // 权限等级数值（越大权限越高；0=免费账号），客户端据此做等级判断
-	LevelName     string `json:"level_name"`     // 会员等级名，空=免费账号
+	Level         int    `json:"level"`          // 权限等级数值（越大权限越高；默认档=1），客户端据此做等级判断
+	LevelName     string `json:"level_name"`     // 会员等级名（默认档为 level=1 等级名或「默认会员」）
+	LevelColor    string `json:"level_color"`    // 等级显示颜色（hex，默认档灰 #909399）
 	RebateRate    int    `json:"rebate_rate"`    // 当前等级充值返利比例（%）
 	// Update：更新判断结果。仅当应用更新方式非「不启用」时返回；据登录提交的版本号判断是否需要更新。
 	Update *LoginUpdate `json:"update,omitempty"`
@@ -99,8 +100,9 @@ type StatusResult struct {
 	HeartbeatInterval int       `json:"heartbeat_interval"` // 心跳间隔（分钟），客户端可据此动态调整
 	// 会员信息：随心跳/状态查询实时下发，客户端据此同步权限，避免中途改等级后仍用旧权限
 	TotalRecharge int    `json:"total_recharge"` // 累计充值金额（单位：分）
-	Level         int    `json:"level"`          // 权限等级数值（越大权限越高；0=免费账号）
-	LevelName     string `json:"level_name"`     // 会员等级名，空=免费账号
+	Level         int    `json:"level"`          // 权限等级数值（越大权限越高；默认档=1）
+	LevelName     string `json:"level_name"`     // 会员等级名（默认档为 level=1 等级名或「默认会员」）
+	LevelColor    string `json:"level_color"`    // 等级显示颜色（hex，默认档灰 #909399）
 	RebateRate    int    `json:"rebate_rate"`    // 当前等级充值返利比例（%）
 }
 
@@ -220,10 +222,10 @@ func settlePointsTime(tx *gorm.DB, app *models.App, m *models.Member) error {
 // buildStatusResult 依据运营模式构造状态返回
 func buildStatusResult(app *models.App, m *models.Member) *StatusResult {
 	// 查当前会员等级信息随状态实时下发（在事务外调用，用全局连接安全）
-	var levelName string
+	var levelName, levelColor string
 	var levelValue, rebateRate int
 	if db, err := database.GetDB(); err == nil {
-		levelName, levelValue, rebateRate = memberLevelInfo(db, m)
+		levelName, levelValue, rebateRate, levelColor = memberLevelInfo(db, m)
 	}
 	return &StatusResult{
 		Username:          m.Username,
@@ -237,6 +239,7 @@ func buildStatusResult(app *models.App, m *models.Member) *StatusResult {
 		TotalRecharge:     m.TotalRecharge,
 		Level:             levelValue,
 		LevelName:         levelName,
+		LevelColor:        levelColor,
 		RebateRate:        rebateRate,
 	}
 }
@@ -461,7 +464,7 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 	}
 	AddMemberLog(member.AppUUID, member.UUID, member.Username, loginAction, machineCode, ip)
 
-	levelName, levelValue, rebateRate := memberLevelInfo(db, member)
+	levelName, levelValue, rebateRate, levelColor := memberLevelInfo(db, member)
 	return &LoginResult{
 		Token:             token,
 		Username:          member.Username,
@@ -474,6 +477,7 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 		TotalRecharge:     member.TotalRecharge,
 		Level:             levelValue,
 		LevelName:         levelName,
+		LevelColor:        levelColor,
 		RebateRate:        rebateRate,
 		Update:            buildLoginUpdate(app, version),
 	}, nil

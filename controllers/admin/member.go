@@ -87,6 +87,14 @@ func MemberListHandler(c *gin.Context) {
 	if search := strings.TrimSpace(c.Query("search")); search != "" {
 		query = query.Where("username = ?", search)
 	}
+	// 会员等级筛选：具体 uuid=该等级；"none"=默认档（无等级）
+	if levelUUID := strings.TrimSpace(c.Query("level_uuid")); levelUUID != "" {
+		if levelUUID == "none" {
+			query = query.Where("level_uuid = ? OR level_uuid IS NULL", "")
+		} else {
+			query = query.Where("level_uuid = ?", levelUUID)
+		}
+	}
 
 	members, total, err := services.Paginate[models.Member](query, page, limit, "created_at DESC")
 	if err != nil {
@@ -113,25 +121,6 @@ func MemberListHandler(c *gin.Context) {
 		}
 	}
 
-	// 批量取会员等级名，用于列表展示
-	levelNameByUUID := make(map[string]string)
-	if len(members) > 0 {
-		levelUUIDs := make([]string, 0, len(members))
-		for _, m := range members {
-			if m.LevelUUID != "" {
-				levelUUIDs = append(levelUUIDs, m.LevelUUID)
-			}
-		}
-		if len(levelUUIDs) > 0 {
-			var rows []struct{ UUID, Name string }
-			db.Model(&models.MemberLevel{}).Select("uuid, name").
-				Where("uuid IN ?", levelUUIDs).Find(&rows)
-			for _, row := range rows {
-				levelNameByUUID[row.UUID] = row.Name
-			}
-		}
-	}
-
 	type MemberResponse struct {
 		ID                uint   `json:"id"`
 		UUID              string `json:"uuid"`
@@ -146,7 +135,9 @@ func MemberListHandler(c *gin.Context) {
 		Points            int    `json:"points"`
 		TotalRecharge     int    `json:"total_recharge"`
 		LevelUUID         string `json:"level_uuid"`
+		Level             int    `json:"level"`
 		LevelName         string `json:"level_name"`
+		LevelColor        string `json:"level_color"`
 		Email             string `json:"email"`
 		CardUUID          string `json:"card_uuid"`
 		RegisterIP        string `json:"register_ip"`
@@ -170,6 +161,8 @@ func MemberListHandler(c *gin.Context) {
 		if m.LastLoginAt != nil {
 			lastLogin = m.LastLoginAt.Format("2006-01-02 15:04:05")
 		}
+		// 等级展示含默认档逻辑（无等级=默认档：level=1、名称取应用 level=1 等级或「默认会员」、颜色默认灰）
+		levelName, levelValue, levelColor := services.ResolveMemberLevelName(db, m.AppUUID, m.LevelUUID)
 		responseData = append(responseData, MemberResponse{
 			ID:                m.ID,
 			UUID:              m.UUID,
@@ -184,7 +177,9 @@ func MemberListHandler(c *gin.Context) {
 			Points:            m.Points,
 			TotalRecharge:     m.TotalRecharge,
 			LevelUUID:         m.LevelUUID,
-			LevelName:         levelNameByUUID[m.LevelUUID],
+			Level:             levelValue,
+			LevelName:         levelName,
+			LevelColor:        levelColor,
 			Email:             m.Email,
 			CardUUID:          m.CardUUID,
 			RegisterIP:        m.RegisterIP,
