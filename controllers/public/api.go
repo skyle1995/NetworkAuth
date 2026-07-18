@@ -289,12 +289,13 @@ func handleCardLogin(c *gin.Context, app *models.App, plainParams string) (any, 
 	var params struct {
 		Card        string `json:"card"`
 		MachineCode string `json:"machine_code"`
-		Version     string `json:"version"` // 客户端版本号，更新方式开启时用于判断是否需更新
+		Version     string `json:"version"`     // 客户端版本号，更新方式开启时用于判断是否需更新
+		DeviceName  string `json:"device_name"` // 设备名称，客户端采集提交，供在线列表/换绑列表展示
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.CardLogin(app.UUID, params.Card, params.MachineCode, c.ClientIP(), params.Version)
+	return services.CardLogin(app.UUID, params.Card, params.MachineCode, c.ClientIP(), params.Version, params.DeviceName)
 }
 
 // handleAccountLogin 账号登录（type 20）
@@ -303,12 +304,13 @@ func handleAccountLogin(c *gin.Context, app *models.App, plainParams string) (an
 		Username    string `json:"username"`
 		Password    string `json:"password"`
 		MachineCode string `json:"machine_code"`
-		Version     string `json:"version"` // 客户端版本号，更新方式开启时用于判断是否需更新
+		Version     string `json:"version"`     // 客户端版本号，更新方式开启时用于判断是否需更新
+		DeviceName  string `json:"device_name"` // 设备名称，客户端采集提交，供在线列表/换绑列表展示
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.AccountLogin(app.UUID, params.Username, params.Password, params.MachineCode, c.ClientIP(), params.Version)
+	return services.AccountLogin(app.UUID, params.Username, params.Password, params.MachineCode, c.ClientIP(), params.Version, params.DeviceName)
 }
 
 // handleAccountRegister 账号注册（type 21，邮箱即账号）
@@ -512,14 +514,17 @@ func handleGetCardInfo(app *models.App, plainParams string) (any, error) {
 // 开启机器码转绑时须带 machine_code；IP 转绑用当前请求 IP。不需登录令牌，避免死循环。
 func handleRebind(c *gin.Context, app *models.App, plainParams string) (any, error) {
 	var params struct {
-		Username    string `json:"username"`
-		Password    string `json:"password"`
-		MachineCode string `json:"machine_code"`
+		Username       string `json:"username"`
+		Password       string `json:"password"`
+		MachineCode    string `json:"machine_code"`    // 空=返回当前绑定设备列表
+		ReplaceMachine string `json:"replace_machine"` // 设备满员时要替换的旧设备号
+		DeviceName     string `json:"device_name"`     // 新设备名称
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.Rebind(app.UUID, params.Username, params.Password, params.MachineCode, c.ClientIP())
+	return services.Rebind(app.UUID, params.Username, params.Password,
+		params.MachineCode, params.ReplaceMachine, params.DeviceName, c.ClientIP())
 }
 
 // handleDeductPoints 功能扣点（type 53，点数模式）

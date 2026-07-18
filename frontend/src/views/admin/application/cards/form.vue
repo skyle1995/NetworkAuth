@@ -90,93 +90,73 @@ defineExpose({ getRef });
     :rules="formRules"
     label-width="100px"
   >
-    <el-row>
-      <el-col :span="24">
-        <el-form-item label="所属应用" prop="app_uuid">
-          <el-select
-            v-model="newFormInline.app_uuid"
-            placeholder="请选择所属应用"
-            class="w-full"
-            clearable
-          >
-            <el-option
-              v-for="app in apps"
-              :key="app.uuid"
-              :label="`${app.name} (ID: ${app.id})`"
-              :value="app.uuid"
-            />
-          </el-select>
-        </el-form-item>
-      </el-col>
-    </el-row>
+    <el-form-item label="所属应用" prop="app_uuid">
+      <el-select
+        v-model="newFormInline.app_uuid"
+        placeholder="请选择所属应用"
+        class="w-full"
+        clearable
+      >
+        <el-option
+          v-for="app in apps"
+          :key="app.uuid"
+          :label="`${app.name} (ID: ${app.id})`"
+          :value="app.uuid"
+        />
+      </el-select>
+    </el-form-item>
 
-    <el-row>
-      <el-col :span="24">
-        <el-form-item label="卡密套餐" prop="package_uuid">
-          <el-select
-            v-model="newFormInline.package_uuid"
-            :placeholder="noPackage ? '该应用暂无可用套餐' : '请选择卡密套餐'"
-            :disabled="noPackage"
-            class="w-full"
-            clearable
-          >
-            <el-option
-              v-for="pkg in packages"
-              :key="pkg.uuid"
-              :label="packageLabel(pkg)"
-              :value="pkg.uuid"
-            />
-          </el-select>
-        </el-form-item>
-      </el-col>
-    </el-row>
+    <el-form-item label="卡密套餐" prop="package_uuid">
+      <el-select
+        v-model="newFormInline.package_uuid"
+        :placeholder="noPackage ? '该应用暂无可用套餐' : '请选择卡密套餐'"
+        :disabled="noPackage"
+        class="w-full"
+        clearable
+      >
+        <el-option
+          v-for="pkg in packages"
+          :key="pkg.uuid"
+          :label="packageLabel(pkg)"
+          :value="pkg.uuid"
+        />
+      </el-select>
+    </el-form-item>
 
-    <el-row :gutter="16">
-      <el-col :span="12">
-        <el-form-item label="生成数量" prop="count">
-          <el-input-number
-            v-model="newFormInline.count"
-            :min="1"
-            :max="10000"
-            class="!w-full"
-          />
-        </el-form-item>
-      </el-col>
-      <el-col :span="12">
-        <el-form-item label="卡号长度" prop="length">
-          <el-input-number
-            v-model="newFormInline.length"
-            :min="8"
-            :max="32"
-            class="!w-full"
-          />
-        </el-form-item>
-      </el-col>
-    </el-row>
+    <div class="flex gap-4">
+      <el-form-item label="生成数量" prop="count" class="flex-1 !mr-0">
+        <el-input-number
+          v-model="newFormInline.count"
+          :min="1"
+          :max="10000"
+          class="!w-full"
+        />
+      </el-form-item>
+      <el-form-item label="卡号长度" prop="length" class="flex-1 !mr-0">
+        <el-input-number
+          v-model="newFormInline.length"
+          :min="8"
+          :max="32"
+          class="!w-full"
+        />
+      </el-form-item>
+    </div>
 
-    <el-row>
-      <el-col :span="24">
-        <el-form-item label="卡号前缀" prop="prefix">
-          <el-input
-            v-model="newFormInline.prefix"
-            placeholder="可选，如 VIP（仅字母数字，用于区分注册用户名）"
-            maxlength="16"
-          />
-        </el-form-item>
-      </el-col>
-    </el-row>
+    <el-form-item label="卡号前缀" prop="prefix">
+      <el-input
+        v-model="newFormInline.prefix"
+        placeholder="可选，如 VIP（仅字母数字，用于区分注册用户名）"
+        maxlength="16"
+      />
+    </el-form-item>
 
-    <el-row>
-      <el-col :span="24">
-        <el-form-item label="备注说明" prop="remark">
-          <el-input
-            v-model="newFormInline.remark"
-            type="textarea"
-            :rows="3"
-            placeholder="请输入备注说明（可选）"
-          />
-        </el-form-item>
-      </el-col>
-    </el-row>
+    <el-form-item label="备注说明" prop="remark">
+      <el-input
+        v-model="newFormInline.remark"
+        type="textarea"
+        :rows="3"
+        placeholder="请输入备注说明（可选）"
+      />
+    </el-form-item>
   </el-form>
 </template>

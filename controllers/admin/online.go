@@ -62,6 +62,7 @@ func OnlineSessionsHandler(c *gin.Context) {
 		MachineCode  string
 		IP           string
 		Version      string
+		DeviceName   string
 		LastActiveAt time.Time
 		CreatedAt    time.Time
 		Username     string
@@ -70,7 +71,7 @@ func OnlineSessionsHandler(c *gin.Context) {
 	offset := (page - 1) * limit
 	var rows []sessionRow
 	if err := applyScope(db).
-		Select("s.id, s.member_uuid, s.app_uuid, s.machine_code, s.ip, s.version, s.last_active_at, s.created_at, m.username").
+		Select("s.id, s.member_uuid, s.app_uuid, s.machine_code, s.ip, s.version, s.device_name, s.last_active_at, s.created_at, m.username").
 		Order("s.last_active_at DESC").
 		Offset(offset).Limit(limit).
 		Scan(&rows).Error; err != nil {
@@ -87,6 +88,7 @@ func OnlineSessionsHandler(c *gin.Context) {
 		MachineCode  string `json:"machine_code"`
 		IP           string `json:"ip"`
 		Version      string `json:"version"`
+		DeviceName   string `json:"device_name"`
 		Province     string `json:"province"`
 		City         string `json:"city"`
 		LastActiveAt string `json:"last_active_at"`
@@ -103,6 +105,7 @@ func OnlineSessionsHandler(c *gin.Context) {
 			MachineCode:  r.MachineCode,
 			IP:           r.IP,
 			Version:      r.Version,
+			DeviceName:   r.DeviceName,
 			Province:     province,
 			City:         city,
 			LastActiveAt: r.LastActiveAt.Format("2006-01-02 15:04:05"),

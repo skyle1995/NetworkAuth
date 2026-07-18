@@ -9,6 +9,8 @@ export interface FormProps {
     name: string;
     threshold_yuan: number;
     rebate_rate: number;
+    extra_multi_open: number;
+    extra_rebind_count: number;
     sort: number;
     status: number;
     remark: string;
@@ -23,6 +25,8 @@ const props = withDefaults(defineProps<FormProps>(), {
     name: "",
     threshold_yuan: 0,
     rebate_rate: 0,
+    extra_multi_open: 0,
+    extra_rebind_count: 0,
     sort: 0,
     status: 1,
     remark: ""
@@ -89,6 +93,16 @@ defineExpose({ getRef, newFormInline });
         :max="100"
       />
       <span class="ml-2">%</span>
+    </el-form-item>
+
+    <el-form-item label="额外多开" prop="extra_multi_open">
+      <el-input-number v-model="newFormInline.extra_multi_open" :min="0" />
+      <span class="ml-2">台</span>
+    </el-form-item>
+
+    <el-form-item label="赠送换绑" prop="extra_rebind_count">
+      <el-input-number v-model="newFormInline.extra_rebind_count" :min="0" />
+      <span class="ml-2">次</span>
     </el-form-item>
 
     <el-form-item label="排序" prop="sort">

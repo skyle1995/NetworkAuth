@@ -50,6 +50,18 @@ func memberLevelInfo(db *gorm.DB, m *models.Member) (string, int) {
 	return lv.Name, lv.RebateRate
 }
 
+// memberLevelExtras 取账号当前等级的额外福利（额外多开数、赠送免费换绑次数）；无等级返回 (0,0)。
+func memberLevelExtras(db *gorm.DB, m *models.Member) (extraMultiOpen, extraRebind int) {
+	if strings.TrimSpace(m.LevelUUID) == "" {
+		return 0, 0
+	}
+	var lv models.MemberLevel
+	if err := db.Where("uuid = ?", m.LevelUUID).First(&lv).Error; err != nil {
+		return 0, 0
+	}
+	return lv.ExtraMultiOpen, lv.ExtraRebindCount
+}
+
 // rebateValue 按比例返利后的面值（向下取整）。非正数原样返回。
 func rebateValue(value, rate int) int {
 	if value <= 0 || rate <= 0 {
@@ -154,6 +166,9 @@ func SaveMemberLevel(level *models.MemberLevel) error {
 	if level.RebateRate < 0 {
 		return errors.New("返利比例不能为负")
 	}
+	if level.ExtraMultiOpen < 0 || level.ExtraRebindCount < 0 {
+		return errors.New("额外多开与赠送换绑次数不能为负")
+	}
 
 	if strings.TrimSpace(level.UUID) == "" {
 		return db.Create(level).Error
@@ -163,12 +178,14 @@ func SaveMemberLevel(level *models.MemberLevel) error {
 		return errors.New("等级不存在")
 	}
 	return db.Model(&exists).Updates(map[string]interface{}{
-		"name":        level.Name,
-		"threshold":   level.Threshold,
-		"rebate_rate": level.RebateRate,
-		"sort":        level.Sort,
-		"status":      level.Status,
-		"remark":      level.Remark,
+		"name":               level.Name,
+		"threshold":          level.Threshold,
+		"rebate_rate":        level.RebateRate,
+		"extra_multi_open":   level.ExtraMultiOpen,
+		"extra_rebind_count": level.ExtraRebindCount,
+		"sort":               level.Sort,
+		"status":             level.Status,
+		"remark":             level.Remark,
 	}).Error
 }
 

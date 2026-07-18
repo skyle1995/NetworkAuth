@@ -43,6 +43,9 @@ type Binding struct {
 	// Value：绑定值（机器码或IP地址）
 	Value string `gorm:"size:255;not null;uniqueIndex:idx_binding_member_type_value;comment:绑定值，机器码或IP" json:"value"`
 
+	// DeviceName：设备名称（客户端登录时采集提交，如 macOS 15.1 / Windows 11），供换绑设备列表展示
+	DeviceName string `gorm:"size:100;comment:设备名称" json:"device_name"`
+
 	// Province：IP归属省份（IP绑定时记录，支撑省级验证）
 	Province string `gorm:"size:64;comment:IP归属省份" json:"province"`
 

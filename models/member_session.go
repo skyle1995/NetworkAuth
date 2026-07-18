@@ -33,6 +33,9 @@ type MemberSession struct {
 	// Version：登录时客户端提交的版本号
 	Version string `gorm:"size:50;comment:客户端版本号" json:"version"`
 
+	// DeviceName：设备名称（客户端采集提交，如 macOS 15.1 / Windows 11），供在线列表展示
+	DeviceName string `gorm:"size:100;comment:设备名称" json:"device_name"`
+
 	// LastActiveAt：最近活跃时间（心跳刷新）
 	LastActiveAt time.Time `gorm:"comment:最近活跃时间" json:"last_active_at"`
 

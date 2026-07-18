@@ -227,7 +227,7 @@ func buildStatusResult(app *models.App, m *models.Member) *StatusResult {
 
 // CardLogin 卡密登录：卡号即身份。
 // 未使用的卡首次登录激活并自动创建绑定该卡的账号；已使用的卡走登录校验。
-func CardLogin(appUUID, cardNo, machineCode, ip, version string) (*LoginResult, error) {
+func CardLogin(appUUID, cardNo, machineCode, ip, version, deviceName string) (*LoginResult, error) {
 	appUUID = strings.TrimSpace(appUUID)
 	cardNo = strings.TrimSpace(cardNo)
 	if appUUID == "" || cardNo == "" {
@@ -306,12 +306,15 @@ func CardLogin(appUUID, cardNo, machineCode, ip, version string) (*LoginResult, 
 		return nil, err
 	}
 
-	return finishMemberLogin(db, &app, &member, machineCode, ip, version)
+	return finishMemberLogin(db, &app, &member, machineCode, ip, version, deviceName)
 }
 
 // finishMemberLogin 完成登录的公共收尾：状态/到期校验、机器码绑定、多开会话管理、颁发令牌。
 // version 为客户端提交的版本号：更新方式开启时用于判断是否需要更新，结果随登录返回。
-func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, machineCode, ip, version string) (*LoginResult, error) {
+func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, machineCode, ip, version, deviceName string) (*LoginResult, error) {
+	deviceName = strings.TrimSpace(deviceName)
+	// 有效多开 = 应用多开数 + 会员等级额外多开（下限 1）；三处（机器绑定/IP绑定/会话）统一使用
+	effMultiOpen := effectiveMultiOpen(db, app, member)
 	if member.Status == models.MemberStatusBlack {
 		return nil, errors.New("账号已被拉黑")
 	}
@@ -330,11 +333,11 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 
 	// 机器码绑定（开启机器验证时）：已绑定则放行，未绑定且未超多开则新增，超出则拒绝
 	if app.MachineVerify == 1 && strings.TrimSpace(machineCode) != "" {
-		if err := ensureMachineBinding(db, member.UUID, machineCode, app.MultiOpenCount); err != nil {
+		if err := ensureMachineBinding(db, member.UUID, machineCode, deviceName, effMultiOpen); err != nil {
 			return nil, err
 		}
 	}
-	if err := ensureIPBinding(db, member.UUID, ip, app.IPVerify, app.MultiOpenCount); err != nil {
+	if err := ensureIPBinding(db, member.UUID, ip, app.IPVerify, effMultiOpen); err != nil {
 		return nil, err
 	}
 
@@ -352,11 +355,8 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 		if err := cleanStaleSessions(tx, member.UUID, offlineTimeoutMinutes(app)); err != nil {
 			return err
 		}
-		// 多开数量控制：按「多开范围」以设备/IP/会话为单位计数
-		maxOpen := app.MultiOpenCount
-		if maxOpen <= 0 {
-			maxOpen = 1
-		}
+		// 多开数量控制：按「多开范围」以设备/IP/会话为单位计数（含会员额外多开）
+		maxOpen := effMultiOpen
 		var sessions []models.MemberSession
 		if err := tx.Where("member_uuid = ?", member.UUID).
 			Order("last_active_at ASC").Find(&sessions).Error; err != nil {
@@ -413,6 +413,7 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 			MemberUUID:   member.UUID,
 			AppUUID:      member.AppUUID,
 			MachineCode:  machineCode,
+			DeviceName:   deviceName,
 			IP:           ip,
 			Version:      strings.TrimSpace(version),
 			LastActiveAt: now,
@@ -504,12 +505,16 @@ func cleanStaleSessions(tx *gorm.DB, memberUUID string, checkIntervalMin int) er
 }
 
 // ensureMachineBinding 确保机器码已绑定；未绑定时在多开数量内新增，超出则拒绝。
-func ensureMachineBinding(db *gorm.DB, memberUUID, machineCode string, multiOpenCount int) error {
+func ensureMachineBinding(db *gorm.DB, memberUUID, machineCode, deviceName string, multiOpenCount int) error {
 	var existing models.Binding
 	err := db.Where("member_uuid = ? AND type = ? AND value = ?",
 		memberUUID, models.BindingTypeMachine, machineCode).First(&existing).Error
 	if err == nil {
-		return nil // 已绑定，放行
+		// 已绑定：刷新设备名（客户端可能改了系统版本），放行
+		if deviceName != "" && existing.DeviceName != deviceName {
+			db.Model(&existing).Update("device_name", deviceName)
+		}
+		return nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
@@ -531,7 +536,18 @@ func ensureMachineBinding(db *gorm.DB, memberUUID, machineCode string, multiOpen
 		MemberUUID: memberUUID,
 		Type:       models.BindingTypeMachine,
 		Value:      machineCode,
+		DeviceName: deviceName,
 	}).Error
+}
+
+// effectiveMultiOpen 有效多开数 = 应用多开数 + 会员等级额外多开，下限 1。
+func effectiveMultiOpen(db *gorm.DB, app *models.App, m *models.Member) int {
+	extra, _ := memberLevelExtras(db, m)
+	n := app.MultiOpenCount + extra
+	if n <= 0 {
+		n = 1
+	}
+	return n
 }
 
 // ensureIPBinding 确保登录 IP 满足应用 IP 验证配置；首次登录会自动绑定当前 IP。
@@ -978,7 +994,7 @@ func ClaimTrial(appUUID, username, password string) (*StatusResult, error) {
 }
 
 // AccountLogin 账号登录：校验用户名密码后颁发令牌。
-func AccountLogin(appUUID, username, password, machineCode, ip, version string) (*LoginResult, error) {
+func AccountLogin(appUUID, username, password, machineCode, ip, version, deviceName string) (*LoginResult, error) {
 	username = strings.TrimSpace(username)
 	if username == "" || password == "" {
 		return nil, errors.New("用户名与密码不能为空")
@@ -1008,7 +1024,7 @@ func AccountLogin(appUUID, username, password, machineCode, ip, version string) 
 		return nil, err
 	}
 
-	return finishMemberLogin(db, app, &member, machineCode, ip, version)
+	return finishMemberLogin(db, app, &member, machineCode, ip, version, deviceName)
 }
 
 // RechargeByCard 用一张卡为账号充值：把卡面值加到该账号到期时间，并核销卡密。

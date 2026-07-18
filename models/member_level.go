@@ -33,6 +33,12 @@ type MemberLevel struct {
 	// RebateRate：充值返利比例（百分比），如 10 表示多返 10%
 	RebateRate int `gorm:"default:0;not null;comment:充值返利比例，百分比" json:"rebate_rate"`
 
+	// ExtraMultiOpen：额外多开数。有效多开 = App.MultiOpenCount + 本值
+	ExtraMultiOpen int `gorm:"default:0;not null;comment:额外多开数" json:"extra_multi_open"`
+
+	// ExtraRebindCount：赠送免费换绑次数。有效免费次数 = App 免费次数 + 本值（机器/IP 共用）
+	ExtraRebindCount int `gorm:"default:0;not null;comment:赠送免费换绑次数" json:"extra_rebind_count"`
+
 	// Sort：排序值，越小越靠前
 	Sort int `gorm:"default:0;not null;comment:排序值" json:"sort"`
 

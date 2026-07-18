@@ -40,8 +40,20 @@ export function useMemberLevel() {
     {
       label: "充值返利",
       prop: "rebate_rate",
-      width: 100,
+      width: 90,
       cellRenderer: ({ row }) => `${row.rebate_rate}%`
+    },
+    {
+      label: "额外多开",
+      prop: "extra_multi_open",
+      width: 90,
+      cellRenderer: ({ row }) => `+${row.extra_multi_open}`
+    },
+    {
+      label: "赠送换绑",
+      prop: "extra_rebind_count",
+      width: 90,
+      cellRenderer: ({ row }) => `+${row.extra_rebind_count}`
     },
     { label: "排序", prop: "sort", width: 80 },
     {
@@ -97,6 +109,8 @@ export function useMemberLevel() {
           name: row?.name ?? "",
           threshold_yuan: row ? row.threshold / 100 : 0,
           rebate_rate: row?.rebate_rate ?? 0,
+          extra_multi_open: row?.extra_multi_open ?? 0,
+          extra_rebind_count: row?.extra_rebind_count ?? 0,
           sort: row?.sort ?? 0,
           status: row?.status ?? 1,
           remark: row?.remark ?? ""
@@ -134,6 +148,8 @@ export function useMemberLevel() {
                   name: cur.name,
                   threshold: Math.round(cur.threshold_yuan * 100),
                   rebate_rate: cur.rebate_rate,
+                  extra_multi_open: cur.extra_multi_open,
+                  extra_rebind_count: cur.extra_rebind_count,
                   sort: cur.sort,
                   status: cur.status,
                   remark: cur.remark

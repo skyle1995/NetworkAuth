@@ -50,6 +50,12 @@ const columns: TableColumnList = [
     }
   },
   { label: "机器码", prop: "machine_code", minWidth: 160 },
+  {
+    label: "设备名",
+    prop: "device_name",
+    width: 130,
+    cellRenderer: ({ row }) => row.device_name || "—"
+  },
   { label: "登录IP", prop: "ip", width: 140 },
   { label: "版本", prop: "version", width: 100 },
   {
