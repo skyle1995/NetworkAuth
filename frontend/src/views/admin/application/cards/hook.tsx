@@ -181,7 +181,7 @@ export function useCard() {
         },
         apps: apps.value
       },
-      width: "520px",
+      width: "640px",
       draggable: true,
       fullscreenIcon: true,
       closeOnClickModal: false,
