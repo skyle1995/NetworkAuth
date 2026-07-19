@@ -53,7 +53,7 @@ const columns: TableColumnList = [
   {
     label: "设备名",
     prop: "device_name",
-    width: 130,
+    minWidth: 200,
     cellRenderer: ({ row }) => row.device_name || "—"
   },
   { label: "登录IP", prop: "ip", width: 140 },

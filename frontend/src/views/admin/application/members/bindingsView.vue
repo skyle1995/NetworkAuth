@@ -2,6 +2,7 @@
 export interface Binding {
   type: number;
   value: string;
+  device_name?: string;
   province?: string;
   city?: string;
   created_at?: string;
@@ -28,6 +29,13 @@ function typeText(t: number) {
         min-width="180"
         show-overflow-tooltip
       />
+      <el-table-column
+        label="设备名"
+        min-width="200"
+        show-overflow-tooltip
+      >
+        <template #default="{ row }">{{ row.device_name || "—" }}</template>
+      </el-table-column>
       <el-table-column label="归属地" min-width="140">
         <template #default="{ row }">
           {{ [row.province, row.city].filter(Boolean).join(" ") || "—" }}

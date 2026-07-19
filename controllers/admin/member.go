@@ -524,11 +524,12 @@ func MemberBindingsHandler(c *gin.Context) {
 	}
 
 	type BindingResponse struct {
-		Type      int    `json:"type"`
-		Value     string `json:"value"`
-		Province  string `json:"province"`
-		City      string `json:"city"`
-		CreatedAt string `json:"created_at"`
+		Type       int    `json:"type"`
+		Value      string `json:"value"`
+		DeviceName string `json:"device_name"` // 设备名(客户端登录采集,供绑定列表区分设备)
+		Province   string `json:"province"`
+		City       string `json:"city"`
+		CreatedAt  string `json:"created_at"`
 	}
 	list := make([]BindingResponse, 0, len(bindings))
 	for _, b := range bindings {
@@ -538,11 +539,12 @@ func MemberBindingsHandler(c *gin.Context) {
 			province, city = services.ResolveIPRegion(b.Value)
 		}
 		list = append(list, BindingResponse{
-			Type:      b.Type,
-			Value:     b.Value,
-			Province:  province,
-			City:      city,
-			CreatedAt: b.CreatedAt.Format("2006-01-02 15:04:05"),
+			Type:       b.Type,
+			Value:      b.Value,
+			DeviceName: b.DeviceName,
+			Province:   province,
+			City:       city,
+			CreatedAt:  b.CreatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}
 
