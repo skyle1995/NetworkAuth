@@ -146,7 +146,7 @@ func CardListHandler(c *gin.Context) {
 		query = query.Where("card_no = ?", search)
 	}
 
-	cards, total, err := services.Paginate[models.Card](query, page, limit, "created_at DESC")
+	cards, total, err := services.Paginate[models.Card](query, page, limit, "created_at DESC, id DESC")
 	if err != nil {
 		logrus.WithError(err).Error("Failed to fetch cards")
 		cardBaseController.HandleInternalError(c, "查询卡密列表失败", err)
@@ -258,7 +258,7 @@ func CardExportHandler(c *gin.Context) {
 	}
 
 	var cards []models.Card
-	if err := query.Order("created_at DESC").Find(&cards).Error; err != nil {
+	if err := query.Order("created_at DESC, id DESC").Find(&cards).Error; err != nil {
 		logrus.WithError(err).Error("Failed to export cards")
 		cardBaseController.HandleInternalError(c, "导出卡密失败", err)
 		return
