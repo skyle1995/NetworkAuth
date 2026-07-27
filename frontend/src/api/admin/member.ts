@@ -82,6 +82,13 @@ export const clearMemberBindings = (data?: object) => {
   });
 };
 
+/** 移除单条绑定（按绑定UUID） */
+export const removeMemberBinding = (data?: object) => {
+  return http.request<Result>("post", "/api/admin/member/remove_binding", {
+    data
+  });
+};
+
 /** 踢下线（会话ID或用户UUID全部） */
 export const kickMemberSession = (data?: object) => {
   return http.request<Result>("post", "/api/admin/member/kick", { data });

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 export interface Binding {
+  uuid: string;
   type: number;
   value: string;
   device_name?: string;
@@ -10,6 +11,10 @@ export interface Binding {
 
 defineProps<{
   bindings: Binding[];
+}>();
+
+const emit = defineEmits<{
+  (e: "remove", row: Binding): void;
 }>();
 
 function typeText(t: number) {
@@ -42,6 +47,18 @@ function typeText(t: number) {
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="绑定时间" width="170" />
+      <el-table-column label="操作" width="80" align="center">
+        <template #default="{ row }">
+          <el-button
+            type="danger"
+            link
+            size="small"
+            @click="emit('remove', row as Binding)"
+          >
+            移除
+          </el-button>
+        </template>
+      </el-table-column>
     </el-table>
   </div>
 </template>

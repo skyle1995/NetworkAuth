@@ -524,6 +524,7 @@ func MemberBindingsHandler(c *gin.Context) {
 	}
 
 	type BindingResponse struct {
+		UUID       string `json:"uuid"`        // 绑定UUID，单条移除绑定的定位标识
 		Type       int    `json:"type"`
 		Value      string `json:"value"`
 		DeviceName string `json:"device_name"` // 设备名(客户端登录采集,供绑定列表区分设备)
@@ -539,6 +540,7 @@ func MemberBindingsHandler(c *gin.Context) {
 			province, city = services.ResolveIPRegion(b.Value)
 		}
 		list = append(list, BindingResponse{
+			UUID:       b.UUID,
 			Type:       b.Type,
 			Value:      b.Value,
 			DeviceName: b.DeviceName,
@@ -654,6 +656,32 @@ func MemberClearBindingsHandler(c *gin.Context) {
 
 	recordMemberLog(c, "清空用户绑定", fmt.Sprintf("清空了用户 %s 的机器码/IP绑定", req.UUID))
 	memberBaseController.HandleSuccess(c, "解绑成功", nil)
+}
+
+// MemberRemoveBindingHandler 移除单条绑定记录API处理器（后台单条解绑）
+func MemberRemoveBindingHandler(c *gin.Context) {
+	var req struct {
+		UUID string `json:"uuid"` // 绑定UUID
+	}
+	if !memberBaseController.BindJSON(c, &req) {
+		return
+	}
+	if !memberBaseController.ValidateRequired(c, map[string]interface{}{"绑定UUID": req.UUID}) {
+		return
+	}
+
+	bindingType, value, err := services.RemoveMemberBinding(req.UUID)
+	if err != nil {
+		memberBaseController.HandleValidationError(c, err.Error())
+		return
+	}
+
+	typeName := "机器码"
+	if bindingType == models.BindingTypeIP {
+		typeName = "IP"
+	}
+	recordMemberLog(c, "移除用户绑定", fmt.Sprintf("移除了%s绑定 %s", typeName, value))
+	memberBaseController.HandleSuccess(c, "移除成功", nil)
 }
 
 // MembersBatchDeleteHandler 批量删除账号API处理器

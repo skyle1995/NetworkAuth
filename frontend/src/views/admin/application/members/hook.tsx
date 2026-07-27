@@ -24,6 +24,7 @@ import {
   setMemberStatus,
   getMemberBindings,
   clearMemberBindings,
+  removeMemberBinding,
   blacklistMember,
   batchRechargeMembers,
   batchDeleteMembers
@@ -423,12 +424,37 @@ export function useMember() {
   async function openBindingsDialog(row: any) {
     const { code, data } = await getMemberBindings({ member_uuid: row.uuid });
     const bindings = ref(code === 0 ? data || [] : []);
+    // 移除单条绑定：二次确认后调接口，成功则就地从列表剔除该行
+    async function onRemoveBinding(binding: any) {
+      try {
+        await ElMessageBox.confirm(
+          `确认移除${binding.type === 1 ? "IP" : "机器码"}绑定 ${binding.value} 吗？`,
+          "提示",
+          { type: "warning" }
+        );
+        const { code, msg } = await removeMemberBinding({ uuid: binding.uuid });
+        if (code === 0) {
+          message("已移除绑定", { type: "success" });
+          bindings.value = bindings.value.filter(
+            b => b.uuid !== binding.uuid
+          );
+        } else {
+          message(msg || "移除失败", { type: "error" });
+        }
+      } catch {
+        // cancelled
+      }
+    }
     addDialog({
       title: `绑定信息 - ${row.username}`,
       width: "720px",
       draggable: true,
       closeOnClickModal: false,
-      contentRenderer: () => h(bindingsView, { bindings: bindings.value }),
+      contentRenderer: () =>
+        h(bindingsView, {
+          bindings: bindings.value,
+          onRemove: onRemoveBinding
+        }),
       footerButtons: [
         {
           label: "关闭",

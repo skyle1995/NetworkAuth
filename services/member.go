@@ -432,6 +432,30 @@ func ClearMemberBindings(memberUUID string) error {
 	return db.Where("member_uuid = ?", memberUUID).Delete(&models.Binding{}).Error
 }
 
+// RemoveMemberBinding 按绑定UUID移除单条机器码/IP绑定记录（后台单条解绑）。
+// 记录不存在时返回明确错误；成功时返回被移除绑定的类型与值，供操作审计日志使用。
+func RemoveMemberBinding(bindingUUID string) (bindingType int, value string, err error) {
+	bindingUUID = strings.TrimSpace(bindingUUID)
+	if bindingUUID == "" {
+		return 0, "", errors.New("绑定UUID不能为空")
+	}
+	db, err := database.GetDB()
+	if err != nil {
+		return 0, "", err
+	}
+	var binding models.Binding
+	if err := db.Where("uuid = ?", bindingUUID).First(&binding).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, "", errors.New("绑定记录不存在")
+		}
+		return 0, "", err
+	}
+	if err := db.Delete(&binding).Error; err != nil {
+		return 0, "", err
+	}
+	return binding.Type, binding.Value, nil
+}
+
 // DeleteMembers 批量删除账号，并级联删除其绑定记录。
 func DeleteMembers(ids []uint) error {
 	if len(ids) == 0 {
