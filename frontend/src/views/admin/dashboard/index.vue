@@ -408,7 +408,7 @@ onUnmounted(() => {
           <template #header>
             <div class="card-header"><span>快捷入口</span></div>
           </template>
-          <div class="flex flex-wrap gap-3">
+          <div class="quick-links flex flex-wrap gap-3">
             <el-button
               v-for="link in quickLinks"
               :key="link.path"
@@ -564,6 +564,12 @@ onUnmounted(() => {
 <style scoped>
 .card-header {
   font-weight: bold;
+}
+
+/* 快捷入口：清零 Element Plus 相邻按钮的 margin-left，间距统一交由 flex gap 控制，
+   否则移动端换行时第二行起首按钮作为 DOM 相邻兄弟仍带 12px 左边距，造成各行左缘错位 */
+.quick-links :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .uptime-display {
