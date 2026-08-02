@@ -37,6 +37,8 @@ Content-Type: application/json
 
 `/api/open` 按来源 IP 限流 **120 次/分钟**。登录/心跳/扣点等高频接口请合理控制频率。
 
+> **来源 IP 如何识别**：服务端默认只取 TCP 直连对端地址，**不信任任何 `X-Forwarded-For`**（防伪造）。若服务端部署在反向代理之后，须在 `config.json` 的 `server.trusted_proxies` 配置代理白名单，否则所有客户端共享代理 IP，限流会被误触发、IP 相关功能（`ip_verify` 绑定验证、接口 `51` IP 转绑、注册限流）全部失真。配置方法见 README「反向代理与客户端 IP 识别」。
+
 ---
 
 ## 三、签名算法（sign）

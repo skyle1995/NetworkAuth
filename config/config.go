@@ -27,6 +27,7 @@ type ServerConfig struct {
 	DevMode          bool     `json:"dev_mode" mapstructure:"dev_mode"`                     // 开发模式（跳过验证码等）
 	AccessLog        bool     `json:"access_log" mapstructure:"access_log"`                 // 是否输出访问日志
 	CorsAllowOrigins []string `json:"cors_allow_origins" mapstructure:"cors_allow_origins"` // 允许跨域携带凭证的来源白名单（为空时回退到安全降级策略）
+	TrustedProxies   []string `json:"trusted_proxies" mapstructure:"trusted_proxies"`       // 可信反向代理IP/CIDR白名单；仅来自这些地址才会解析X-Forwarded-For取真实客户端IP，为空则不信任任何代理（仅取TCP对端地址）
 }
 
 // DatabaseConfig 数据库配置结构体
@@ -97,6 +98,7 @@ func GetDefaultAppConfig() *AppConfig {
 			DevMode:          false,
 			AccessLog:        true,
 			CorsAllowOrigins: []string{},
+			TrustedProxies:   []string{},
 		},
 		Database: DatabaseConfig{
 			Type: "sqlite",
@@ -267,6 +269,7 @@ func syncViperConfig(currentConfig *AppConfig) {
 	viper.Set("server.dev_mode", currentConfig.Server.DevMode)
 	viper.Set("server.access_log", currentConfig.Server.AccessLog)
 	viper.Set("server.cors_allow_origins", currentConfig.Server.CorsAllowOrigins)
+	viper.Set("server.trusted_proxies", currentConfig.Server.TrustedProxies)
 
 	viper.Set("database.type", currentConfig.Database.Type)
 	viper.Set("database.mysql.host", currentConfig.Database.MySQL.Host)

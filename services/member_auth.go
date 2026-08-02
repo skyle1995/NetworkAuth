@@ -350,22 +350,27 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 		return nil, errors.New(reason)
 	}
 
-	// 机器码绑定（开启机器验证时）：已绑定则放行，未绑定且未超多开则新增，超出则拒绝
-	if app.MachineVerify == 1 && strings.TrimSpace(machineCode) != "" {
-		if err := ensureMachineBinding(db, member.UUID, machineCode, deviceName, effMultiOpen); err != nil {
-			return nil, err
-		}
-	}
-	if err := ensureIPBinding(db, member.UUID, ip, app.IPVerify, effMultiOpen); err != nil {
-		return nil, err
-	}
-
 	token, err := generateSessionToken()
 	if err != nil {
 		return nil, err
 	}
 
 	err = db.Transaction(func(tx *gorm.DB) error {
+		// 账号级互斥：串行化同一账号的并发登录，保护本事务内所有「先查后写」逻辑
+		// （绑定计数、会话计数）在并发下不被击穿多开上限。
+		if err := lockMemberRow(tx, member.UUID); err != nil {
+			return err
+		}
+		// 机器码/IP绑定：事务内执行、受账号锁保护，杜绝并发超绑。
+		// 已绑定放行；未绑定且未超多开则新增；超出则拒绝
+		if app.MachineVerify == 1 && strings.TrimSpace(machineCode) != "" {
+			if err := ensureMachineBinding(tx, member.UUID, machineCode, deviceName, effMultiOpen); err != nil {
+				return err
+			}
+		}
+		if err := ensureIPBinding(tx, member.UUID, ip, app.IPVerify, effMultiOpen); err != nil {
+			return err
+		}
 		// 点数模式登录扣费（按次扣点 / 按时预扣一个周期）
 		if err := applyLoginCharge(tx, app, member); err != nil {
 			return err
@@ -526,6 +531,7 @@ func cleanStaleSessions(tx *gorm.DB, memberUUID string, checkIntervalMin int) er
 }
 
 // ensureMachineBinding 确保机器码已绑定；未绑定时在多开数量内新增，超出则拒绝。
+// 须在持有账号锁的事务内调用（见 lockMemberRow），否则并发的先查后写会击穿绑定数量上限。
 func ensureMachineBinding(db *gorm.DB, memberUUID, machineCode, deviceName string, multiOpenCount int) error {
 	var existing models.Binding
 	err := db.Where("member_uuid = ? AND type = ? AND value = ?",
@@ -561,6 +567,17 @@ func ensureMachineBinding(db *gorm.DB, memberUUID, machineCode, deviceName strin
 	}).Error
 }
 
+// lockMemberRow 在登录事务内对账号行加排他锁，串行化同一账号的并发登录。
+// 采用等值主键 UPDATE 实现：MySQL 取行级 X 锁（持锁期间后到的并发事务等待，其后的快照读
+// 建立在锁释放之后，可见锁持有者已提交的绑定/会话，保证计数一致）；SQLite 连接池为单连接、
+// 写操作本就全局串行，该语句仅作多连接配置下的兜底。UpdateColumn 跳过更新时间自动维护与
+// 钩子，不产生任何数据副作用。
+func lockMemberRow(tx *gorm.DB, memberUUID string) error {
+	return tx.Model(&models.Member{}).
+		Where("uuid = ?", memberUUID).
+		UpdateColumn("id", gorm.Expr("id")).Error
+}
+
 // effectiveMultiOpen 有效多开数 = 应用多开数 + 会员等级额外多开，下限 1。
 func effectiveMultiOpen(db *gorm.DB, app *models.App, m *models.Member) int {
 	extra, _ := memberLevelExtras(db, m)
@@ -572,6 +589,7 @@ func effectiveMultiOpen(db *gorm.DB, app *models.App, m *models.Member) int {
 }
 
 // ensureIPBinding 确保登录 IP 满足应用 IP 验证配置；首次登录会自动绑定当前 IP。
+// 须在持有账号锁的事务内调用（见 lockMemberRow），否则并发的先查后写会击穿绑定数量上限。
 func ensureIPBinding(db *gorm.DB, memberUUID, ip string, ipVerify, multiOpenCount int) error {
 	if ipVerify == 0 {
 		return nil

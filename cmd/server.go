@@ -160,6 +160,13 @@ func createHTTPServer(addr string) *http.Server {
 	// 创建 Gin 引擎
 	r := gin.New()
 
+	// 客户端IP信任策略：仅当配置了反向代理网段(server.trusted_proxies)时才信任其
+	// X-Forwarded-For；未配置则不信任任何代理（gin 默认信任所有代理，攻击者可伪造
+	// XFF 绕过 IP 黑名单/地区校验）。配置非法时快速失败，避免带错误信任策略上线。
+	if err := r.SetTrustedProxies(viper.GetStringSlice("server.trusted_proxies")); err != nil {
+		logrus.WithError(err).Fatal("可信代理配置非法")
+	}
+
 	// 使用默认的 Recovery 中间件
 	r.Use(gin.Recovery())
 
