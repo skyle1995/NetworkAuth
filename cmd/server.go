@@ -163,8 +163,15 @@ func createHTTPServer(addr string) *http.Server {
 	// 客户端IP信任策略：仅当配置了反向代理网段(server.trusted_proxies)时才信任其
 	// X-Forwarded-For；未配置则不信任任何代理（gin 默认信任所有代理，攻击者可伪造
 	// XFF 绕过 IP 黑名单/地区校验）。配置非法时快速失败，避免带错误信任策略上线。
-	if err := r.SetTrustedProxies(viper.GetStringSlice("server.trusted_proxies")); err != nil {
+	trustedProxies := viper.GetStringSlice("server.trusted_proxies")
+	if err := r.SetTrustedProxies(trustedProxies); err != nil {
 		logrus.WithError(err).Fatal("可信代理配置非法")
+	}
+	// 启动时显式打印生效的客户端IP识别策略，便于反代部署排查 IP 识别异常
+	if len(trustedProxies) == 0 {
+		logrus.Warn("未配置可信代理(server.trusted_proxies)：客户端 IP 一律按 TCP 直连地址识别，X-Forwarded-For 将被忽略；若部署在反向代理之后，请在 config.json 的 server.trusted_proxies 配置代理 IP/CIDR 白名单")
+	} else {
+		logrus.WithField("trusted_proxies", trustedProxies).Info("可信代理白名单已生效：仅解析来自白名单地址的 X-Forwarded-For")
 	}
 
 	// 使用默认的 Recovery 中间件
