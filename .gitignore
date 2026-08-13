@@ -33,6 +33,9 @@ frontend/.env.*.local
 !.vscode/launch.json
 .idea/
 
+# Claude Code 本地工具配置
+.claude/
+
 # 操作系统
 .DS_Store
 
