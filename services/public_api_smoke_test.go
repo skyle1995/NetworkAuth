@@ -1755,3 +1755,50 @@ func TestAccountRegisterDisabled(t *testing.T) {
 		t.Fatalf("register should be rejected when disabled")
 	}
 }
+
+func TestManualTopLoginKickSession(t *testing.T) {
+	db := setupPublicTestDB(t)
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
+		"login_type":       models.LoginTypeManual,
+		"multi_open_scope": models.MultiOpenScopeAll,
+		"multi_open_count": 1,
+	})
+	card := models.Card{CardNo: "KM-MANUAL", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
+	db.Create(&card)
+
+	// 第一次登录成功，占满唯一名额
+	if _, err := CardLogin("APP-1", "KM-MANUAL", "MC-A", "1.1.1.1", "1.0.0", "PC-A"); err != nil {
+		t.Fatalf("first login: %v", err)
+	}
+
+	// 第二次登录（不同设备，全部设备范围 = 新会话）→ 手动顶号满员，返回会话列表
+	_, err := CardLogin("APP-1", "KM-MANUAL", "MC-B", "1.1.1.2", "1.0.0", "PC-B")
+	var sfe *SessionsFullError
+	if !errors.As(err, &sfe) {
+		t.Fatalf("second login should return SessionsFullError, got %v", err)
+	}
+	if len(sfe.Sessions) != 1 {
+		t.Fatalf("expected 1 online session in list, got %d", len(sfe.Sessions))
+	}
+	kickID := sfe.Sessions[0].ID
+
+	// 用另一个账号的凭据去踢不属于它的会话应失败（防越权）
+	otherCard := models.Card{CardNo: "KM-OTHER", AppUUID: "APP-1", Duration: 24 * 60, Status: models.CardStatusUnused}
+	db.Create(&otherCard)
+	if _, err := CardLogin("APP-1", "KM-OTHER", "MC-C", "1.1.1.3", "1.0.0", "PC-C"); err != nil {
+		t.Fatalf("other login: %v", err)
+	}
+	if err := KickSession("APP-1", "KM-OTHER", "", kickID, "1.1.1.3"); err == nil {
+		t.Fatalf("should not kick another account's session")
+	}
+
+	// 凭本人卡号踢掉指定会话
+	if err := KickSession("APP-1", "KM-MANUAL", "", kickID, "1.1.1.1"); err != nil {
+		t.Fatalf("kick own session: %v", err)
+	}
+
+	// 踢掉后重新登录应成功
+	if _, err := CardLogin("APP-1", "KM-MANUAL", "MC-B", "1.1.1.2", "1.0.0", "PC-B"); err != nil {
+		t.Fatalf("relogin after kick: %v", err)
+	}
+}

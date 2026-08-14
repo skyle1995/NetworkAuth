@@ -39,6 +39,7 @@ defineExpose({ getRef, newFormInline });
       <el-radio-group v-model="newFormInline.login_type">
         <el-radio :value="0">顶号登录</el-radio>
         <el-radio :value="1">非顶号登录</el-radio>
+        <el-radio :value="2">手动顶号</el-radio>
       </el-radio-group>
     </el-form-item>
     <el-form-item label="多开范围" prop="multi_open_scope">

@@ -88,6 +88,30 @@ func checkForceUpdate(app *models.App, version string) error {
 	return nil
 }
 
+// SessionInfo 在线会话信息（手动顶号满员时返回，供客户端展示并选择踢出）
+type SessionInfo struct {
+	ID           uint      `json:"id"`             // 会话ID（踢下线时作为 session_id 提交）
+	DeviceName   string    `json:"device_name"`    // 设备名称
+	MachineCode  string    `json:"machine_code"`   // 机器码
+	IP           string    `json:"ip"`             // 登录IP
+	Province     string    `json:"province"`       // IP归属省
+	City         string    `json:"city"`           // IP归属市
+	Version      string    `json:"version"`        // 客户端版本号
+	LastActiveAt time.Time `json:"last_active_at"` // 最近活跃时间
+	CreatedAt    time.Time `json:"created_at"`     // 登录时间
+}
+
+// SessionsFullError 手动顶号满员拦截：在线数已达上限，附带当前会话列表，
+// 客户端据此弹窗让用户选择踢出哪个会话后再重试登录。
+// 类似 ForceUpdateError，经 errors.As 在公开 API 入口识别为专用响应 code。
+type SessionsFullError struct {
+	Sessions []SessionInfo
+}
+
+func (e *SessionsFullError) Error() string {
+	return "已达最大同时在线数，请选择要下线的设备"
+}
+
 // StatusResult 账号状态查询返回的信息
 type StatusResult struct {
 	Username          string    `json:"username"`
@@ -416,8 +440,17 @@ func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, mach
 		}
 
 		if len(distinct) >= maxOpen {
-			if app.LoginType == 1 {
+			if app.LoginType == models.LoginTypeReject {
 				return errors.New("已达最大同时在线数")
+			}
+			if app.LoginType == models.LoginTypeManual {
+				// 手动顶号：返回当前在线会话列表，由客户端选择踢出后再重试登录。
+				// 事务随错误回滚，本次登录不产生任何副作用（绑定/扣费/清理均撤销）。
+				infos, err := buildSessionInfos(tx, member.UUID)
+				if err != nil {
+					return err
+				}
+				return &SessionsFullError{Sessions: infos}
 			}
 			// 顶号：踢掉最早的「开」(该机器/IP 的全部会话)直到腾出空位
 			for _, k := range order {
@@ -528,6 +561,32 @@ func cleanStaleSessions(tx *gorm.DB, memberUUID string, checkIntervalMin int) er
 	deadline := time.Now().Add(-time.Duration(checkIntervalMin) * time.Minute)
 	return tx.Where("member_uuid = ? AND last_active_at < ?", memberUUID, deadline).
 		Delete(&models.MemberSession{}).Error
+}
+
+// buildSessionInfos 查询某账号当前在线会话并转换为返回结构（按最近活跃倒序）。
+// 供手动顶号满员时返回给客户端；须在持有账号锁的事务内调用，保证读到一致状态。
+func buildSessionInfos(tx *gorm.DB, memberUUID string) ([]SessionInfo, error) {
+	var sessions []models.MemberSession
+	if err := tx.Where("member_uuid = ?", memberUUID).
+		Order("last_active_at DESC").Find(&sessions).Error; err != nil {
+		return nil, err
+	}
+	infos := make([]SessionInfo, 0, len(sessions))
+	for _, s := range sessions {
+		province, city := ResolveIPRegion(s.IP)
+		infos = append(infos, SessionInfo{
+			ID:           s.ID,
+			DeviceName:   s.DeviceName,
+			MachineCode:  s.MachineCode,
+			IP:           s.IP,
+			Province:     province,
+			City:         city,
+			Version:      s.Version,
+			LastActiveAt: s.LastActiveAt,
+			CreatedAt:    s.CreatedAt,
+		})
+	}
+	return infos, nil
 }
 
 // ensureMachineBinding 确保机器码已绑定；未绑定时在多开数量内新增，超出则拒绝。
@@ -750,6 +809,35 @@ func MemberLogout(appUUID, token string) error {
 	if res.RowsAffected == 0 {
 		return errors.New("会话无效")
 	}
+	return nil
+}
+
+// KickSession 手动顶号：凭据验证后踢掉本人账号的指定会话。
+// 满员时客户端拿不到令牌，故用凭据（注册账号=用户名+密码，卡密=卡号）验证，
+// 沿用 authMemberByCredential 模式，避免「满员→拿不到令牌→无法踢下线」的死循环。
+// 仅允许踢出当前账号自己的会话，防止越权下线他人。
+func KickSession(appUUID, username, password string, sessionID uint, ip string) error {
+	db, err := database.GetDB()
+	if err != nil {
+		return err
+	}
+	member, err := authMemberByCredential(db, appUUID, username, password)
+	if err != nil {
+		return err
+	}
+	if sessionID == 0 {
+		return errors.New("会话ID不能为空")
+	}
+	res := db.Where("id = ? AND member_uuid = ?", sessionID, member.UUID).
+		Delete(&models.MemberSession{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return errors.New("会话不存在或不属于当前账号")
+	}
+	AddMemberLog(member.AppUUID, member.UUID, member.Username, "手动顶号",
+		"下线会话 #"+strconv.FormatUint(uint64(sessionID), 10), ip)
 	return nil
 }
 

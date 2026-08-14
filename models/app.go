@@ -47,6 +47,13 @@ const (
 	MultiOpenScopeAll     = 2 // 全部电脑：按会话（每次登录）
 )
 
+// 登录方式：会话满员时的处理策略
+const (
+	LoginTypeKickOldest = 0 // 顶号登录：自动踢掉最早的「开」
+	LoginTypeReject     = 1 // 非顶号登录：直接拒绝新登录
+	LoginTypeManual     = 2 // 手动顶号：返回在线会话列表，由客户端选择踢出
+)
+
 // ============================================================================
 // 结构体定义
 // ============================================================================
@@ -79,8 +86,8 @@ type App struct {
 	// Announcement：程序公告内容（base64编码存储）
 	Announcement string `gorm:"type:text;comment:程序公告内容，base64编码存储" json:"announcement"`
 
-	// LoginType：登陆方式（0=顶号登录（默认），1=非顶号登录）
-	LoginType int `gorm:"default:0;not null;comment:登陆方式，0=顶号登录，1=非顶号登录" json:"login_type"`
+	// LoginType：登陆方式（0=顶号登录（默认），1=非顶号登录，2=手动顶号）
+	LoginType int `gorm:"default:0;not null;comment:登陆方式，0=顶号登录，1=非顶号登录，2=手动顶号" json:"login_type"`
 	// MultiOpenScope：多开范围（0=单电脑，1=单IP，2=全部电脑（默认））
 	MultiOpenScope int `gorm:"default:2;not null;comment:多开范围，0=单电脑，1=单IP，2=全部电脑" json:"multi_open_scope"`
 	// CleanInterval：清理间隔（单位：小时，默认1小时）

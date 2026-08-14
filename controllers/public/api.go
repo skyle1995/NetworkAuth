@@ -47,6 +47,18 @@ func failForceUpdate(c *gin.Context, e *services.ForceUpdateError) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// failSessionsFull 手动顶号满员拦截响应：code=3 表示「在线数已满，需手动选择踢出」，
+// 附带当前在线会话列表（明文，与失败通道的 msg 一致），供客户端弹窗让用户选择踢出。
+func failSessionsFull(c *gin.Context, e *services.SessionsFullError) {
+	resp := gin.H{"code": 3, "msg": e.Error()}
+	sessions := e.Sessions
+	if sessions == nil {
+		sessions = []services.SessionInfo{}
+	}
+	resp["sessions"] = sessions
+	c.JSON(http.StatusOK, resp)
+}
+
 // OpenAPIHandler 公开 API 分发入口
 func OpenAPIHandler(c *gin.Context) {
 	var envelope struct {
@@ -117,6 +129,12 @@ func OpenAPIHandler(c *gin.Context) {
 			failForceUpdate(c, fue)
 			return
 		}
+		// 手动顶号满员拦截：返回专用 code 与在线会话列表，客户端据此弹窗选择踢出
+		var sfe *services.SessionsFullError
+		if errors.As(bizErr, &sfe) {
+			failSessionsFull(c, sfe)
+			return
+		}
 		fail(c, bizErr.Error())
 		return
 	}
@@ -181,6 +199,8 @@ func dispatch(c *gin.Context, app *models.App, apiType int, plainParams string) 
 		return handleRiskDeduct(app, plainParams)
 	case models.APITypeLogOut:
 		return handleLogout(app, plainParams)
+	case models.APITypeKickSession:
+		return handleKickSession(c, app, plainParams)
 	default:
 		return nil, errUnsupported
 	}
@@ -577,4 +597,21 @@ func handleLogout(app *models.App, plainParams string) (any, error) {
 		return nil, err
 	}
 	return gin.H{"message": "已退出登录"}, nil
+}
+
+// handleKickSession 手动顶号：踢掉本人账号的指定会话（type 31）。
+// 满员时客户端无令牌可用，故用凭据验证身份后踢出本人会话，再重试登录。
+func handleKickSession(c *gin.Context, app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Username  string `json:"username"`   // 注册账号=用户名；卡密账号=卡号
+		Password  string `json:"password"`   // 注册账号必填；卡密账号留空
+		SessionID uint   `json:"session_id"` // 满员返回列表中的会话 id
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	if err := services.KickSession(app.UUID, params.Username, params.Password, params.SessionID, c.ClientIP()); err != nil {
+		return nil, err
+	}
+	return gin.H{"session_id": params.SessionID, "message": "已下线"}, nil
 }

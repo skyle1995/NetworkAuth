@@ -33,7 +33,8 @@ const (
 	APITypeResetPassword = 26 // 找回密码
 
 	// 登出操作
-	APITypeLogOut = 30 // 退出登录
+	APITypeLogOut      = 30 // 退出登录
+	APITypeKickSession = 31 // 踢下线（手动顶号：凭据验证后踢掉本人账号的指定会话）
 
 	// 状态查询
 	APITypeGetExpired      = 40 // 获取到期时间
@@ -212,6 +213,7 @@ func GetAPITypes(categorized bool) interface{} {
 			Name: "登出操作",
 			Types: []APITypeInfo{
 				{Type: APITypeLogOut, Name: "退出登录"},
+				{Type: APITypeKickSession, Name: "踢下线（手动顶号）"},
 			},
 		},
 		{

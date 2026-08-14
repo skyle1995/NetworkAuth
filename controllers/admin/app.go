@@ -865,7 +865,7 @@ func AppUpdateMultiConfigHandler(c *gin.Context) {
 	}
 
 	// 验证参数范围
-	if req.LoginType < 0 || req.LoginType > 1 {
+	if req.LoginType < 0 || req.LoginType > 2 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code": 1,
 			"msg":  "登录方式参数无效",
