@@ -137,9 +137,9 @@ jobs:
         # zip：打包用。Go 编译本身不需要 node（前端已 go:embed），故省去 npm
         run: |
           # Debian apt 换阿里云国内镜像（兼容旧 sources.list 与新 deb822 格式）
-          sed -i 's@deb.debian.org@mirrors.aliyun.com@g; s@security.debian.org@mirrors.aliyun.com@g' \
+          sed -i 's@deb.debian.org@mirrors.tuna.tsinghua.edu.cn@g; s@security.debian.org@mirrors.tuna.tsinghua.edu.cn@g' \
             /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources 2>/dev/null || true
-          apt-get update -qq
+          apt-get update -qq -o Acquire::Retries=2 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15
           apt-get install -y -qq nodejs zip --no-install-recommends
 
       - uses: actions/checkout@v4
@@ -216,9 +216,9 @@ jobs:
 
       - name: 安装工具
         run: |
-          sed -i 's@deb.debian.org@mirrors.aliyun.com@g; s@security.debian.org@mirrors.aliyun.com@g' \
+          sed -i 's@deb.debian.org@mirrors.tuna.tsinghua.edu.cn@g; s@security.debian.org@mirrors.tuna.tsinghua.edu.cn@g' \
             /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources 2>/dev/null || true
-          apt-get update -qq
+          apt-get update -qq -o Acquire::Retries=2 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15
           apt-get install -y -qq curl jq --no-install-recommends
 
       - name: 下载所有包
@@ -326,9 +326,9 @@ jobs:
 
       - name: 安装工具
         run: |
-          sed -i 's@deb.debian.org@mirrors.aliyun.com@g; s@security.debian.org@mirrors.aliyun.com@g' \
+          sed -i 's@deb.debian.org@mirrors.tuna.tsinghua.edu.cn@g; s@security.debian.org@mirrors.tuna.tsinghua.edu.cn@g' \
             /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources 2>/dev/null || true
-          apt-get update -qq
+          apt-get update -qq -o Acquire::Retries=2 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15
           apt-get install -y -qq curl --no-install-recommends
 
       - uses: actions/download-artifact@v3
