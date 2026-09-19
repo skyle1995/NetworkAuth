@@ -247,6 +247,7 @@ jobs:
         env:
           GITEA_URL: ${{ github.server_url }}
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          RELEASE_UPLOAD_ASSETS: ${{ vars.RELEASE_UPLOAD_ASSETS }}
         run: |
           set -e
           VERSION="${{ needs.prepare.outputs.version }}"
@@ -284,30 +285,35 @@ jobs:
             echo "✅  Release 创建成功 (ID: ${RELEASE_ID})"
           fi
 
-          # 上传所有附件
-          echo "📤  上传附件..."
-          PREV_ASSETS=$(curl -s \
-            -H "Authorization: token ${RELEASE_TOKEN}" \
-            "${GITEA_URL}/api/v1/repos/${REPO}/releases/${RELEASE_ID}/assets")
-
-          for file in dist/packages/*; do
-            [ -f "$file" ] || continue
-            BASENAME=$(basename "$file")
-
-            EXISTS=$(echo "${PREV_ASSETS}" | jq -r ".[] | select(.name == \"${BASENAME}\") | .id")
-            if [ -n "${EXISTS}" ]; then
-              echo "⏩  跳过已有附件: ${BASENAME}"
-              continue
-            fi
-
-            echo "  → ${BASENAME}"
-            curl -s -X POST \
-              "${GITEA_URL}/api/v1/repos/${REPO}/releases/${RELEASE_ID}/assets" \
+          # 上传附件（项目变量 RELEASE_UPLOAD_ASSETS 控制，未配置默认上传）
+          UPLOAD_ASSETS="${RELEASE_UPLOAD_ASSETS:-true}"
+          if [ "${UPLOAD_ASSETS}" = "false" ] || [ "${UPLOAD_ASSETS}" = "0" ] || [ "${UPLOAD_ASSETS}" = "no" ]; then
+            echo "⏭️  RELEASE_UPLOAD_ASSETS=${UPLOAD_ASSETS}，跳过附件上传"
+          else
+            echo "📤  上传附件..."
+            PREV_ASSETS=$(curl -s \
               -H "Authorization: token ${RELEASE_TOKEN}" \
-              -F "attachment=@${file}" > /dev/null
-          done
+              "${GITEA_URL}/api/v1/repos/${REPO}/releases/${RELEASE_ID}/assets")
 
-          echo "✅  Release ${{ needs.prepare.outputs.version }} 所有附件已就绪"
+            for file in dist/packages/*; do
+              [ -f "$file" ] || continue
+              BASENAME=$(basename "$file")
+
+              EXISTS=$(echo "${PREV_ASSETS}" | jq -r ".[] | select(.name == \"${BASENAME}\") | .id")
+              if [ -n "${EXISTS}" ]; then
+                echo "⏩  跳过已有附件: ${BASENAME}"
+                continue
+              fi
+
+              echo "  → ${BASENAME}"
+              curl -s -X POST \
+                "${GITEA_URL}/api/v1/repos/${REPO}/releases/${RELEASE_ID}/assets" \
+                -H "Authorization: token ${RELEASE_TOKEN}" \
+                -F "attachment=@${file}" > /dev/null
+            done
+          fi
+
+          echo "✅  Release ${{ needs.prepare.outputs.version }} 附件处理完成"
           echo "🔗  ${GITEA_URL}/${REPO}/releases/tag/${{ github.ref_name }}"
 
 
