@@ -387,10 +387,8 @@ jobs:
 
           if [ -n "${UPLOAD_PREFIX}" ]; then
             TARGET_DIR="${UPLOAD_PREFIX}/NetworkAuth/v${VERSION}"
-            LATEST_DIR="${UPLOAD_PREFIX}/NetworkAuth/latest"
           else
             TARGET_DIR="NetworkAuth/v${VERSION}"
-            LATEST_DIR="NetworkAuth/latest"
           fi
 
           if [ "${STORAGE}" = "cos" ]; then
@@ -411,17 +409,7 @@ jobs:
               echo "  ✅ $(basename "$file")"
             done
 
-            echo "🔄  更新 latest 目录..."
-            if [ "${CLEAR}" = "true" ]; then
-              coscli -i "${COS_SECRET_ID}" -k "${COS_SECRET_KEY}" -e "cos.${COS_REGION}.myqcloud.com" rm "cos://${COS_BUCKET}/${LATEST_DIR}" -r --force > /dev/null 2>&1 || true
-            fi
-            for file in dist/packages/*; do
-              [ -f "$file" ] || continue
-              coscli -i "${COS_SECRET_ID}" -k "${COS_SECRET_KEY}" -e "cos.${COS_REGION}.myqcloud.com" cp "$file" "cos://${COS_BUCKET}/${LATEST_DIR}/" > /dev/null
-            done
-
             echo "🔗  版本: https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/${TARGET_DIR}/"
-            echo "🔗  latest: https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/${LATEST_DIR}/"
 
           elif [ "${STORAGE}" = "oss" ]; then
             echo "🔧  下载 ossutil..."
@@ -440,14 +428,7 @@ jobs:
             ossutil cp dist/packages/ "oss://${OSS_BUCKET}/${TARGET_DIR}/" -r > /dev/null
             echo "  ✅ 已上传 $(ls dist/packages/ | wc -l) 个文件"
 
-            echo "🔄  更新 latest 目录..."
-            if [ "${CLEAR}" = "true" ]; then
-              ossutil rm "oss://${OSS_BUCKET}/${LATEST_DIR}" -r --force > /dev/null 2>&1 || true
-            fi
-            ossutil cp dist/packages/ "oss://${OSS_BUCKET}/${LATEST_DIR}/" -r > /dev/null
-
             echo "🔗  版本: https://${OSS_BUCKET}.${OSS_ENDPOINT}/${TARGET_DIR}/"
-            echo "🔗  latest: https://${OSS_BUCKET}.${OSS_ENDPOINT}/${LATEST_DIR}/"
           fi
 
           echo "✅ 存储上传完成"
