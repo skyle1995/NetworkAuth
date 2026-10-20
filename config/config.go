@@ -24,10 +24,26 @@ type ServerConfig struct {
 	Host             string   `json:"host" mapstructure:"host"`                             // 服务器监听地址
 	Port             int      `json:"port" mapstructure:"port"`                             // 服务器监听端口
 	Dist             string   `json:"dist" mapstructure:"dist"`                             // 静态文件目录
-	DevMode          bool     `json:"dev_mode" mapstructure:"dev_mode"`                     // 开发模式（跳过验证码等）
+	DevMode          bool     `json:"dev_mode" mapstructure:"dev_mode"`                     // 开发模式（仅放宽日志/Gin 模式，不再跳过验证码）
 	AccessLog        bool     `json:"access_log" mapstructure:"access_log"`                 // 是否输出访问日志
 	CorsAllowOrigins []string `json:"cors_allow_origins" mapstructure:"cors_allow_origins"` // 允许跨域携带凭证的来源白名单（为空时回退到安全降级策略）
 	TrustedProxies   []string `json:"trusted_proxies" mapstructure:"trusted_proxies"`       // 可信反向代理IP/CIDR白名单；仅来自这些地址才会解析X-Forwarded-For取真实客户端IP，为空则不信任任何代理（仅取TCP对端地址）
+}
+
+// SecurityConfig 安全策略配置
+type SecurityConfig struct {
+	// SkipCaptcha 危险开关：跳过登录验证码校验。仅限本地开发调试，生产环境务必保持 false。
+	SkipCaptcha bool `json:"skip_captcha" mapstructure:"skip_captcha"`
+	// LoginMaxFailures 同一账号在统计窗口内允许的连续失败次数，超过后临时锁定
+	LoginMaxFailures int `json:"login_max_failures" mapstructure:"login_max_failures"`
+	// LoginWindowMinutes 失败次数统计窗口（分钟）
+	LoginWindowMinutes int `json:"login_window_minutes" mapstructure:"login_window_minutes"`
+	// LoginLockMinutes 账号锁定基础时长（分钟，重复触发时按指数递增）
+	LoginLockMinutes int `json:"login_lock_minutes" mapstructure:"login_lock_minutes"`
+	// LoginIPMaxFailures 同一 IP 在统计窗口内允许的失败次数（含验证码错误）
+	LoginIPMaxFailures int `json:"login_ip_max_failures" mapstructure:"login_ip_max_failures"`
+	// LoginIPLockMinutes IP 锁定基础时长（分钟）
+	LoginIPLockMinutes int `json:"login_ip_lock_minutes" mapstructure:"login_ip_lock_minutes"`
 }
 
 // DatabaseConfig 数据库配置结构体
@@ -82,6 +98,7 @@ type AppConfig struct {
 	Database DatabaseConfig `json:"database" mapstructure:"database"`
 	Redis    RedisConfig    `json:"redis" mapstructure:"redis"`
 	Log      LogConfig      `json:"log" mapstructure:"log"`
+	Security SecurityConfig `json:"security" mapstructure:"security"`
 }
 
 // ============================================================================
@@ -129,7 +146,26 @@ func GetDefaultAppConfig() *AppConfig {
 			MaxBackups: 5,
 			MaxAge:     30,
 		},
+		Security: SecurityConfig{
+			SkipCaptcha:        false,
+			LoginMaxFailures:   10,
+			LoginWindowMinutes: 15,
+			LoginLockMinutes:   15,
+			LoginIPMaxFailures: 30,
+			LoginIPLockMinutes: 10,
+		},
 	}
+}
+
+// GetRuntimeConfig 从 viper 解析当前生效配置（用于运行时读取安全策略等场景）。
+// 注意：解析失败或字段缺失时返回零值，调用方需自行回退到安全缺省值。
+func GetRuntimeConfig() *AppConfig {
+	var cfg AppConfig
+	if err := viper.Unmarshal(&cfg); err != nil {
+		log.WithField("err", err).Warn("解析运行时配置失败，将使用缺省值")
+		return &AppConfig{}
+	}
+	return &cfg
 }
 
 // Init 初始化配置文件
@@ -292,4 +328,11 @@ func syncViperConfig(currentConfig *AppConfig) {
 	viper.Set("log.max_size", currentConfig.Log.MaxSize)
 	viper.Set("log.max_backups", currentConfig.Log.MaxBackups)
 	viper.Set("log.max_age", currentConfig.Log.MaxAge)
+
+	viper.Set("security.skip_captcha", currentConfig.Security.SkipCaptcha)
+	viper.Set("security.login_max_failures", currentConfig.Security.LoginMaxFailures)
+	viper.Set("security.login_window_minutes", currentConfig.Security.LoginWindowMinutes)
+	viper.Set("security.login_lock_minutes", currentConfig.Security.LoginLockMinutes)
+	viper.Set("security.login_ip_max_failures", currentConfig.Security.LoginIPMaxFailures)
+	viper.Set("security.login_ip_lock_minutes", currentConfig.Security.LoginIPLockMinutes)
 }

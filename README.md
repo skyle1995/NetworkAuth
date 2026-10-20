@@ -143,6 +143,38 @@ docker run -d -p 8080:8080 networkauth
 
 ---
 
+## 后台登录安全加固
+
+后台登录已内置多层防护（本次安全修复），上线前请逐项确认：
+
+- **验证码与 `dev_mode` 解耦**：`server.dev_mode: true` 不再跳过登录验证码；本地调试确需跳过时，显式设置 `security.skip_captcha: true`（启动会打印严重安全警告），生产环境必须为 `false`。
+- **客户端 IP 不可伪造**：未配置 `server.trusted_proxies` 时禁用 `X-Forwarded-For`/`X-Real-IP` 解析，客户端 IP 取 TCP 对端地址。部署在 Nginx/CDN 之后时必须把代理出口地址加入白名单（如 `["127.0.0.1/32"]`），并让代理覆盖客户端可伪造的转发头，否则 IP 级限流会退化为全局共享额度、登录日志 IP 失真。
+- **验证码令牌绑定客户端与类型**：滑块/点击验证码通过后签发的一次性令牌绑定签发时的 IP、User-Agent 与验证码类型，5 分钟内有效且只能使用一次；登录只接受与当前配置类型一致的令牌，未启用的验证码接口会直接拒绝（修复「配置 click 后仍可调用 slide 接口刷令牌」的绕过）。
+- **限流 fail-secure**：Redis 不可用时自动降级为进程内限流，不再静默放行。
+- **登录失败锁定**：同一账号连续失败达到阈值后临时锁定，重复触发按指数退避（最高 6 小时）；同一 IP 的失败（含验证码错误）也会触发临时锁定。锁定状态保存在进程内存，重启服务即清除。
+- **建议**：在 Nginx/WAF 层对 `/api/admin/login`、`/api/admin/captcha/` 再叠加一层基于 `$binary_remote_addr` 的 `limit_req`。
+
+对应配置（`config.json`，均可省略、使用安全默认值）：
+
+```json
+{
+  "server": {
+    "dev_mode": false,
+    "trusted_proxies": []
+  },
+  "security": {
+    "skip_captcha": false,
+    "login_max_failures": 10,
+    "login_window_minutes": 15,
+    "login_lock_minutes": 15,
+    "login_ip_max_failures": 30,
+    "login_ip_lock_minutes": 10
+  }
+}
+```
+
+---
+
 ## Git 版本发布（Tag）
 
 本项目的发布通常以 Tag 为触发点（例如在 CI/CD 中自动构建并创建 Release）。建议使用语义化版本号（SemVer），并统一以 `v` 前缀命名，例如 `v1.2.3`。

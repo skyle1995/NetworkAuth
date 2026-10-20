@@ -36,9 +36,26 @@ func CaptchaTypeHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "msg": "success", "data": gin.H{"type": GetCaptchaType()}})
 }
 
+// rejectCaptchaTypeMismatch 当请求的验证码类型与后台当前配置不一致时直接拒绝。
+//
+// 安全目的：历史实现中 slide / click 两种验证码共用同一套「一次性登录令牌」，
+// 且两个签发接口始终可用。管理员把类型切换为更强的 click 后，攻击者仍可调用
+// slide 接口（滑块更容易被脚本识别/爆破）换取登录令牌，使 click 配置形同虚设。
+// 现在：登录令牌绑定验证码类型，且未启用的验证码接口不再签发/下发题目。
+func rejectCaptchaTypeMismatch(c *gin.Context, want string) bool {
+	if GetCaptchaType() == want {
+		return false
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 1, "msg": "当前验证码类型未启用"})
+	return true
+}
+
 // SlideCaptchaHandler 生成滑动拼图验证码
 // GET /admin/captcha/slide -> {code,data:{id,master_image,tile_image,tile_x,tile_y,...}}
 func SlideCaptchaHandler(c *gin.Context) {
+	if rejectCaptchaTypeMismatch(c, captchaTypeSlide) {
+		return
+	}
 	data, err := utils.GenerateSlideCaptcha()
 	if err != nil {
 		logrus.WithError(err).Error("生成滑动验证码失败")
@@ -51,6 +68,9 @@ func SlideCaptchaHandler(c *gin.Context) {
 // SlideCaptchaVerifyHandler 校验滑动拼图落点，通过则下发一次性令牌
 // POST /admin/captcha/slide/verify {id,x} -> {code,data:{token}}
 func SlideCaptchaVerifyHandler(c *gin.Context) {
+	if rejectCaptchaTypeMismatch(c, captchaTypeSlide) {
+		return
+	}
 	var body struct {
 		ID string `json:"id"`
 		X  int    `json:"x"`
@@ -63,13 +83,16 @@ func SlideCaptchaVerifyHandler(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 1, "msg": "验证未通过，请重试"})
 		return
 	}
-	token := utils.IssueSlideToken()
+	token := utils.IssueSlideToken(c.ClientIP(), c.Request.UserAgent(), captchaTypeSlide)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "msg": "success", "data": gin.H{"token": token}})
 }
 
 // ClickCaptchaHandler 生成点击文字验证码
 // GET /admin/captcha/click -> {code,data:{id,master_image,thumb_image,...,dot_count}}
 func ClickCaptchaHandler(c *gin.Context) {
+	if rejectCaptchaTypeMismatch(c, captchaTypeClick) {
+		return
+	}
 	data, err := utils.GenerateClickCaptcha()
 	if err != nil {
 		logrus.WithError(err).Error("生成点击文字验证码失败")
@@ -82,6 +105,9 @@ func ClickCaptchaHandler(c *gin.Context) {
 // ClickCaptchaVerifyHandler 校验有序点击点，通过则下发一次性令牌
 // POST /admin/captcha/click/verify {id,points:[{x,y}...]} -> {code,data:{token}}
 func ClickCaptchaVerifyHandler(c *gin.Context) {
+	if rejectCaptchaTypeMismatch(c, captchaTypeClick) {
+		return
+	}
 	var body struct {
 		ID     string             `json:"id"`
 		Points []utils.ClickPoint `json:"points"`
@@ -94,13 +120,17 @@ func ClickCaptchaVerifyHandler(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 1, "msg": "验证未通过，请重试"})
 		return
 	}
-	token := utils.IssueSlideToken() // 与滑块共用一次性令牌
+	// 与滑块共用令牌存储，但令牌会记录签发类型（click），登录侧只接受与当前配置类型一致的令牌
+	token := utils.IssueSlideToken(c.ClientIP(), c.Request.UserAgent(), captchaTypeClick)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "msg": "success", "data": gin.H{"token": token}})
 }
 
 // CaptchaHandler 生成验证码图片
 // GET /admin/captcha - 返回验证码图片
 func CaptchaHandler(c *gin.Context) {
+	if rejectCaptchaTypeMismatch(c, captchaTypeImage) {
+		return
+	}
 	// 配置与 User 端一致，采用较弱的验证码强度以提升正常用户体验
 	driver := base64Captcha.DriverString{
 		Height:          60,
@@ -144,16 +174,18 @@ func CaptchaHandler(c *gin.Context) {
 //   - slide：消费前置滑块校验签发的一次性令牌 slideToken
 //   - image：从 cookie 取 captcha_id + 用户输入 imageValue 校验（大小写不敏感）
 //
-// 开发模式(dev_mode)下一律跳过。
+// 仅当配置文件中显式开启 security.skip_captcha（默认 false，启动时会打印严重警告）才跳过；
+// server.dev_mode 不再跳过验证码，避免开发配置遗留到生产后验证码完全失效。
 func VerifyCaptcha(c *gin.Context, imageValue, slideToken string) bool {
-	// 检查是否为开发模式，如果是则跳过验证码验证
 	if middleware.ShouldSkipCaptcha(c) {
 		return true
 	}
 
 	// 滑动拼图 / 点击文字：登录仅需消费前置校验签发的一次性通过令牌
+	// 令牌绑定签发时的 IP + User-Agent，且 5 分钟内有效、一次性使用
 	if t := GetCaptchaType(); t == captchaTypeSlide || t == captchaTypeClick {
-		return utils.ConsumeSlideToken(slideToken)
+		// 令牌类型必须与当前配置一致，防止攻击者用未启用的弱验证码接口刷出的令牌登录
+		return utils.ConsumeSlideToken(slideToken, c.ClientIP(), c.Request.UserAgent(), t)
 	}
 
 	// 字符(图形)验证码：从 cookie 中获取验证码 ID

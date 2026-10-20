@@ -84,8 +84,26 @@ func LoginHandler(c *gin.Context) {
 		return
 	}
 
-	// 验证验证码（按当前类型：字符 or 滑块令牌）
+	clientIP := c.ClientIP()
+	username := strings.TrimSpace(body.Username)
+
+	// 2. 登录防爆破：账号/IP 维度失败计数 + 临时锁定
+	//    验证码可能被脚本识别或提前绕过，这里是第二道防线：
+	//    即使攻击者换 IP 分布式爆破，同一账号连续错误达到阈值后也会被锁定。
+	if allowed, retryAfter := services.GetLoginGuard().Allow(clientIP, username); !allowed {
+		recordLoginLog(c, "", body.Username, 0, fmt.Sprintf("尝试次数过多，账号已临时锁定（剩余 %d 秒）", int(retryAfter.Seconds())))
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"code": 429,
+			"msg":  "尝试次数过多，请稍后再试",
+			"data": nil,
+		})
+		return
+	}
+
+	// 3. 验证验证码（按当前类型：字符 or 滑块令牌）
 	if !VerifyCaptcha(c, body.Captcha, body.CaptchaToken) {
+		// 验证码错误只累加 IP 维度，不累加账号维度，避免攻击者故意用错误验证码锁死正常账号
+		services.GetLoginGuard().OnCaptchaFailure(clientIP)
 		recordLoginLog(c, "", body.Username, 0, "验证码错误或已过期")
 		authBaseController.HandleValidationError(c, "验证码错误或已过期")
 		return
@@ -103,6 +121,7 @@ func LoginHandler(c *gin.Context) {
 	if err := db.Where("username = ?", body.Username).First(&user).Error; err != nil {
 		// 用户不存在时执行一次等价耗时的密码校验，消除时序差异，缓解用户名枚举
 		utils.PerformDummyPasswordCheck(body.Password)
+		services.GetLoginGuard().OnCredentialFailure(clientIP, username)
 		recordLoginLog(c, user.UUID, body.Username, 0, "用户不存在")
 		authBaseController.HandleValidationError(c, "用户不存在或密码错误")
 		return
@@ -124,6 +143,7 @@ func LoginHandler(c *gin.Context) {
 
 	// 验证密码（使用盐值校验）
 	if !utils.VerifyPasswordWithSalt(body.Password, user.PasswordSalt, user.Password) {
+		services.GetLoginGuard().OnCredentialFailure(clientIP, username)
 		recordLoginLog(c, user.UUID, body.Username, 0, "密码错误")
 		authBaseController.HandleValidationError(c, "用户不存在或密码错误")
 		return
@@ -164,6 +184,7 @@ func LoginHandler(c *gin.Context) {
 
 	accessExpiresAt := time.Now().Add(time.Duration(settingsService.GetJWTExpire()) * time.Hour)
 
+	services.GetLoginGuard().OnSuccess(clientIP, username)
 	recordLoginLog(c, user.UUID, body.Username, 1, "登录成功")
 	authBaseController.HandleSuccess(c, "登录成功", gin.H{
 		"redirect":     "/admin",
