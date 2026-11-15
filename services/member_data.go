@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
-	"time"
 
 	"gorm.io/gorm"
 )
@@ -76,7 +75,7 @@ func SetUserData(appUUID, token, data string) (any, error) {
 	return map[string]any{"message": "保存成功"}, nil
 }
 
-// GetVariable 获取变量数据（type 43）：按别名返回本应用或全局变量的数据。
+// GetVariable 获取变量数据（type 43）：普通变量可回落全局，包密钥仅限当前应用。
 func GetVariable(appUUID, token, alias string) (any, error) {
 	alias = strings.TrimSpace(alias)
 	if alias == "" {
@@ -89,11 +88,16 @@ func GetVariable(appUUID, token, alias string) (any, error) {
 	if _, _, err := authActiveMember(db, appUUID, token); err != nil {
 		return nil, err
 	}
-	// 先在「本应用」里找，找不到再回落全局变量（app_uuid 为空）
-	// 这样每个插件应用都能有自己的一把 zex_key，互不影响
+	// 普通变量兼容全局配置；包密钥不得跨越应用授权边界。
 	var variable models.Variable
 	if err := db.Where("alias = ? AND app_uuid = ?", alias, appUUID).
 		First(&variable).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		if strings.EqualFold(alias, "zex_key") {
+			return nil, errors.New("变量不存在")
+		}
 		if err2 := db.Where("alias = ? AND (app_uuid = ? OR app_uuid IS NULL)", alias, "").
 			First(&variable).Error; err2 != nil {
 			return nil, errors.New("变量不存在")
@@ -141,9 +145,16 @@ func ChangeMemberPassword(appUUID, token, oldPassword, newPassword string) (any,
 	if member.Type != models.MemberTypeRegister || member.PasswordSalt == "" {
 		return nil, errors.New("该账号不支持修改密码")
 	}
+	guard := GetLoginGuard()
+	guardUsername := "public:" + member.Username
+	if allowed, _ := guard.Allow("", guardUsername); !allowed {
+		return nil, errors.New("登录尝试过多，请稍后重试")
+	}
 	if !utils.VerifyPasswordWithSalt(oldPassword, member.PasswordSalt, member.Password) {
+		guard.OnCredentialFailure("", guardUsername)
 		return nil, errors.New("原密码错误")
 	}
+	guard.OnSuccess("", guardUsername)
 
 	salt, err := utils.GenerateRandomSalt()
 	if err != nil {
@@ -160,20 +171,7 @@ func ChangeMemberPassword(appUUID, token, oldPassword, newPassword string) (any,
 		}).Error; err != nil {
 			return err
 		}
-		// 改密后吊销全部令牌与激活，强制重新登录
-		// （二级令牌：吊销账号令牌 + 级联失效其名下激活）
-		if err := tx.Where("member_uuid = ?", member.UUID).
-			Delete(&models.AppActivation{}).Error; err != nil {
-			return err
-		}
-		now := time.Now()
-		if err := tx.Model(&models.AppActivation{}).
-			Where("member_uuid = ? AND deactivated_at IS NULL", member.UUID).
-			Updates(map[string]any{"deactivated_at": now, "updated_at": now}).Error; err != nil {
-			return err
-		}
-		return tx.Where("member_uuid = ?", member.UUID).
-			Delete(&models.MemberAccountToken{}).Error
+		return RevokeMemberAccountTokens(tx, member.UUID)
 	})
 	if err != nil {
 		return nil, err
@@ -223,8 +221,7 @@ func ResetPasswordByCode(appUUID, email, code, newPassword string) (any, error) 
 		}).Error; err != nil {
 			return err
 		}
-		// 重置后清除全部会话
-		return tx.Where("member_uuid = ?", member.UUID).Delete(&models.AppActivation{}).Error
+		return RevokeMemberAccountTokens(tx, member.UUID)
 	})
 	if err != nil {
 		return nil, err

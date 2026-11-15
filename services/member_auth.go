@@ -167,6 +167,10 @@ type StatusResult struct {
 	ExpiredAt         time.Time `json:"expired_at"`
 	Points            float64   `json:"points"`
 	HeartbeatInterval int       `json:"heartbeat_interval"` // 心跳间隔（分钟），客户端可据此动态调整
+
+	// 续期后的租约签名（与 70 同格式），客户端用于刷新本地租约文件
+	LeaseExpire int64  `json:"lease_expire"`
+	LeaseSig    string `json:"lease_sig"`
 	// 会员信息：随心跳/状态查询实时下发，客户端据此同步权限，避免中途改等级后仍用旧权限
 	TotalRecharge  int    `json:"total_recharge"`  // 累计充值金额（单位：分）
 	Level         int    `json:"level"`          // 权限等级数值（越大权限越高；默认档=1）
@@ -525,14 +529,23 @@ func authActiveMember(db *gorm.DB, appUUID, token string) (*models.Member, *mode
 // authMemberByCredential 用凭据鉴权账号（不依赖会话令牌）：
 // 注册账号校验用户名+密码；卡密账号以卡号为身份、无密码。供转绑等“可能登录不了”的场景用，
 // 避免“设备/IP 不匹配→登不进→拿不到令牌→无法转绑”的死循环。
-func authMemberByCredential(db *gorm.DB, username, password string) (*models.Member, error) {
+func authMemberByCredential(db *gorm.DB, username, password, ip string) (*models.Member, error) {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return nil, errors.New("用户名不能为空")
 	}
+	guard := GetLoginGuard()
+	guardUsername := "public:" + username
+	if allowed, _ := guard.Allow(ip, guardUsername); !allowed {
+		return nil, errors.New("登录尝试过多，请稍后重试")
+	}
 	var member models.Member
 	if err := db.Where("username = ?", username).
 		First(&member).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		guard.OnCredentialFailure(ip, guardUsername)
 		return nil, errors.New("账号不存在")
 	}
 	if member.Status == models.MemberStatusBlack {
@@ -544,9 +557,11 @@ func authMemberByCredential(db *gorm.DB, username, password string) (*models.Mem
 	// 注册账号校验密码；卡密账号以卡号即身份，无需密码
 	if member.Type == models.MemberTypeRegister {
 		if !utils.VerifyPasswordWithSalt(password, member.PasswordSalt, member.Password) {
+			guard.OnCredentialFailure(ip, guardUsername)
 			return nil, errors.New("密码错误")
 		}
 	}
+	guard.OnSuccess(ip, guardUsername)
 	return &member, nil
 }
 
@@ -575,7 +590,18 @@ func CheckMemberStatus(appUUID, token string) (*StatusResult, error) {
 	if err := db.Where("uuid = ?", member.UUID).First(member).Error; err != nil {
 		return nil, err
 	}
-	return buildStatusResult(app, member), nil
+	out := buildStatusResult(app, member)
+	// 续期成功：把新的租约到期时间与签名一起下发，客户端据此刷新本地租约文件
+	if act != nil {
+		expire := act.LeaseExpiresAt.Unix()
+		sig, sigErr := SignLease(app.UUID, act.Token, act.Fingerprint, expire)
+		if sigErr != nil {
+			return nil, sigErr
+		}
+		out.LeaseExpire = expire
+		out.LeaseSig = sig
+	}
+	return out, nil
 }
 
 func loadEnabledApp(db *gorm.DB, appUUID string) (*models.App, error) {
@@ -805,13 +831,24 @@ func ClaimTrial(appUUID, username, password string) (*StatusResult, error) {
 		return nil, errors.New("该应用未开启试用领取")
 	}
 
+	guard := GetLoginGuard()
+	guardUsername := "public:" + username
+	if allowed, _ := guard.Allow("", guardUsername); !allowed {
+		return nil, errors.New("登录尝试过多，请稍后重试")
+	}
 	var member models.Member
 	if err := db.Where("username = ?", username).First(&member).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		guard.OnCredentialFailure("", guardUsername)
 		return nil, errors.New("账号或密码错误")
 	}
 	if member.Type != models.MemberTypeRegister || !utils.VerifyPasswordWithSalt(password, member.PasswordSalt, member.Password) {
+		guard.OnCredentialFailure("", guardUsername)
 		return nil, errors.New("账号或密码错误")
 	}
+	guard.OnSuccess("", guardUsername)
 	if member.Status != models.MemberStatusNormal {
 		return nil, errors.New("账号状态异常")
 	}
@@ -855,7 +892,7 @@ func ClaimTrial(appUUID, username, password string) (*StatusResult, error) {
 	return buildStatusResult(app, &member), nil
 }
 
-// AccountLogin 账号登录：校验用户名密码后颁发令牌。
+// AccountLogin 账号登录：先检查账号/IP 失败锁定，校验凭据后颁发令牌。
 func AccountLogin(appUUID, username, password, machineCode, ip, version, deviceName string) (*LoginResult, error) {
 	username = strings.TrimSpace(username)
 	if username == "" || password == "" {
@@ -874,13 +911,24 @@ func AccountLogin(appUUID, username, password, machineCode, ip, version, deviceN
 		return nil, err
 	}
 
+	guard := GetLoginGuard()
+	guardUsername := "public:" + username
+	if allowed, _ := guard.Allow(ip, guardUsername); !allowed {
+		return nil, errors.New("登录尝试过多，请稍后重试")
+	}
 	var member models.Member
 	if err := db.Where("username = ?", username).First(&member).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		guard.OnCredentialFailure(ip, guardUsername)
 		return nil, errors.New("账号或密码错误")
 	}
 	if !utils.VerifyPasswordWithSalt(password, member.PasswordSalt, member.Password) {
+		guard.OnCredentialFailure(ip, guardUsername)
 		return nil, errors.New("账号或密码错误")
 	}
+	guard.OnSuccess(ip, guardUsername)
 	// 强制更新门禁：版本过旧拒绝登录（在开会话前）
 	if err := checkForceUpdate(app, version); err != nil {
 		return nil, err

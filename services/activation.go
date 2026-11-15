@@ -37,6 +37,10 @@ type ActivationInfo struct {
 	ExpiresAt  time.Time `json:"expires_at"`
 	LeaseTTL   int       `json:"lease_ttl"`   // 秒
 	RenewAfter int       `json:"renew_after"` // 建议续约间隔（秒）
+
+	// 租约签名：客户端 loader 用内嵌公钥验签，防止手写/搬运租约
+	LeaseExpire int64  `json:"lease_expire"` // Unix 秒
+	LeaseSig    string `json:"lease_sig"`    // hex(Ed25519(KTRWLEASE1|app|token|fp|expire))
 	Reused     bool      `json:"reused"`      // true=复用已有激活，本次未扣费
 
 	// 应用
@@ -543,7 +547,7 @@ func DeactivateByMemberApp(db *gorm.DB, memberUUID, appUUID string) error {
 }
 
 // AuthActivation 校验激活令牌，返回账号与激活记录。
-// 不续约、不扣费（那是 RenewLease 的职责）。
+// 拒绝缺失期限、到期、释放及异常账号；不续约、不扣费。
 func AuthActivation(db *gorm.DB, token string) (*models.Member, *models.AppActivation, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -568,12 +572,15 @@ func AuthActivation(db *gorm.DB, token string) (*models.Member, *models.AppActiv
 	if err := db.Where("uuid = ?", act.MemberUUID).First(&member).Error; err != nil {
 		return nil, nil, ErrAccountTokenInvalid
 	}
+	if member.Status != models.MemberStatusNormal {
+		return nil, nil, NewCodedError(models.ErrLicenseSuspended, "账号状态异常")
+	}
 	return &member, &act, nil
 }
 
 // RenewLease 心跳续约：复查门禁、按时扣周期、推进租约。
 //
-// 这是 Keygen 的 heartbeat ping：租约到期未续即视为失效，名额自动回收。
+// 在账号锁内重新读取租约、应用与账号；到期、释放或令牌轮换后不得续约。
 func RenewLease(db *gorm.DB, activationToken string) (*models.Member, *models.AppActivation, *Billing, error) {
 	token := strings.TrimSpace(activationToken)
 	if token == "" {
@@ -599,6 +606,9 @@ func RenewLease(db *gorm.DB, activationToken string) (*models.Member, *models.Ap
 	if err := db.Where("uuid = ?", act.AppUUID).First(&app).Error; err != nil {
 		return nil, nil, nil, ErrAppNotFound
 	}
+	if app.Status != 1 {
+		return nil, nil, nil, ErrAppDisabled
+	}
 	billing := EffectiveBilling(&app)
 
 	var member models.Member
@@ -611,6 +621,34 @@ func RenewLease(db *gorm.DB, activationToken string) (*models.Member, *models.Ap
 		if err := lockMemberRow(tx, member.UUID); err != nil {
 			return err
 		}
+		// 锁前的快照可能已被登出、轮换或封停；扣费前必须读取最新状态。
+		if err := tx.Where("uuid = ? AND token = ?", act.UUID, token).First(&act).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrActivationInvalid
+			}
+			return err
+		}
+		now = time.Now()
+		if act.IsReleased() {
+			return ErrActivationInvalid
+		}
+		if act.IsLeaseExpired(now) {
+			return ErrLeaseExpired
+		}
+		if err := tx.Where("uuid = ?", act.AppUUID).First(&app).Error; err != nil {
+			return err
+		}
+		if app.Status != 1 {
+			return ErrAppDisabled
+		}
+		if err := tx.Where("uuid = ?", act.MemberUUID).First(&member).Error; err != nil {
+			return ErrAccountTokenInvalid
+		}
+		if member.Status != models.MemberStatusNormal {
+			return NewCodedError(models.ErrLicenseSuspended, "账号状态异常")
+		}
+		billing = EffectiveBilling(&app)
+		ttl = leaseTTL(&app)
 		if err := checkActivationGate(tx, billing, &member); err != nil {
 			return err
 		}
@@ -639,13 +677,18 @@ func RenewLease(db *gorm.DB, activationToken string) (*models.Member, *models.Ap
 
 		// 推进租约
 		newExpiry := now.Add(ttl)
-		if err := tx.Model(&models.AppActivation{}).
-			Where("uuid = ?", act.UUID).
+		result := tx.Model(&models.AppActivation{}).
+			Where("uuid = ? AND token = ? AND deactivated_at IS NULL AND lease_expires_at > ?",
+				act.UUID, token, now).
 			Updates(map[string]any{
 				"lease_expires_at": newExpiry,
 				"last_active_at":   now,
-			}).Error; err != nil {
-			return err
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrActivationInvalid
 		}
 		act.LeaseExpiresAt = newExpiry
 		act.LastActiveAt = now
@@ -655,7 +698,7 @@ func RenewLease(db *gorm.DB, activationToken string) (*models.Member, *models.Ap
 		// 门禁/扣费失败：把激活置死，让客户端重新激活
 		if isFatalActivationError(err) {
 			db.Model(&models.AppActivation{}).
-				Where("uuid = ?", act.UUID).
+				Where("uuid = ? AND token = ? AND deactivated_at IS NULL", act.UUID, token).
 				Update("deactivated_at", now)
 		}
 		return nil, nil, nil, err
@@ -712,7 +755,15 @@ func buildActivationInfo(db *gorm.DB, app *models.App, billing *Billing, m *mode
 	if renewAfter < 60 {
 		renewAfter = 60
 	}
+	leaseExpire := act.LeaseExpiresAt.Unix()
+	leaseSig, sigErr := SignLease(app.UUID, act.Token, act.Fingerprint, leaseExpire)
+	if sigErr != nil {
+		// 签名不可用（密钥未部署）：签名留空，客户端 loader 会拒绝启动并提示
+		leaseSig = ""
+	}
 	return &ActivationInfo{
+		LeaseExpire:       leaseExpire,
+		LeaseSig:          leaseSig,
 		Token:             act.Token,
 		ExpiresAt:         act.LeaseExpiresAt,
 		LeaseTTL:          int(ttl.Seconds()),
@@ -741,21 +792,13 @@ func buildActivationInfo(db *gorm.DB, app *models.App, billing *Billing, m *mode
 // 心跳续约（兼容隐式激活）
 // ============================================================================
 
-// renewLeaseOrImplicit 心跳入口：先尝试续约激活令牌；
-// 若传入的是账号令牌（老客户端没调 70），先隐式激活再续约。
+// renewLeaseOrImplicit 沿用旧名称的心跳入口；统一核对应用归属，账号令牌必须先显式激活。
 func renewLeaseOrImplicit(db *gorm.DB, appUUID, token string) (*models.Member, *models.AppActivation, *Billing, error) {
-	// 激活令牌：标准路径
-	if _, _, err := AuthActivation(db, token); err == nil {
-		return RenewLease(db, token)
-	}
-
-	// 账号令牌：隐式激活（Activate 内部幂等，同指纹不会重复扣费）
-	member, app, act, err := AuthForApp(db, appUUID, token)
+	_, _, act, err := AuthForApp(db, appUUID, token)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	billing := EffectiveBilling(app)
-	return member, act, billing, nil
+	return RenewLease(db, act.Token)
 }
 // chargePeriodMerged 合并计费下扣一个周期。
 //
