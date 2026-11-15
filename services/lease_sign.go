@@ -58,6 +58,12 @@ func LeaseMessage(appUUID, token, fingerprint string, expireUnix int64) []byte {
 		strings.TrimSpace(token), strings.ToLower(strings.TrimSpace(fingerprint)), expireUnix))
 }
 
+// CheckLeaseKey 检查签名密钥是否已配置
+func CheckLeaseKey() error {
+	_, err := leasePrivateKey()
+	return err
+}
+
 // SignLease 返回十六进制签名；密钥缺失时返回错误（调用方应把错误暴露给客户端，不能静默放行）。
 func SignLease(appUUID, token, fingerprint string, expireUnix int64) (string, error) {
 	priv, err := leasePrivateKey()
@@ -66,4 +72,24 @@ func SignLease(appUUID, token, fingerprint string, expireUnix int64) (string, er
 	}
 	sig := ed25519.Sign(priv, LeaseMessage(appUUID, token, fingerprint, expireUnix))
 	return hex.EncodeToString(sig), nil
+}
+
+// 插件侧签名：插件进程无法计算设备指纹（那是 loader 的事），
+// 因此额外签一份只含「应用 + 令牌 + 到期」的摘要，供插件在自己进程内验签。
+const leasePluginPrefix = "KTRWPLUGIN1"
+
+// LeasePluginMessage 构造插件可独立验签的规范化字符串。
+func LeasePluginMessage(appUUID, token string, expireUnix int64) []byte {
+	return []byte(fmt.Sprintf("%s|%s|%s|%d",
+		leasePluginPrefix, strings.ToUpper(strings.TrimSpace(appUUID)),
+		strings.TrimSpace(token), expireUnix))
+}
+
+// SignLeaseForPlugin 供插件自校验的签名（不含设备指纹）。
+func SignLeaseForPlugin(appUUID, token string, expireUnix int64) (string, error) {
+	priv, err := leasePrivateKey()
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(ed25519.Sign(priv, LeasePluginMessage(appUUID, token, expireUnix))), nil
 }

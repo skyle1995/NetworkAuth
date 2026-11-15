@@ -171,6 +171,7 @@ type StatusResult struct {
 	// 续期后的租约签名（与 70 同格式），客户端用于刷新本地租约文件
 	LeaseExpire int64  `json:"lease_expire"`
 	LeaseSig    string `json:"lease_sig"`
+	LeaseSigPlugin string `json:"lease_sig_plugin"`
 	// 会员信息：随心跳/状态查询实时下发，客户端据此同步权限，避免中途改等级后仍用旧权限
 	TotalRecharge  int    `json:"total_recharge"`  // 累计充值金额（单位：分）
 	Level         int    `json:"level"`          // 权限等级数值（越大权限越高；默认档=1）
@@ -600,6 +601,7 @@ func CheckMemberStatus(appUUID, token string) (*StatusResult, error) {
 		}
 		out.LeaseExpire = expire
 		out.LeaseSig = sig
+		out.LeaseSigPlugin, _ = SignLeaseForPlugin(app.UUID, act.Token, expire)
 	}
 	return out, nil
 }

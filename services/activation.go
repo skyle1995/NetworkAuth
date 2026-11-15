@@ -41,6 +41,7 @@ type ActivationInfo struct {
 	// 租约签名：客户端 loader 用内嵌公钥验签，防止手写/搬运租约
 	LeaseExpire int64  `json:"lease_expire"` // Unix 秒
 	LeaseSig    string `json:"lease_sig"`    // hex(Ed25519(KTRWLEASE1|app|token|fp|expire))
+	LeaseSigPlugin string `json:"lease_sig_plugin"` // hex(Ed25519(KTRWPLUGIN1|app|token|expire))，插件进程内可验签
 	Reused     bool      `json:"reused"`      // true=复用已有激活，本次未扣费
 
 	// 应用
@@ -248,6 +249,10 @@ func Activate(db *gorm.DB, acct *models.MemberAccountToken, app *models.App, fin
 		return nil, ErrAccountTokenInvalid
 	}
 
+	if err := CheckLeaseKey(); err != nil {
+		return nil, errors.New("服务端未配置租约签名密钥，无法签发授权")
+	}
+
 	fingerprint = strings.TrimSpace(fingerprint)
 	deviceName = strings.TrimSpace(deviceName)
 	version = strings.TrimSpace(version)
@@ -336,6 +341,7 @@ func Activate(db *gorm.DB, acct *models.MemberAccountToken, app *models.App, fin
 				Updates(map[string]any{
 					"lease_expires_at": now.Add(ttl),
 					"last_active_at":   now,
+					"online_at":        now,
 					"ip":               ip,
 					"version":          version,
 					"device_name":      deviceName,
@@ -351,6 +357,7 @@ func Activate(db *gorm.DB, acct *models.MemberAccountToken, app *models.App, fin
 			act.DeactivatedAt = nil
 			act.LeaseExpiresAt = now.Add(ttl)
 			act.LastActiveAt = now
+			act.OnlineAt = now
 			act.ChargeBasis = app.PointsHeartbeatCharge
 			if app.PointsHeartbeatCharge == models.ChargeBasisFromCreation {
 				// FROM_CREATION 重新计时：清掉旧周期
@@ -367,6 +374,7 @@ func Activate(db *gorm.DB, acct *models.MemberAccountToken, app *models.App, fin
 					"deactivated_at":   nil,
 					"lease_expires_at": act.LeaseExpiresAt,
 					"last_active_at":   act.LastActiveAt,
+					"online_at":        now,
 					"charge_basis":     act.ChargeBasis,
 					"period_end":       act.PeriodEnd,
 					"first_ping_at":    nil,
@@ -402,6 +410,7 @@ func Activate(db *gorm.DB, acct *models.MemberAccountToken, app *models.App, fin
 				LeaseExpiresAt: now.Add(ttl),
 				ChargeBasis:    app.PointsHeartbeatCharge,
 				LastActiveAt:   now,
+				OnlineAt:       now,
 			}
 			if _, err := chargeActivationOnce(tx, billing, &member, &act); err != nil {
 				return err
@@ -436,7 +445,12 @@ func Activate(db *gorm.DB, acct *models.MemberAccountToken, app *models.App, fin
 
 	AddMemberLog(app.UUID, member.UUID, member.Username, "应用激活", fingerprint, ip)
 
-	return buildActivationInfo(db, app, billing, &member, &act, reused, ttl), nil
+	info, err := buildActivationInfo(db, app, billing, &member, &act, reused, ttl)
+	if err != nil {
+		// 回滚事务太晚了，这里只能返回错误。但通过前置的 CheckLeaseKey，这里一般不会再出错
+		return nil, err
+	}
+	return info, nil
 }
 
 // enforceMaxConcurrent 账号级「同时在线」控制。
@@ -554,6 +568,10 @@ func AuthActivation(db *gorm.DB, token string) (*models.Member, *models.AppActiv
 		return nil, nil, ErrActivationRequiredMarker
 	}
 
+	if err := CheckLeaseKey(); err != nil {
+		return nil, nil, errors.New("服务端未配置租约签名密钥，无法签发授权")
+	}
+
 	var act models.AppActivation
 	if err := db.Where("token = ?", token).First(&act).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -582,6 +600,10 @@ func AuthActivation(db *gorm.DB, token string) (*models.Member, *models.AppActiv
 //
 // 在账号锁内重新读取租约、应用与账号；到期、释放或令牌轮换后不得续约。
 func RenewLease(db *gorm.DB, activationToken string) (*models.Member, *models.AppActivation, *Billing, error) {
+	if err := CheckLeaseKey(); err != nil {
+		return nil, nil, nil, errors.New("服务端未配置租约签名密钥，无法签发授权")
+	}
+
 	token := strings.TrimSpace(activationToken)
 	if token == "" {
 		return nil, nil, nil, ErrActivationRequiredMarker
@@ -745,7 +767,7 @@ func ActiveAppCount(db *gorm.DB, memberUUID string) int64 {
 }
 
 // buildActivationInfo 组装返回体
-func buildActivationInfo(db *gorm.DB, app *models.App, billing *Billing, m *models.Member, act *models.AppActivation, reused bool, ttl time.Duration) *ActivationInfo {
+func buildActivationInfo(db *gorm.DB, app *models.App, billing *Billing, m *models.Member, act *models.AppActivation, reused bool, ttl time.Duration) (*ActivationInfo, error) {
 	levelName, level, rebate, levelColor := memberLevelInfo(db, m)
 	hb := app.CheckInterval
 	if hb <= 0 {
@@ -758,12 +780,13 @@ func buildActivationInfo(db *gorm.DB, app *models.App, billing *Billing, m *mode
 	leaseExpire := act.LeaseExpiresAt.Unix()
 	leaseSig, sigErr := SignLease(app.UUID, act.Token, act.Fingerprint, leaseExpire)
 	if sigErr != nil {
-		// 签名不可用（密钥未部署）：签名留空，客户端 loader 会拒绝启动并提示
-		leaseSig = ""
+		return nil, errors.New("生成租约签名失败: " + sigErr.Error())
 	}
+	leaseSigPlugin, _ := SignLeaseForPlugin(app.UUID, act.Token, leaseExpire)
 	return &ActivationInfo{
 		LeaseExpire:       leaseExpire,
 		LeaseSig:          leaseSig,
+		LeaseSigPlugin:    leaseSigPlugin,
 		Token:             act.Token,
 		ExpiresAt:         act.LeaseExpiresAt,
 		LeaseTTL:          int(ttl.Seconds()),
@@ -785,7 +808,7 @@ func buildActivationInfo(db *gorm.DB, app *models.App, billing *Billing, m *mode
 		LevelName:         levelName,
 		LevelColor:        levelColor,
 		RebateRate:        rebate,
-	}
+	}, nil
 }
 
 // ============================================================================
