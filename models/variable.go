@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -24,13 +25,14 @@ type Variable struct {
 	UUID string `gorm:"uniqueIndex;size:36;not null;comment:变量的唯一标识符" json:"uuid"`
 
 	// Number：变量编号，13位Unix时间戳（毫秒级）
-	Number string `gorm:"uniqueIndex;size:13;not null;comment:变量编号，13位Unix时间戳" json:"number"`
+	Number string `gorm:"uniqueIndex;size:16;not null;comment:变量编号，13位Unix毫秒 + 3位随机" json:"number"`
 
-	// AppUUID：应用绑定标识符，"0"表示全局变量，其他UUID表示绑定到特定应用
-	AppUUID string `gorm:"size:36;not null;default:'0';comment:应用绑定标识符" json:"app_uuid"`
 
-	// Alias：变量别名，便于识别和管理
-	Alias string `gorm:"uniqueIndex;size:100;not null;comment:变量别名" json:"alias"`
+	// AppUUID：变量所属应用；空串=全局变量（所有应用都能读到）
+	AppUUID string `gorm:"index;size:36;comment:所属应用UUID；空=全局" json:"app_uuid"`
+
+	// Alias：变量别名；同一应用内唯一（配合 AppUUID 组成唯一键）
+	Alias string `gorm:"index;size:100;not null;comment:变量别名" json:"alias"`
 
 	// Data：变量数据内容
 	Data string `gorm:"type:text;comment:变量数据" json:"data"`
@@ -54,8 +56,10 @@ func (variable *Variable) BeforeCreate(tx *gorm.DB) error {
 		variable.UUID = strings.ToUpper(uuid.New().String())
 	}
 
-	// 生成Number：使用13位Unix时间戳（毫秒级）
-	variable.Number = fmt.Sprintf("%d", time.Now().UnixMilli())
+	// 生成Number：13 位 Unix 毫秒 + 3 位随机（共 16 位）
+	//
+	// 纯毫秒戳在同一毫秒内并发创建会撞唯一索引，补 3 位随机把概率压到 1/1000。
+	variable.Number = fmt.Sprintf("%d%03d", time.Now().UnixMilli(), rand.Intn(1000))
 	return nil
 }
 

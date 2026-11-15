@@ -103,6 +103,13 @@ func runServer(cmd *cobra.Command, args []string) {
 			if err := database.NormalizeUpdateStrategy(); err != nil {
 				logrus.WithError(err).Error("更新策略字段规整失败")
 			}
+			// 给历史账号补默认会员等级（门槛为 0 的等级，幂等）
+			if err := database.MigrateVariablePerApp(); err != nil {
+		logrus.WithError(err).Warn("变量表按应用迁移失败（不影响启动）")
+	}
+	if err := database.BackfillDefaultMemberLevel(); err != nil {
+				logrus.WithError(err).Error("回填默认会员等级失败")
+			}
 			// 初始化默认系统设置
 			if err := database.SeedDefaultSettings(); err != nil {
 				logrus.WithError(err).Fatal("默认系统设置初始化失败")
@@ -113,8 +120,8 @@ func runServer(cmd *cobra.Command, args []string) {
 				}
 			}
 
-			// 为现有应用补齐缺失的默认接口记录（新增 api_type 后向后兼容）
-			services.EnsureAppAPIs()
+			// 补齐全局缺失的接口条目（一号通：接口全站唯一，新增 api_type 后幂等补齐）
+			services.EnsureGlobalAPIs()
 
 			// 初始化加密管理器
 			// 从数据库设置中获取加密密钥

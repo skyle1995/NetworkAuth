@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -88,11 +89,15 @@ func GetVariable(appUUID, token, alias string) (any, error) {
 	if _, _, err := authActiveMember(db, appUUID, token); err != nil {
 		return nil, err
 	}
-	// 别名全局唯一，限定属于本应用或全局("0")
+	// 先在「本应用」里找，找不到再回落全局变量（app_uuid 为空）
+	// 这样每个插件应用都能有自己的一把 zex_key，互不影响
 	var variable models.Variable
-	if err := db.Where("alias = ? AND app_uuid IN ?", alias, []string{strings.TrimSpace(appUUID), "0"}).
+	if err := db.Where("alias = ? AND app_uuid = ?", alias, appUUID).
 		First(&variable).Error; err != nil {
-		return nil, errors.New("变量不存在")
+		if err2 := db.Where("alias = ? AND (app_uuid = ? OR app_uuid IS NULL)", alias, "").
+			First(&variable).Error; err2 != nil {
+			return nil, errors.New("变量不存在")
+		}
 	}
 	return map[string]any{"alias": variable.Alias, "data": variable.Data}, nil
 }
@@ -111,7 +116,7 @@ func GetFunction(appUUID, token, alias string) (any, error) {
 		return nil, err
 	}
 	var function models.Function
-	if err := db.Where("alias = ? AND app_uuid IN ?", alias, []string{strings.TrimSpace(appUUID), "0"}).
+	if err := db.Where("alias = ?", alias).
 		First(&function).Error; err != nil {
 		return nil, errors.New("函数不存在")
 	}
@@ -128,7 +133,8 @@ func ChangeMemberPassword(appUUID, token, oldPassword, newPassword string) (any,
 	if err != nil {
 		return nil, err
 	}
-	member, _, err := authActiveMember(db, appUUID, token)
+	// 改密是**账号级**操作：用户可能还没启动任何应用，不该被"需先激活"拦住
+	member, err := AuthForAccount(db, token)
 	if err != nil {
 		return nil, err
 	}
@@ -154,8 +160,20 @@ func ChangeMemberPassword(appUUID, token, oldPassword, newPassword string) (any,
 		}).Error; err != nil {
 			return err
 		}
-		// 改密后清除全部会话，强制重新登录
-		return tx.Where("member_uuid = ?", member.UUID).Delete(&models.MemberSession{}).Error
+		// 改密后吊销全部令牌与激活，强制重新登录
+		// （二级令牌：吊销账号令牌 + 级联失效其名下激活）
+		if err := tx.Where("member_uuid = ?", member.UUID).
+			Delete(&models.AppActivation{}).Error; err != nil {
+			return err
+		}
+		now := time.Now()
+		if err := tx.Model(&models.AppActivation{}).
+			Where("member_uuid = ? AND deactivated_at IS NULL", member.UUID).
+			Updates(map[string]any{"deactivated_at": now, "updated_at": now}).Error; err != nil {
+			return err
+		}
+		return tx.Where("member_uuid = ?", member.UUID).
+			Delete(&models.MemberAccountToken{}).Error
 	})
 	if err != nil {
 		return nil, err
@@ -178,12 +196,12 @@ func ResetPasswordByCode(appUUID, email, code, newPassword string) (any, error) 
 		return nil, err
 	}
 	// 先校验验证码
-	if err := VerifyResetCode(appUUID, email, code); err != nil {
+	if err := VerifyResetCode(email, code); err != nil {
 		return nil, err
 	}
 
 	var member models.Member
-	if err := db.Where("app_uuid = ? AND username = ?", strings.TrimSpace(appUUID), email).First(&member).Error; err != nil {
+	if err := db.Where("username = ?", email).First(&member).Error; err != nil {
 		return nil, errors.New("该邮箱未注册")
 	}
 	if member.Type != models.MemberTypeRegister || member.PasswordSalt == "" {
@@ -206,7 +224,7 @@ func ResetPasswordByCode(appUUID, email, code, newPassword string) (any, error) 
 			return err
 		}
 		// 重置后清除全部会话
-		return tx.Where("member_uuid = ?", member.UUID).Delete(&models.MemberSession{}).Error
+		return tx.Where("member_uuid = ?", member.UUID).Delete(&models.AppActivation{}).Error
 	})
 	if err != nil {
 		return nil, err

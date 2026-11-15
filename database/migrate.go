@@ -22,6 +22,65 @@ func AutoMigrate() error {
 	return nil
 }
 
+
+// MigrateVariablePerApp 把变量表从「alias 全局唯一」改成「(app_uuid, alias) 唯一」，
+// 让每个应用可以各有一把 zex_key。
+// 幂等：索引已是新形态时直接跳过。
+func MigrateVariablePerApp() error {
+	db, err := GetDB()
+	if err != nil {
+		return err
+	}
+	if !db.Migrator().HasTable(&models.Variable{}) {
+		return nil
+	}
+	// 旧索引名由 GORM 按字段生成：idx_variables_alias（唯一）
+	if db.Migrator().HasIndex(&models.Variable{}, "idx_variables_alias") {
+		if err := db.Exec("DROP INDEX IF EXISTS idx_variables_alias").Error; err != nil {
+			logrus.WithError(err).Warn("删除 variables.alias 唯一索引失败（可忽略）")
+		}
+	}
+	if !db.Migrator().HasIndex(&models.Variable{}, "idx_var_app_alias") {
+		if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_var_app_alias ON variables(app_uuid, alias)").Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// BackfillDefaultMemberLevel 给「未分配等级」的账号补上默认档。
+//
+// 背景：门槛为 0 的等级是全站免费档，任何账号都该属于它。
+// 早期建号路径只写 total_recharge 不写 level_uuid，导致账号等级为空；
+// 显示层会兜底成该等级名，但数据本身是空的，按「等级=XX」筛选时会对不上。
+//
+// 幂等：只处理 level_uuid 为空的账号；库里没有 threshold<=0 的启用等级时直接跳过。
+func BackfillDefaultMemberLevel() error {
+	db, err := GetDB()
+	if err != nil {
+		return err
+	}
+	if !db.Migrator().HasTable(&models.MemberLevel{}) || !db.Migrator().HasTable(&models.Member{}) {
+		return nil
+	}
+
+	var lv models.MemberLevel
+	if err := db.Where("status = 1 AND threshold <= 0").Order("threshold DESC").First(&lv).Error; err != nil {
+		return nil // 没有默认档，无需回填
+	}
+
+	res := db.Model(&models.Member{}).
+		Where("level_uuid IS NULL OR level_uuid = ''").
+		Update("level_uuid", lv.UUID)
+	if res.Error != nil {
+		logrus.WithError(res.Error).Error("回填默认会员等级失败")
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		logrus.Infof("已为 %d 个账号回填默认等级「%s」", res.RowsAffected, lv.Name)
+	}
+	return nil
+}
 // NormalizeUpdateStrategy 一次性把旧版「强制更新(force_update) + 更新方式(download_type: 自动/手动)」
 // 规整为合并后的新三态 download_type（0不启用/1强制/2自由），随后删除已废弃的 force_update 列：
 //   - 启用更新(download_type<>0)且原为强制 → download_type=1（强制）
@@ -70,10 +129,17 @@ func AllModels() []any {
 		&models.ApiKey{},
 		&models.CardPackage{},
 		&models.MemberLevel{},
+		// 一号通：混合模式的「应用 × 会员等级 → 点数消耗」配置表。
+		// 必须在迁移清单里，否则全新安装后该表不存在，混合模式一用就报 no such table。
+		&models.AppLevelPoint{},
 		&models.Card{},
 		&models.Member{},
 		&models.Binding{},
-		&models.MemberSession{},
+		
+		// 二级令牌：账号令牌（身份）+ 应用激活（使用权/租约）。
+		// 与 member_sessions 并存期：member_sessions 退场前两者都要建表。
+		&models.MemberAccountToken{},
+		&models.AppActivation{}, &models.AppAccountBilling{},
 		&models.MemberLog{},
 		&models.Blacklist{},
 	}
