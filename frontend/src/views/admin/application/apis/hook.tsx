@@ -4,27 +4,18 @@ import {
   getApiList,
   updateApi,
   updateApiStatus,
-  getApiTypes,
   generateApiKeys,
   batchSetApiAlgorithm
 } from "@/api/admin/api";
-import { getAppsList } from "@/api/admin/app";
 import type { PaginationProps } from "@pureadmin/table";
-import { reactive, ref, onMounted, toRaw, h } from "vue";
+import { reactive, ref, onMounted, h } from "vue";
 import { ElMessageBox } from "element-plus";
 import { addDialog } from "@/components/ReDialog";
 import editForm from "./form.vue";
 import batchForm from "./batchForm.vue";
 
 export function useApi() {
-  const form = reactive({
-    app_uuid: "",
-    api_type: ""
-  });
-
   const dataList = ref([]);
-  const appList = ref([]);
-  const apiTypes = ref([]);
   const loading = ref(true);
 
   const pagination = reactive<PaginationProps>({
@@ -51,12 +42,7 @@ export function useApi() {
       prop: "id",
       width: 100
     },
-    {
-      label: "所属应用",
-      prop: "app_name",
-      minWidth: 120
-    },
-    {
+        {
       label: "接口类型",
       prop: "api_type_name",
       minWidth: 120
@@ -132,8 +118,8 @@ export function useApi() {
 
   async function onSearch() {
     loading.value = true;
+    // 接口条目全站唯一（固定 30 条），没有可筛维度，只分页
     const params = {
-      ...toRaw(form),
       page: pagination.currentPage,
       limit: pagination.pageSize
     };
@@ -151,39 +137,7 @@ export function useApi() {
     }
   }
 
-  async function fetchApps() {
-    try {
-      const { data, code } = (await getAppsList({
-        page: 1,
-        limit: 1000
-      })) as any;
-      if (code === 0) {
-        appList.value = data || [];
-      }
-    } catch (e) {
-      console.error("Failed to fetch apps:", e);
-    }
-  }
 
-  async function fetchApiTypes() {
-    try {
-      const { data, code } = (await getApiTypes()) as any;
-      if (code === 0 && Array.isArray(data)) {
-        apiTypes.value = data.map((item: any) => ({
-          value: item.value,
-          label: item.name
-        }));
-      }
-    } catch (e) {
-      console.error("Failed to fetch API types:", e);
-    }
-  }
-
-  const resetForm = formEl => {
-    if (!formEl) return;
-    formEl.resetFields();
-    onSearch();
-  };
 
   function openDialog(title = "修改接口配置", row?: any) {
     const dialogFormRef = ref();
@@ -193,10 +147,8 @@ export function useApi() {
         formInline: {
           id: row?.id ?? 0,
           uuid: row?.uuid ?? "",
-          app_uuid: row?.app_uuid ?? "",
           api_type: row?.api_type ?? 0,
           api_type_name: row?.api_type_name ?? "",
-          app_name: row?.app_name ?? "",
           submit_algorithm: row?.submit_algorithm ?? 0,
           submit_public_key: row?.submit_public_key ?? "",
           submit_private_key: row?.submit_private_key ?? "",
@@ -363,25 +315,16 @@ export function useApi() {
     });
   }
 
-  onMounted(() => {
-    fetchApps();
-    fetchApiTypes();
-    onSearch();
-  });
-
+  onMounted(onSearch);
   return {
-    form,
     loading,
     columns,
     dataList,
-    appList,
-    apiTypes,
     pagination,
     selectedIds,
     handleSelectionChange,
     openBatchDialog,
     onSearch,
-    resetForm,
     openDialog,
     handleSizeChange,
     handleCurrentChange

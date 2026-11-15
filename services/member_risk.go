@@ -17,15 +17,18 @@ import (
 //
 // 风控为作者侧操作，按用户名定位账号。调用授权依赖信封签名（持有应用密钥），
 // 应从可信/服务端环境发起。封停与拉黑会同时清除该用户全部会话使其立即掉线。
+//
+// 一号通：用户名全站唯一，风控作用于账号本身，全站生效。
+// appUUID 仅作为「该次风控操作由哪个应用发起」写入审计日志。
 
-// findMemberByUsername 按应用与用户名定位账号
-func findMemberByUsername(db *gorm.DB, appUUID, username string) (*models.Member, error) {
+// findMemberByUsername 按用户名定位全站账号
+func findMemberByUsername(db *gorm.DB, username string) (*models.Member, error) {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return nil, errors.New("用户名不能为空")
 	}
 	var member models.Member
-	if err := db.Where("app_uuid = ? AND username = ?", strings.TrimSpace(appUUID), username).First(&member).Error; err != nil {
+	if err := db.Where("username = ?", username).First(&member).Error; err != nil {
 		return nil, errors.New("账号不存在")
 	}
 	return &member, nil
@@ -37,7 +40,7 @@ func riskSetStatus(appUUID, username string, status int) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	member, err := findMemberByUsername(db, appUUID, username)
+	member, err := findMemberByUsername(db, username)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +48,8 @@ func riskSetStatus(appUUID, username string, status int) (any, error) {
 		if err := tx.Model(member).Update("status", status).Error; err != nil {
 			return err
 		}
-		return tx.Where("member_uuid = ?", member.UUID).Delete(&models.MemberSession{}).Error
+		// 账号状态是全站生效的，故清空该账号在所有应用的全部会话
+		return tx.Where("member_uuid = ?", member.UUID).Delete(&models.AppActivation{}).Error
 	})
 	if err != nil {
 		return nil, err
@@ -57,7 +61,7 @@ func riskSetStatus(appUUID, username string, status int) (any, error) {
 	case models.MemberStatusNormal:
 		riskAction = "解封"
 	}
-	AddMemberLog(member.AppUUID, member.UUID, member.Username, riskAction, "", "")
+	AddMemberLog(appUUID, member.UUID, member.Username, riskAction, "", "")
 	return map[string]any{"username": member.Username, "status": status}, nil
 }
 
@@ -72,6 +76,7 @@ func RiskBlacklistMember(appUUID, username string) (any, error) {
 }
 
 // RiskDeductMember 扣除用户资源（type 62）：时长模式按分钟扣时，点数模式按点数扣点。
+// 按全站计费模式决定扣哪种资源。
 func RiskDeductMember(appUUID, username string, amount int) (any, error) {
 	if amount <= 0 {
 		return nil, errors.New("扣除数量必须大于0")
@@ -84,21 +89,26 @@ func RiskDeductMember(appUUID, username string, amount int) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	member, err := findMemberByUsername(db, appUUID, username)
+	billing := EffectiveBilling(app)
+	member, err := findMemberByUsername(db, username)
 	if err != nil {
 		return nil, err
 	}
 
-	if app.OperationMode == models.OperationModePoints {
-		newPoints := member.Points - amount
-		if newPoints < 0 {
-			newPoints = 0
+	if billing.UsesPoints() {
+		// 原子扣点：不低于 0
+		res := db.Model(&models.Member{}).
+			Where("uuid = ? AND points > 0", member.UUID).
+			Update("points", gorm.Expr("CASE WHEN points + 0.000001 < ? THEN 0 ELSE ROUND(points - ?, 6) END", amount, amount))
+		if res.Error != nil {
+			return nil, res.Error
 		}
-		if err := db.Model(member).Update("points", newPoints).Error; err != nil {
+		var after models.Member
+		if err := db.Where("uuid = ?", member.UUID).First(&after).Error; err != nil {
 			return nil, err
 		}
-		AddMemberLog(member.AppUUID, member.UUID, member.Username, "扣点", "风控扣"+strconv.Itoa(amount)+"点", "")
-		return map[string]any{"username": member.Username, "points": newPoints}, nil
+		AddMemberLog(appUUID, after.UUID, after.Username, "扣点", "风控扣"+strconv.Itoa(amount)+"点", "")
+		return map[string]any{"username": after.Username, "points": after.Points}, nil
 	}
 
 	if isPermanent(member.ExpiredAt) {
@@ -111,6 +121,6 @@ func RiskDeductMember(appUUID, username string, amount int) (any, error) {
 	if err := db.Model(member).Update("expired_at", newExpiry).Error; err != nil {
 		return nil, err
 	}
-	AddMemberLog(member.AppUUID, member.UUID, member.Username, "扣时", "风控扣"+strconv.Itoa(amount)+"分钟", "")
+	AddMemberLog(appUUID, member.UUID, member.Username, "扣时", "风控扣"+strconv.Itoa(amount)+"分钟", "")
 	return map[string]any{"username": member.Username, "expired_at": newExpiry}, nil
 }

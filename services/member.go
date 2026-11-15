@@ -22,7 +22,7 @@ import (
 type MemberProfileUpdate struct {
 	ExpiredAt     *time.Time // 到期时间（时长模式）
 	Permanent     *bool      // true=设为永久，优先于 ExpiredAt
-	Points        *int       // 点数余额（点数模式）
+	Points        *float64   // 点数余额（支持小数）
 	TotalRecharge *int       // 累计充值（分），改动后按新值重新校准会员等级
 	Remark        *string
 }
@@ -68,7 +68,7 @@ func UpdateMemberProfile(id uint, up MemberProfileUpdate) (*models.Member, error
 		if *up.TotalRecharge < 0 {
 			return nil, errors.New("累计充值不能为负")
 		}
-		levelUUID, err := resolveLevelUUID(db, member.AppUUID, *up.TotalRecharge)
+		levelUUID, err := resolveLevelUUID(db, *up.TotalRecharge)
 		if err != nil {
 			return nil, err
 		}
@@ -87,15 +87,13 @@ func UpdateMemberProfile(id uint, up MemberProfileUpdate) (*models.Member, error
 	return &member, nil
 }
 
-// CreateMember 后台手动创建一个注册型账号。
+// CreateMember 后台手动创建一个注册型账号（全站账号）。
 // durationMinutes 为初始时长（分钟），models.CardDurationPermanent(-1) 表示永久。
-// CreateMember 后台创建注册型账号。
-// 时长模式用 durationMinutes 设初始到期；点数模式用 points 设初始点数。
-func CreateMember(appUUID, username, password string, durationMinutes, points int, remark string) (*models.Member, error) {
-	appUUID = strings.TrimSpace(appUUID)
+// 按全局计费模式决定初始资源：时长模式用 durationMinutes，点数模式用 points。
+func CreateMember(username, password string, durationMinutes int, points float64, remark string) (*models.Member, error) {
 	username = strings.TrimSpace(username)
-	if appUUID == "" || username == "" {
-		return nil, errors.New("应用与用户名不能为空")
+	if username == "" {
+		return nil, errors.New("用户名不能为空")
 	}
 	if password == "" {
 		return nil, errors.New("密码不能为空")
@@ -106,19 +104,13 @@ func CreateMember(appUUID, username, password string, durationMinutes, points in
 		return nil, err
 	}
 
-	// 校验应用存在并读取运营模式
-	var app models.App
-	if err := db.Where("uuid = ?", appUUID).First(&app).Error; err != nil {
-		return nil, errors.New("应用不存在")
-	}
-
-	// 同应用下用户名唯一
+	// 用户名全站唯一
 	var dupCount int64
-	if err := db.Model(&models.Member{}).Where("app_uuid = ? AND username = ?", appUUID, username).Count(&dupCount).Error; err != nil {
+	if err := db.Model(&models.Member{}).Where("username = ?", username).Count(&dupCount).Error; err != nil {
 		return nil, err
 	}
 	if dupCount > 0 {
-		return nil, errors.New("该应用下用户名已存在")
+		return nil, errors.New("用户名已存在")
 	}
 
 	salt, err := utils.GenerateRandomSalt()
@@ -131,7 +123,6 @@ func CreateMember(appUUID, username, password string, durationMinutes, points in
 	}
 
 	member := models.Member{
-		AppUUID:      appUUID,
 		Username:     username,
 		Type:         models.MemberTypeRegister,
 		Password:     hashed,
@@ -139,19 +130,25 @@ func CreateMember(appUUID, username, password string, durationMinutes, points in
 		Status:       models.MemberStatusNormal,
 		Remark:       remark,
 	}
-	if app.OperationMode == models.OperationModePoints {
-		member.Points = points
-	} else {
+	// 一号通：账号同时拥有「到期时间」与「点数」两个钱包，初始资源按调用方给的值发放。
+	if durationMinutes != 0 {
 		member.ExpiredAt = expiryFromDuration(durationMinutes)
 	}
+	if points > 0 {
+		member.Points = points
+	}
 	if err := db.Create(&member).Error; err != nil {
+		return nil, err
+	}
+	// 建号即落到默认档（门槛为 0 的等级），避免出现 level_uuid 为空的账号
+	if err := settleMemberLevel(db, &member, 0); err != nil {
 		return nil, err
 	}
 	return &member, nil
 }
 
 // RechargeMemberPoints 后台为账号增加点数余额。
-func RechargeMemberPoints(id uint, points int) error {
+func RechargeMemberPoints(id uint, points float64) error {
 	if points <= 0 {
 		return errors.New("充值点数必须大于0")
 	}
@@ -167,7 +164,7 @@ func RechargeMemberPoints(id uint, points int) error {
 }
 
 // DeductMemberPoints 后台扣除账号点数余额（不低于0）。
-func DeductMemberPoints(id uint, points int) error {
+func DeductMemberPoints(id uint, points float64) error {
 	if points <= 0 {
 		return errors.New("扣除点数必须大于0")
 	}
@@ -186,21 +183,9 @@ func DeductMemberPoints(id uint, points int) error {
 	return db.Model(&member).Update("points", newPoints).Error
 }
 
-// GetMemberAppMode 返回某账号所属应用的运营模式（供后台按模式分支）。
-func GetMemberAppMode(id uint) (int, error) {
-	db, err := database.GetDB()
-	if err != nil {
-		return 0, err
-	}
-	var member models.Member
-	if err := db.First(&member, id).Error; err != nil {
-		return 0, errors.New("账号不存在")
-	}
-	var app models.App
-	if err := db.Where("uuid = ?", member.AppUUID).First(&app).Error; err != nil {
-		return 0, errors.New("应用不存在")
-	}
-	return app.OperationMode, nil
+// GetAppBillingMode 返回某应用的计费模式文案（供后台展示）。
+func GetAppBillingMode(app *models.App) string {
+	return models.BillingModeName(EffectiveBilling(app).Mode)
 }
 
 // expiryFromDuration 由初始时长计算到期时间：永久返回 PermanentTime，否则 now + 时长。
@@ -298,9 +283,9 @@ type BatchRechargeResult struct {
 }
 
 // BatchRecharge 批量为账号加时长/点数（维护补偿等场景）。
-// all=false 时按 ids 定向；all=true 时全体（appUUID 非空则限定该应用）。
-// 每个账号按其应用运营模式选择：时长模式加 minutes 分钟，点数模式加 points 点。
-func BatchRecharge(ids []uint, all bool, appUUID string, minutes, points int) (*BatchRechargeResult, error) {
+// all=false 时按 ids 定向；all=true 时全体账号（全站，无应用维度）。
+// minutes 与 points 各自独立累加到对应钱包（都可填，也可只填一个）。
+func BatchRecharge(ids []uint, all bool, minutes int, points float64) (*BatchRechargeResult, error) {
 	if minutes <= 0 && points <= 0 {
 		return nil, errors.New("请填写要增加的时长或点数")
 	}
@@ -313,11 +298,7 @@ func BatchRecharge(ids []uint, all bool, appUUID string, minutes, points int) (*
 	}
 
 	q := db.Model(&models.Member{})
-	if all {
-		if appUUID = strings.TrimSpace(appUUID); appUUID != "" {
-			q = q.Where("app_uuid = ?", appUUID)
-		}
-	} else {
+	if !all {
 		q = q.Where("id IN ?", ids)
 	}
 	var members []models.Member
@@ -328,41 +309,21 @@ func BatchRecharge(ids []uint, all bool, appUUID string, minutes, points int) (*
 		return &BatchRechargeResult{}, nil
 	}
 
-	// 批量取涉及应用的运营模式
-	appSet := make(map[string]struct{})
-	for i := range members {
-		appSet[members[i].AppUUID] = struct{}{}
-	}
-	appUUIDs := make([]string, 0, len(appSet))
-	for u := range appSet {
-		appUUIDs = append(appUUIDs, u)
-	}
-	modeByApp := make(map[string]int)
-	var appModes []struct {
-		UUID          string
-		OperationMode int
-	}
-	db.Model(&models.App{}).Select("uuid, operation_mode").
-		Where("uuid IN ?", appUUIDs).Find(&appModes)
-	for _, a := range appModes {
-		modeByApp[a.UUID] = a.OperationMode
-	}
-
+	// 一号通：账号同时有「到期时间」与「点数」两个钱包，批量补偿时各自独立累加。
 	res := &BatchRechargeResult{Total: len(members)}
 	now := time.Now()
 	err = db.Transaction(func(tx *gorm.DB) error {
 		for i := range members {
 			m := &members[i]
-			if modeByApp[m.AppUUID] == models.OperationModePoints {
-				if points > 0 {
-					if err := tx.Model(m).Update("points", m.Points+points).Error; err != nil {
-						return err
-					}
-					res.PointsAdded++
+			if points > 0 {
+				// 原子加，避免与并发的登录扣点相互覆盖
+				if err := tx.Model(&models.Member{}).Where("uuid = ?", m.UUID).
+					Update("points", gorm.Expr("ROUND(points + ?, 6)", points)).Error; err != nil {
+					return err
 				}
-				continue
+				m.Points += points
+				res.PointsAdded++
 			}
-			// 时长模式
 			if minutes > 0 {
 				if m.ExpiredAt.Equal(models.PermanentTime) {
 					res.SkipPermanent++

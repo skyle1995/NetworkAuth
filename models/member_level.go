@@ -12,17 +12,15 @@ import (
 // 结构体定义
 // ============================================================================
 
-// MemberLevel 会员等级：按累计充值金额自动升级，权益为充值返利。
-// 账号累充（Member.TotalRecharge）达到 Threshold 即升到该等级，只升不降。
+// MemberLevel 会员等级（全站一套）：按累计充值金额自动升级，权益为充值返利。
+// 账号累充（Member.TotalRecharge）达到 Threshold 即升到该等级。
+// 注意：结算时只升不降；后台手动改写累充会按新值重新校准（可能降级）。
 type MemberLevel struct {
 	// ID：主键，自增
 	ID uint `gorm:"primaryKey;comment:等级ID，自增主键" json:"id"`
 
 	// UUID：等级唯一标识符，自动生成
 	UUID string `gorm:"uniqueIndex;size:36;not null;comment:等级UUID" json:"uuid"`
-
-	// AppUUID：归属应用UUID
-	AppUUID string `gorm:"size:36;not null;index;comment:归属应用UUID" json:"app_uuid"`
 
 	// Name：等级名称（如「白银」「黄金」）
 	Name string `gorm:"size:100;not null;comment:等级名称" json:"name"`
@@ -39,12 +37,14 @@ type MemberLevel struct {
 	// Color：等级显示颜色（hex，如 #E6A23C）。随登录/心跳下发给客户端；空则用默认灰
 	Color string `gorm:"size:20;comment:等级显示颜色(hex)" json:"color"`
 
-	// ExtraMultiOpen：额外多开数。有效多开 = App.MultiOpenCount + 本值
-	ExtraMultiOpen int `gorm:"default:0;not null;comment:额外多开数" json:"extra_multi_open"`
+	// ExtraDevices：额外可绑定设备数。有效设备上限 = 账号策略 MaxDevices + 本值
+	ExtraDevices int `gorm:"default:0;not null;comment:额外可绑定设备数" json:"extra_devices"`
+
+	// ExtraConcurrent：额外并发设备数。有效并发上限 = 账号策略 MaxConcurrent + 本值
+	ExtraConcurrent int `gorm:"default:0;not null;comment:额外并发设备数" json:"extra_concurrent"`
 
 	// ExtraRebindCount：赠送免费换绑次数。有效免费次数 = App 免费次数 + 本值（机器/IP 共用）
 	ExtraRebindCount int `gorm:"default:0;not null;comment:赠送免费换绑次数" json:"extra_rebind_count"`
-
 	// Sort：排序值，越小越靠前
 	Sort int `gorm:"default:0;not null;comment:排序值" json:"sort"`
 

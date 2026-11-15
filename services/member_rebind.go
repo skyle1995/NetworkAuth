@@ -27,7 +27,8 @@ type rebindParams struct {
 	limit       int    // 限制周期：0=每天，1=永久
 	freeCount   int    // 免费转绑次数
 	maxCount    int    // 允许转绑次数（0=不限）
-	deduct      int    // 单次扣除分钟数
+	deductMinutes int     // 计时模式下的单次扣除（分钟）
+	deductPoints  float64 // 点数模式下的单次扣除（点，支持小数）
 	used        int    // 该用户当前已用次数
 	dateStr     string // 该用户计数日期
 	usedCol     string // 已用次数列名
@@ -67,19 +68,24 @@ func rebindCore(db *gorm.DB, app *models.App, member *models.Member, newValue st
 		return nil, errors.New(p.typeName + "转绑次数已达上限")
 	}
 
-	// 免费次数用尽后按配置扣除（时长扣分钟 / 点数扣点数）
-	deduct := 0
+	// 免费次数用尽后按钱包类型扣：计时扣分钟、点数扣点数（两者各有一套配置）
+	billing := EffectiveBilling(app)
+	var deduct float64
 	if used >= p.freeCount {
-		deduct = p.deduct
+		if billing.UsesPoints() {
+			deduct = p.deductPoints
+		} else {
+			deduct = float64(p.deductMinutes)
+		}
 	}
-	// 免费模式：转绑一律不扣费（仍照常计次、执行绑定替换）
-	if app.OperationMode == models.OperationModeFree {
+	// 计费豁免应用：转绑一律不扣费（仍照常计次、执行绑定替换）
+	if billing.Free {
 		deduct = 0
 	}
-	pointsMode := app.OperationMode == models.OperationModePoints
+
 
 	err := db.Transaction(func(tx *gorm.DB) error {
-		if err := applyRebindDeduct(tx, app, member, deduct, pointsMode); err != nil {
+		if err := applyRebindDeduct(tx, billing, member, deduct, billing.UsesPoints()); err != nil {
 			return err
 		}
 		// 用新值替换该类型的旧绑定
@@ -114,7 +120,7 @@ func rebindCore(db *gorm.DB, app *models.App, member *models.Member, newValue st
 }
 
 // applyRebindDeduct 换绑扣费（事务内）：点数模式扣点，时长模式扣分钟（永久账号不扣）。deduct<=0 直接返回。
-func applyRebindDeduct(tx *gorm.DB, app *models.App, member *models.Member, deduct int, pointsMode bool) error {
+func applyRebindDeduct(tx *gorm.DB, billing *Billing, member *models.Member, deduct float64, pointsMode bool) error {
 	if deduct <= 0 {
 		return nil
 	}
@@ -150,6 +156,86 @@ type BoundDevice struct {
 	BoundAt     string `json:"bound_at"`
 }
 
+// BindingInfo 账号的绑定规模与转绑额度快照，登录与心跳都随响应下发。
+//
+// 设备转绑与 IP 转绑是**两套独立额度**：换电脑和换网络是两件事，
+// 共用配额会让「出差连了别的 WiFi」把设备转绑次数吃掉。
+type BindingInfo struct {
+	MaxDevices   int
+	BoundDevices []BoundDevice
+
+	// 设备转绑
+	MachineFreeLeft  int
+	MachineUsed      int
+	MachineMaxCount  int
+	MachineLimitTime int
+
+	// IP 转绑
+	IPFreeAllLeft    int
+	IPUsed           int
+	IPMaxCount       int
+	IPLimitTime      int
+	BoundIPs         []string
+}
+
+// BuildBindingInfo 汇总「已绑设备 / IP / 各自剩余免费转绑次数」。
+//
+// 计数窗口：limitTime=0 时跨天归零，=1 时永久累计。
+// 免费次数 = 账号策略 + 会员等级加量（extra_rebind_count），设备与 IP 各自加一次。
+func BuildBindingInfo(db *gorm.DB, m *models.Member) BindingInfo {
+	quota := ResolveAccountQuota(db, m)
+	policy := GetAccountPolicy()
+	_, _, extraRebind := memberLevelExtras(db, m)
+	today := time.Now().Format("2006-01-02")
+
+	// —— 设备转绑 ——
+	mUsed := m.MachineRebindUsed
+	if policy.MachineRebindLimitTime == 0 && m.MachineRebindDate != today {
+		mUsed = 0
+	}
+	mFreeLeft := policy.MachineRebindFreeCount + extraRebind - mUsed
+	if mFreeLeft < 0 {
+		mFreeLeft = 0
+	}
+
+	// —— IP 转绑 ——
+	ipUsed := m.IPRebindUsed
+	if policy.IPRebindLimitTime == 0 && m.IPRebindDate != today {
+		ipUsed = 0
+	}
+	ipFreeLeft := policy.IPRebindFreeCount + extraRebind - ipUsed
+	if ipFreeLeft < 0 {
+		ipFreeLeft = 0
+	}
+
+	return BindingInfo{
+		MaxDevices:       quota.MaxDevices,
+		BoundDevices:     listMachineBindings(db, m.UUID),
+		MachineFreeLeft:  mFreeLeft,
+		MachineUsed:      mUsed,
+		MachineMaxCount:  policy.MachineRebindMaxCount,
+		MachineLimitTime: policy.MachineRebindLimitTime,
+		IPFreeAllLeft:    ipFreeLeft,
+		IPUsed:           ipUsed,
+		IPMaxCount:       policy.IPRebindMaxCount,
+		IPLimitTime:      policy.IPRebindLimitTime,
+		BoundIPs:         listIPBindings(db, m.UUID),
+	}
+}
+
+// listIPBindings 返回账号当前绑定的 IP 列表（按绑定时间升序）。
+func listIPBindings(db *gorm.DB, memberUUID string) []string {
+	var bindings []models.Binding
+	if err := db.Where("member_uuid = ? AND type = ?", memberUUID, models.BindingTypeIP).
+		Order("created_at ASC").Find(&bindings).Error; err != nil {
+		return []string{}
+	}
+	list := make([]string, 0, len(bindings))
+	for _, b := range bindings {
+		list = append(list, b.Value)
+	}
+	return list
+}
 // listMachineBindings 返回账号当前的机器码绑定设备列表（按绑定时间升序）。
 func listMachineBindings(db *gorm.DB, memberUUID string) []BoundDevice {
 	var bindings []models.Binding
@@ -173,7 +259,7 @@ func listMachineBindings(db *gorm.DB, memberUUID string) []BoundDevice {
 //     （有效多开=1 且恰好 1 个绑定时，自动替换唯一设备，兼容单设备旧客户端）
 //
 // 计次/免费次数/扣费规则与 IP 换绑一致；freeCount 已含会员赠送的免费次数。
-func rebindMachine(db *gorm.DB, app *models.App, member *models.Member, newMachine, replaceMachine, deviceName string, effMultiOpen, freeCount int) (*StatusResult, error) {
+func rebindMachine(db *gorm.DB, app *models.App, member *models.Member, newMachine, replaceMachine, deviceName string, effMultiOpen, freeCount, rebindWindow, maxCount, deductMinutes int, deductPoints float64) (*StatusResult, error) {
 	newMachine = strings.TrimSpace(newMachine)
 	if newMachine == "" {
 		return nil, errors.New("新机器码不能为空")
@@ -193,10 +279,10 @@ func rebindMachine(db *gorm.DB, app *models.App, member *models.Member, newMachi
 	// 计次（每天限制则跨天重置）与上限
 	today := time.Now().Format("2006-01-02")
 	used := member.MachineRebindUsed
-	if app.MachineRebindLimit == 0 && member.MachineRebindDate != today {
+	if rebindWindow == 0 && member.MachineRebindDate != today {
 		used = 0
 	}
-	if app.MachineRebindCount > 0 && used >= app.MachineRebindCount {
+	if maxCount > 0 && used >= maxCount {
 		return nil, errors.New("机器码转绑次数已达上限")
 	}
 
@@ -229,17 +315,22 @@ func rebindMachine(db *gorm.DB, app *models.App, member *models.Member, newMachi
 		}
 	}
 
-	deduct := 0
+	billing := EffectiveBilling(app)
+	var deduct float64
 	if used >= freeCount {
-		deduct = app.MachineRebindDeduct
+		if billing.UsesPoints() {
+			deduct = deductPoints
+		} else {
+			deduct = float64(deductMinutes)
+		}
 	}
-	if app.OperationMode == models.OperationModeFree {
+	if billing.Free {
 		deduct = 0
 	}
-	pointsMode := app.OperationMode == models.OperationModePoints
+
 
 	err := db.Transaction(func(tx *gorm.DB) error {
-		if err := applyRebindDeduct(tx, app, member, deduct, pointsMode); err != nil {
+		if err := applyRebindDeduct(tx, billing, member, deduct, billing.UsesPoints()); err != nil {
 			return err
 		}
 		if toDelete != "" {
@@ -285,46 +376,48 @@ func Rebind(appUUID, username, password, machineCode, replaceMachine, deviceName
 	if err != nil {
 		return nil, err
 	}
-	member, err := authMemberByCredential(db, appUUID, username, password)
+	member, err := authMemberByCredential(db, username, password)
 	if err != nil {
 		return nil, err
 	}
 
-	if app.MachineRebindEnabled != 1 && app.IPRebindEnabled != 1 {
-		return nil, errors.New("该应用未开启转绑")
+	// 绑定与转绑全部是**账号级**配置：换一台电脑，全站所有应用一起生效，
+	// 不再出现「在 A 应用改过、B 应用却看不到」的错位。
+	policy := GetAccountPolicy()
+	if policy.MachineRebindEnabled != 1 && policy.IPRebindEnabled != 1 {
+		return nil, errors.New("未开启转绑")
 	}
 
-	_, extraRebind := memberLevelExtras(db, member)
-	effMultiOpen := effectiveMultiOpen(db, app, member)
+	quota := ResolveAccountQuota(db, member)
+	maxDevices := quota.MaxDevices
 
 	var result *StatusResult
 
 	// 机器码转绑（多设备感知）
-	if app.MachineRebindEnabled == 1 {
-		// 未提交设备码 → 复用本接口返回绑定设备列表，客户端据此选择要替换的设备
+	if policy.MachineRebindEnabled == 1 {
+		// 未提交设备码 → 本接口退化为「查询已绑定设备」，客户端据此选择要替换的那台
 		if strings.TrimSpace(machineCode) == "" {
 			return map[string]any{"devices": listMachineBindings(db, member.UUID)}, nil
 		}
 		result, err = rebindMachine(db, app, member, machineCode, replaceMachine, deviceName,
-			effMultiOpen, app.MachineFreeCount+extraRebind)
+			maxDevices, policy.MachineRebindFreeCount, policy.MachineRebindLimitTime,
+			policy.MachineRebindMaxCount, policy.MachineRebindDeductMinutes, float64(policy.MachineRebindDeductPoints))
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	// IP 转绑：用当前请求 IP（单值替换，逻辑不变；免费次数含会员赠送）
-	if app.IPRebindEnabled == 1 {
-		if strings.TrimSpace(ip) == "" {
-			return nil, errors.New("IP转绑无法获取当前IP")
-		}
+	// IP 转绑：用当前请求 IP（单值替换；免费次数含会员赠送）
+	if policy.IPRebindEnabled == 1 {
 		result, err = rebindCore(db, app, member, ip, rebindParams{
 			bindingType: models.BindingTypeIP,
 			typeName:    "IP",
-			enabled:     app.IPRebindEnabled,
-			limit:       app.IPRebindLimit,
-			freeCount:   app.IPFreeCount + extraRebind,
-			maxCount:    app.IPRebindCount,
-			deduct:      app.IPRebindDeduct,
+			enabled:     policy.IPRebindEnabled,
+			limit:       policy.IPRebindLimitTime,
+			freeCount:   policy.IPRebindFreeCount,
+			maxCount:    policy.IPRebindMaxCount,
+			deductMinutes: policy.IPRebindDeductMinutes,
+			deductPoints:  float64(policy.IPRebindDeductPoints),
 			used:        member.IPRebindUsed,
 			dateStr:     member.IPRebindDate,
 			usedCol:     "ip_rebind_used",

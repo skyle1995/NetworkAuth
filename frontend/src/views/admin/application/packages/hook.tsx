@@ -8,29 +8,16 @@ import {
   saveCardPackage,
   deleteCardPackage
 } from "@/api/admin/cardPackage";
-import { getAppsSimple } from "@/api/admin/app";
 
 export function useCardPackage() {
-  const form = reactive({
-    app_uuid: ""
-  });
-
+  // 套餐是全站资源：CardPackage 表无 app_uuid，本页无需应用筛选
+  
   const dataList = ref([]);
   const loading = ref(true);
-  const apps = ref([]);
 
   const columns: TableColumnList = [
     { label: "ID", prop: "id", width: 70 },
     { label: "套餐名称", prop: "name", minWidth: 140 },
-    {
-      label: "所属应用",
-      prop: "app_uuid",
-      minWidth: 140,
-      cellRenderer: ({ row }) => {
-        const app = apps.value.find(a => a.uuid === row.app_uuid);
-        return app ? app.name : "未知应用";
-      }
-    },
     {
       label: "类型",
       prop: "type",
@@ -75,21 +62,11 @@ export function useCardPackage() {
     { label: "操作", fixed: "right", width: 160, slot: "operation" }
   ];
 
-  async function fetchApps() {
-    try {
-      const { code, data } = await getAppsSimple();
-      if (code === 0 && Array.isArray(data)) {
-        apps.value = data;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }
 
-  async function onSearch() {
+  async function loadList() {
     loading.value = true;
     try {
-      const { code, data } = await getCardPackages({ app_uuid: form.app_uuid });
+      const { code, data } = await getCardPackages({});
       if (code === 0) {
         dataList.value = data || [];
       }
@@ -109,7 +86,6 @@ export function useCardPackage() {
       props: {
         formInline: {
           uuid: row?.uuid ?? "",
-          app_uuid: row?.app_uuid ?? form.app_uuid ?? "",
           name: row?.name ?? "",
           type: row?.type ?? 0,
           duration: row?.duration ?? 43200,
@@ -118,8 +94,7 @@ export function useCardPackage() {
           sort: row?.sort ?? 0,
           status: row?.status ?? 1,
           remark: row?.remark ?? ""
-        },
-        apps: apps.value
+        }
       },
       width: "520px",
       draggable: true,
@@ -148,7 +123,6 @@ export function useCardPackage() {
               try {
                 const { code, msg } = await saveCardPackage({
                   uuid: cur.uuid,
-                  app_uuid: cur.app_uuid,
                   name: cur.name,
                   type: cur.type,
                   duration: cur.duration,
@@ -161,7 +135,7 @@ export function useCardPackage() {
                 if (code === 0) {
                   message("保存成功", { type: "success" });
                   options.visible = false;
-                  onSearch();
+                  loadList();
                 } else {
                   message(msg || "保存失败", { type: "error" });
                 }
@@ -189,7 +163,7 @@ export function useCardPackage() {
       const { code, msg } = await deleteCardPackage({ uuid: row.uuid });
       if (code === 0) {
         message("删除成功", { type: "success" });
-        onSearch();
+        loadList();
       } else {
         message(msg || "删除失败", { type: "error" });
       }
@@ -199,17 +173,14 @@ export function useCardPackage() {
   }
 
   onMounted(() => {
-    fetchApps();
-    onSearch();
+    loadList();
   });
 
   return {
-    form,
     loading,
     columns,
     dataList,
-    apps,
-    onSearch,
+    loadList,
     openDialog,
     handleDelete
   };

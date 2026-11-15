@@ -8,16 +8,24 @@ import {
   saveMemberLevel,
   deleteMemberLevel
 } from "@/api/admin/memberLevel";
-import { getAppsSimple } from "@/api/admin/app";
+
+// ============================================================================
+// 会员等级（全站一套）
+// ============================================================================
+//
+// 等级属于**全站会员体系**：按累计充值金额升级，权益是充值返利、额外多开、赠送换绑。
+// 它与「应用」没有归属关系 —— 任何应用都可以要求"等级 ≥ N"，但等级本身只有一套。
+//
+// 历史沿革：早期实现把等级挂在应用下（`app_uuid` 必填、列表有"所属应用"列），
+// 一号通改造后后端 `member_levels` 表已无 `app_uuid` 字段，
+// 前端的应用选择器与筛选已全部移除。
 
 export function useMemberLevel() {
-  const form = reactive({
-    app_uuid: ""
-  });
+  // 保留一个空的查询表单：本页已无筛选条件，但 el-form 仍需要一个 model
+  const form = reactive({});
 
   const dataList = ref([]);
   const loading = ref(true);
-  const apps = ref([]);
 
   const columns: TableColumnList = [
     { label: "ID", prop: "id", width: 70 },
@@ -38,16 +46,6 @@ export function useMemberLevel() {
           () => row.name
         )
     },
-    { label: "权限等级", prop: "level", width: 90 },
-    {
-      label: "所属应用",
-      prop: "app_uuid",
-      minWidth: 140,
-      cellRenderer: ({ row }) => {
-        const app = apps.value.find(a => a.uuid === row.app_uuid);
-        return app ? app.name : "未知应用";
-      }
-    },
     {
       label: "累充门槛",
       prop: "threshold",
@@ -61,10 +59,16 @@ export function useMemberLevel() {
       cellRenderer: ({ row }) => `${row.rebate_rate}%`
     },
     {
-      label: "额外多开",
-      prop: "extra_multi_open",
-      width: 90,
-      cellRenderer: ({ row }) => `+${row.extra_multi_open}`
+      label: "额外设备",
+      prop: "extra_devices",
+      width: 95,
+      cellRenderer: ({ row }) => `+${row.extra_devices}`
+    },
+    {
+      label: "额外并发",
+      prop: "extra_concurrent",
+      width: 95,
+      cellRenderer: ({ row }) => `+${row.extra_concurrent}`
     },
     {
       label: "赠送换绑",
@@ -88,21 +92,10 @@ export function useMemberLevel() {
     { label: "操作", fixed: "right", width: 160, slot: "operation" }
   ];
 
-  async function fetchApps() {
-    try {
-      const { code, data } = await getAppsSimple();
-      if (code === 0 && Array.isArray(data)) {
-        apps.value = data;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
   async function onSearch() {
     loading.value = true;
     try {
-      const { code, data } = await getMemberLevels({ app_uuid: form.app_uuid });
+      const { code, data } = await getMemberLevels({});
       if (code === 0) {
         dataList.value = data || [];
       }
@@ -122,19 +115,18 @@ export function useMemberLevel() {
       props: {
         formInline: {
           uuid: row?.uuid ?? "",
-          app_uuid: row?.app_uuid ?? form.app_uuid ?? "",
           name: row?.name ?? "",
           level: row?.level ?? 1,
           color: row?.color || "#909399",
           threshold_yuan: row ? row.threshold / 100 : 0,
           rebate_rate: row?.rebate_rate ?? 0,
-          extra_multi_open: row?.extra_multi_open ?? 0,
+          extra_devices: row?.extra_devices ?? 0,
+          extra_concurrent: row?.extra_concurrent ?? 0,
           extra_rebind_count: row?.extra_rebind_count ?? 0,
           sort: row?.sort ?? 0,
           status: row?.status ?? 1,
           remark: row?.remark ?? ""
-        },
-        apps: apps.value
+        }
       },
       width: "520px",
       draggable: true,
@@ -163,13 +155,13 @@ export function useMemberLevel() {
               try {
                 const { code, msg } = await saveMemberLevel({
                   uuid: cur.uuid,
-                  app_uuid: cur.app_uuid,
                   name: cur.name,
                   level: cur.level,
                   color: cur.color,
                   threshold: Math.round(cur.threshold_yuan * 100),
                   rebate_rate: cur.rebate_rate,
-                  extra_multi_open: cur.extra_multi_open,
+                  extra_devices: cur.extra_devices,
+            extra_concurrent: cur.extra_concurrent,
                   extra_rebind_count: cur.extra_rebind_count,
                   sort: cur.sort,
                   status: cur.status,
@@ -215,17 +207,13 @@ export function useMemberLevel() {
     }
   }
 
-  onMounted(() => {
-    fetchApps();
-    onSearch();
-  });
+  onMounted(onSearch);
 
   return {
     form,
     loading,
     columns,
     dataList,
-    apps,
     onSearch,
     openDialog,
     handleDelete

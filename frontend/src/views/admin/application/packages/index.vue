@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ref } from "vue";
 import { useCardPackage } from "./hook";
 import { PureTableBar } from "@/components/RePureTableBar";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
@@ -8,15 +7,12 @@ defineOptions({
   name: "PackagesIndex"
 });
 
-const formRef = ref();
 
 const {
-  form,
   loading,
   columns,
   dataList,
-  apps,
-  onSearch,
+  loadList,
   openDialog,
   handleDelete
 } = useCardPackage();
@@ -24,42 +20,8 @@ const {
 
 <template>
   <div class="main">
-    <el-form
-      ref="formRef"
-      :inline="true"
-      :model="form"
-      class="search-form bg-bg_color w-full pl-8 pt-3 overflow-auto"
-    >
-      <el-form-item label="所属应用" prop="app_uuid">
-        <el-select
-          v-model="form.app_uuid"
-          placeholder="请选择应用"
-          clearable
-          class="w-[180px]!"
-          @change="onSearch"
-        >
-          <el-option label="全部" value="" />
-          <el-option
-            v-for="app in apps"
-            :key="app.uuid"
-            :label="app.name"
-            :value="app.uuid"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item>
-        <el-button
-          type="primary"
-          :icon="useRenderIcon('ri:search-line')"
-          :loading="loading"
-          @click="onSearch"
-        >
-          搜索
-        </el-button>
-      </el-form-item>
-    </el-form>
 
-    <PureTableBar title="卡密套餐" :columns="columns" @refresh="onSearch">
+    <PureTableBar title="卡密套餐" :columns="columns" @refresh="loadList">
       <template #buttons>
         <el-button
           type="primary"
@@ -115,10 +77,4 @@ const {
   </div>
 </template>
 
-<style scoped lang="scss">
-.search-form {
-  :deep(.el-form-item) {
-    margin-bottom: 12px;
-  }
-}
-</style>
+

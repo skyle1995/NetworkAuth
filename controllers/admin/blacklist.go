@@ -1,4 +1,4 @@
-package admin
+﻿package admin
 
 import (
 	"fmt"
@@ -109,10 +109,9 @@ func SessionBlacklistHandler(c *gin.Context) {
 	memberBaseController.HandleSuccess(c, "已拉黑", res)
 }
 
-// BlacklistListHandler 黑名单列表（分页 + app_uuid / type 筛选 + value/username 搜索）。
+// BlacklistListHandler 黑名单列表（分页 + type 筛选 + value/username 搜索）。全站一份。
 func BlacklistListHandler(c *gin.Context) {
 	page, limit := memberBaseController.GetPaginationParams(c)
-	appUUID := strings.TrimSpace(c.Query("app_uuid"))
 	search := strings.TrimSpace(c.Query("search"))
 
 	var typ *int
@@ -122,7 +121,7 @@ func BlacklistListHandler(c *gin.Context) {
 		}
 	}
 
-	items, total, err := services.ListBlacklist(appUUID, typ, search, page, limit)
+	items, total, err := services.ListBlacklist(typ, search, page, limit)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to fetch blacklist")
 		memberBaseController.HandleInternalError(c, "查询黑名单失败", err)
@@ -131,7 +130,6 @@ func BlacklistListHandler(c *gin.Context) {
 
 	type BlacklistResponse struct {
 		ID        uint   `json:"id"`
-		AppUUID   string `json:"app_uuid"`
 		Type      int    `json:"type"`
 		TypeText  string `json:"type_text"`
 		Value     string `json:"value"`
@@ -145,7 +143,6 @@ func BlacklistListHandler(c *gin.Context) {
 	for _, b := range items {
 		list = append(list, BlacklistResponse{
 			ID:        b.ID,
-			AppUUID:   b.AppUUID,
 			Type:      b.Type,
 			TypeText:  blacklistTypeText(b.Type),
 			Value:     b.Value,
@@ -177,7 +174,7 @@ func BlacklistAddHandler(c *gin.Context) {
 		memberBaseController.HandleValidationError(c, "请选择应用")
 		return
 	}
-	if err := services.AddBlacklistManual(req.AppUUID, req.Type, req.Value, req.Province, req.City, req.Remark); err != nil {
+	if err := services.AddBlacklistManual(req.Type, req.Value, req.Province, req.City, req.Remark); err != nil {
 		memberBaseController.HandleValidationError(c, err.Error())
 		return
 	}

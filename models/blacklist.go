@@ -23,10 +23,11 @@ const (
 // 结构体定义
 // ============================================================================
 
-// Blacklist 黑名单表模型
-// 按应用维度封禁「设备(机器码)/IP/地区」。登录收尾时命中任一即拒绝，
+// Blacklist 黑名单表模型（一号通：全站生效）
+// 按全站维度封禁「设备(机器码)/IP/地区」。登录收尾时命中任一即拒绝，
 // 与账号级黑名单（Member.Status=2）互补：账号黑名单封的是人，本表封的是设备/网络/地域。
 // 地区类型以「省+市」为粒度（地级），Value 存 "省/市" 供唯一约束与展示，Province/City 供匹配。
+// 全站生效是刻意设计：一号通下账号跨应用通用，若按应用隔离封禁，换应用即可绕过。
 type Blacklist struct {
 	// ID：主键，自增
 	ID uint `gorm:"primaryKey;comment:黑名单ID，自增主键" json:"id"`
@@ -34,14 +35,11 @@ type Blacklist struct {
 	// UUID：唯一标识符，自动生成
 	UUID string `gorm:"uniqueIndex;size:36;not null;comment:黑名单UUID" json:"uuid"`
 
-	// AppUUID：归属应用UUID，与 Type+Value 联合唯一
-	AppUUID string `gorm:"size:36;not null;index;uniqueIndex:idx_blacklist_app_type_value;comment:归属应用UUID" json:"app_uuid"`
-
 	// Type：黑名单类型（0=机器码，1=IP，2=地区）
-	Type int `gorm:"not null;uniqueIndex:idx_blacklist_app_type_value;comment:类型，0=机器码，1=IP，2=地区" json:"type"`
+	Type int `gorm:"not null;uniqueIndex:idx_blacklist_type_value;comment:类型，0=机器码，1=IP，2=地区" json:"type"`
 
 	// Value：命中值（机器码/IP原值；地区为 "省/市"）
-	Value string `gorm:"size:255;not null;uniqueIndex:idx_blacklist_app_type_value;comment:命中值" json:"value"`
+	Value string `gorm:"size:255;not null;uniqueIndex:idx_blacklist_type_value;comment:命中值" json:"value"`
 
 	// Province：省份（IP归属地展示 / 地区类型匹配）
 	Province string `gorm:"size:64;comment:省份" json:"province"`

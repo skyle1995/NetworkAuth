@@ -10,19 +10,16 @@ import {
   deleteVariable,
   batchDeleteVariables
 } from "@/api/admin/variable";
-import { getAppsSimple } from "@/api/admin/app";
 import { ElMessageBox } from "element-plus";
 
 export function useVariable() {
   const form = reactive({
     search: "",
-    app_uuid: ""
-  });
+    });
 
   const formRef = ref();
   const dataList = ref([]);
   const loading = ref(true);
-  const apps = ref([]);
 
   const pagination = reactive<PaginationProps>({
     total: 0,
@@ -53,18 +50,7 @@ export function useVariable() {
       prop: "number",
       minWidth: 140
     },
-    {
-      label: "所属应用",
-      prop: "app_uuid",
-      minWidth: 150,
-      cellRenderer: ({ row }) => {
-        if (row.app_uuid === "0" || !row.app_uuid) {
-          return "全局变量";
-        }
-        const app = apps.value.find(a => a.uuid === row.app_uuid);
-        return app ? app.name : "未知应用";
-      }
-    },
+
     {
       label: "备注说明",
       prop: "remark",
@@ -83,16 +69,6 @@ export function useVariable() {
     }
   ];
 
-  async function fetchApps() {
-    try {
-      const { code, data } = await getAppsSimple();
-      if (code === 0 && Array.isArray(data)) {
-        apps.value = data;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }
 
   async function onSearch() {
     loading.value = true;
@@ -101,8 +77,7 @@ export function useVariable() {
         page: pagination.currentPage,
         limit: pagination.pageSize,
         search: form.search,
-        app_uuid: form.app_uuid
-      });
+          });
 
       if (code === 0) {
         dataList.value = data || [];
@@ -130,11 +105,9 @@ export function useVariable() {
           id: row?.id,
           uuid: row?.uuid ?? "",
           alias: row?.alias ?? "",
-          app_uuid: row?.app_uuid ?? "0",
           data: row?.data ?? "",
           remark: row?.remark ?? ""
         },
-        apps: apps.value
       },
       width: "460px",
       draggable: true,
@@ -247,7 +220,6 @@ export function useVariable() {
   }
 
   onMounted(() => {
-    fetchApps();
     onSearch();
   });
 
@@ -257,8 +229,7 @@ export function useVariable() {
     columns,
     dataList,
     pagination,
-    apps,
-    onSearch,
+      onSearch,
     resetFormSearch,
     openDialog,
     handleDelete,

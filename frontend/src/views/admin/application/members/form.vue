@@ -4,7 +4,6 @@ import { formRules } from "./rule";
 
 export interface FormProps {
   formInline: {
-    app_uuid: string;
     username: string;
     password: string;
     duration_value: number;
@@ -12,25 +11,17 @@ export interface FormProps {
     points: number;
     remark: string;
   };
-  apps: Array<{
-    id: number;
-    uuid: string;
-    name: string;
-    operation_mode?: number;
-  }>;
 }
 
 const props = withDefaults(defineProps<FormProps>(), {
   formInline: () => ({
-    app_uuid: "",
     username: "",
     password: "",
     duration_value: 30,
     duration_unit: "day",
-    points: 10,
+      points: 0,
     remark: ""
-  }),
-  apps: () => []
+  })
 });
 
 const ruleFormRef = ref();
@@ -38,13 +29,6 @@ const newFormInline = ref(props.formInline);
 
 const isPermanent = computed(
   () => newFormInline.value.duration_unit === "permanent"
-);
-
-// 依所选应用运营模式：点数模式填初始点数，时长模式填初始时长
-const isPoints = computed(
-  () =>
-    props.apps.find(a => a.uuid === newFormInline.value.app_uuid)
-      ?.operation_mode === 1
 );
 
 function getRef() {
@@ -61,21 +45,6 @@ defineExpose({ getRef });
     :rules="formRules"
     label-width="90px"
   >
-    <el-form-item label="所属应用" prop="app_uuid">
-      <el-select
-        v-model="newFormInline.app_uuid"
-        placeholder="请选择所属应用"
-        class="w-full"
-        clearable
-      >
-        <el-option
-          v-for="app in apps"
-          :key="app.uuid"
-          :label="`${app.name} (ID: ${app.id})`"
-          :value="app.uuid"
-        />
-      </el-select>
-    </el-form-item>
 
     <el-form-item label="用户名" prop="username">
       <el-input v-model="newFormInline.username" placeholder="请输入用户名" />
@@ -89,39 +58,36 @@ defineExpose({ getRef });
         placeholder="请输入初始密码"
       />
     </el-form-item>
+    <!-- 一号通账号同时有两个钱包：初始时长与初始点数都可填（0 = 不发放） -->
+    <el-form-item label="初始时长" prop="duration_value">
+      <el-input-number
+        v-model="newFormInline.duration_value"
+        :min="1"
+        :disabled="isPermanent"
+        class="!w-[140px]"
+      />
+      <el-select
+        v-model="newFormInline.duration_unit"
+        class="ml-2 !w-[110px]"
+      >
+        <el-option label="分钟" value="minute" />
+        <el-option label="小时" value="hour" />
+        <el-option label="天" value="day" />
+        <el-option label="月" value="month" />
+        <el-option label="年" value="year" />
+        <el-option label="永久" value="permanent" />
+      </el-select>
+    </el-form-item>
 
-    <el-form-item v-if="isPoints" label="初始点数" prop="points">
+    <el-form-item label="初始点数" prop="points">
       <el-input-number
         v-model="newFormInline.points"
         :min="0"
-        class="!w-full"
+        :step="1"
+        :precision="2"
+        class="!w-[140px]"
       />
     </el-form-item>
-
-    <el-row v-else :gutter="16">
-      <el-col :span="12">
-        <el-form-item label="初始时长" prop="duration_value">
-          <el-input-number
-            v-model="newFormInline.duration_value"
-            :min="1"
-            :disabled="isPermanent"
-            class="!w-full"
-          />
-        </el-form-item>
-      </el-col>
-      <el-col :span="12">
-        <el-form-item label="时长单位" prop="duration_unit">
-          <el-select v-model="newFormInline.duration_unit" class="w-full">
-            <el-option label="分钟" value="minute" />
-            <el-option label="小时" value="hour" />
-            <el-option label="天" value="day" />
-            <el-option label="月" value="month" />
-            <el-option label="年" value="year" />
-            <el-option label="永久" value="permanent" />
-          </el-select>
-        </el-form-item>
-      </el-col>
-    </el-row>
 
     <el-form-item label="备注说明" prop="remark">
       <el-input

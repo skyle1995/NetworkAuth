@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { fmtPoints } from "@/utils/points";
 import { ref, computed } from "vue";
 import { useCard } from "./hook";
 import { PureTableBar } from "@/components/RePureTableBar";
@@ -26,7 +27,6 @@ const {
   columns,
   dataList,
   pagination,
-  apps,
   onSearch,
   resetFormSearch,
   openCreateDialog,
@@ -46,17 +46,10 @@ function handleSelectionChange(val: any[]) {
 
 // 导出列定义（批量导出与导出批次共用）
 const exportColumns = [
-  { prop: "card_no", label: "卡号" },
-  {
-    prop: "app_uuid",
-    label: "所属应用",
-    formatter: (r: any) =>
-      apps.value.find(a => a.uuid === r.app_uuid)?.name || r.app_uuid
-  },
   {
     prop: "value",
     label: "面值",
-    formatter: (r: any) => (r.points > 0 ? `${r.points} 点` : r.duration_text)
+    formatter: (r: any) => (r.points > 0 ? `${fmtPoints(r.points)} 点` : r.duration_text)
   },
   { prop: "status_text", label: "状态" },
   { prop: "batch_no", label: "批次号" },
@@ -77,7 +70,6 @@ const { exporting, handleExport } = useSmartExport({
   getSelected: () => selectedRows.value,
   fetchAll: async () => {
     const { code, data } = await exportCards({
-      app_uuid: form.app_uuid,
       status: form.status,
       batch_no: form.batch_no,
       search: form.search
@@ -95,8 +87,7 @@ const { exporting: exportingBatch, handleExport: doExportBatch } =
     getSelected: () => [],
     fetchAll: async () => {
       const { code, data } = await exportCards({
-        batch_no: exportBatchNo.value,
-        app_uuid: form.app_uuid
+        batch_no: exportBatchNo.value
       });
       return code === 0 ? data || [] : [];
     }
@@ -122,13 +113,11 @@ async function onExportBatch() {
 }
 
 async function onDeleteBatch() {
-  if (!form.app_uuid) {
-    ElMessage.warning("请先在上方选择所属应用");
-    return;
-  }
+  // 卡密全站通用：按批次删除不再要求先选应用。
+  // 批次号全局唯一，服务端按批次号整批删除即可。
   try {
     const { value } = await ElMessageBox.prompt(
-      "请输入要删除的批次号（该应用下整批卡密将被删除）",
+      "请输入要删除的批次号（该批次内全部卡密将被删除，包括已售出的）",
       "按批次删除",
       {
         confirmButtonText: "删除",
@@ -138,7 +127,6 @@ async function onDeleteBatch() {
       }
     );
     const { code, msg, data } = await deleteCardsByBatch({
-      app_uuid: form.app_uuid,
       batch_no: value.trim()
     });
     if (code === 0) {
@@ -236,24 +224,6 @@ async function onBatchDel() {
           class="w-[180px]!"
           @keyup.enter="onSearch"
         />
-      </el-form-item>
-
-      <el-form-item label="所属应用" prop="app_uuid">
-        <el-select
-          v-model="form.app_uuid"
-          placeholder="请选择应用"
-          clearable
-          class="w-[180px]!"
-          @change="onSearch"
-        >
-          <el-option label="全部" value="" />
-          <el-option
-            v-for="app in apps"
-            :key="app.uuid"
-            :label="app.name"
-            :value="app.uuid"
-          />
-        </el-select>
       </el-form-item>
 
       <el-form-item label="状态" prop="status">

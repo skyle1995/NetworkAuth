@@ -16,17 +16,14 @@ import (
 // 制卡时把套餐的面值（Duration/Points）与售价（Price）快照进 Card，
 // 套餐后续改动不影响已售出的卡，三处核销逻辑读的仍是 Card 自身字段。
 
-// ListCardPackages 列出应用的卡密套餐。onlyEnabled 时只返回启用的。
-func ListCardPackages(appUUID string, onlyEnabled bool) ([]models.CardPackage, error) {
+// ListCardPackages 列出卡密套餐（全站一份）。onlyEnabled 时只返回启用的。
+func ListCardPackages(onlyEnabled bool) ([]models.CardPackage, error) {
 	db, err := database.GetDB()
 	if err != nil {
 		return nil, err
 	}
 	var pkgs []models.CardPackage
 	q := db.Model(&models.CardPackage{})
-	if appUUID = strings.TrimSpace(appUUID); appUUID != "" {
-		q = q.Where("app_uuid = ?", appUUID)
-	}
 	if onlyEnabled {
 		q = q.Where("status = 1")
 	}
@@ -44,9 +41,8 @@ func SaveCardPackage(pkg *models.CardPackage) error {
 		return err
 	}
 	pkg.Name = strings.TrimSpace(pkg.Name)
-	pkg.AppUUID = strings.TrimSpace(pkg.AppUUID)
-	if pkg.AppUUID == "" || pkg.Name == "" {
-		return errors.New("应用与套餐名称不能为空")
+	if pkg.Name == "" {
+		return errors.New("套餐名称不能为空")
 	}
 	if err := validatePackageValue(pkg); err != nil {
 		return err
@@ -115,30 +111,23 @@ func DeleteCardPackage(uuid string) error {
 	})
 }
 
-// checkPackageMatchesApp 校验套餐类型与应用运营模式一致：
-// 点数模式只能用点数套餐，时长/免费模式只能用时长套餐，否则制出的卡面值对该应用无意义。
-func checkPackageMatchesApp(app *models.App, pkg *models.CardPackage) error {
-	if app.OperationMode == models.OperationModePoints {
-		if pkg.Type != models.PackageTypePoints {
-			return errors.New("点数模式应用只能使用点数套餐")
-		}
-		return nil
-	}
-	if pkg.Type != models.PackageTypeTime {
-		return errors.New("时长模式应用只能使用时长套餐")
+// checkPackageValue 校验套餐面值有效（卡密全站通用，不再限定应用计费模式）。
+// 一张卡可同时带时长与点数，核销时按面值非零项各自发放。
+func checkPackageValue(pkg *models.CardPackage) error {
+	if pkg.Duration == 0 && pkg.Points <= 0 {
+		return errors.New("套餐面值无效：时长与点数至少配置一项")
 	}
 	return nil
 }
 
-// LoadEnabledPackage 取启用中的套餐，并校验归属应用与运营模式匹配（制卡用）。
-func LoadEnabledPackage(db *gorm.DB, appUUID, packageUUID string) (*models.CardPackage, error) {
+// LoadEnabledPackage 取启用中的套餐（全站一份，无需应用维度）。
+func LoadEnabledPackage(db *gorm.DB, packageUUID string) (*models.CardPackage, error) {
 	packageUUID = strings.TrimSpace(packageUUID)
 	if packageUUID == "" {
 		return nil, errors.New("请选择卡密套餐")
 	}
 	var pkg models.CardPackage
-	if err := db.Where("uuid = ? AND app_uuid = ?", packageUUID, strings.TrimSpace(appUUID)).
-		First(&pkg).Error; err != nil {
+	if err := db.Where("uuid = ?", packageUUID).First(&pkg).Error; err != nil {
 		return nil, errors.New("套餐不存在")
 	}
 	if pkg.Status != 1 {

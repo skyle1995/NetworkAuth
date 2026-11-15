@@ -5,14 +5,27 @@
 ## 功能特性
 
 ### 🚀 核心功能
+
+- **一号通账号体系**: 全站一套账号与钱包——一个账号在所有应用共享同一份到期时间、点数与会员等级；封禁、黑名单、转绑计数同样全站生效
 - **应用管理**: 支持应用的增删改查、版本管理、状态控制、密钥管理
-- **API接口管理**: 支持多种加密算法的API接口配置（RC4、RSA、易加密等）
+- **应用级计费策略**: 每个应用可独立选择**会员模式**（等级门槛）、**点数模式**（消耗点数）或**混合模式**（等级门槛 + 按等级配置点数消耗），并支持整体计费豁免
+- **全局 API 接口**: 27 条接口定义全站唯一、安装即启用；应用身份由 `app_uuid` + `app_secret` 签名区分，无需为每个应用重复配置
+- **全局账号策略**: 注册、邮箱验证、卡密注册/登录/充值、领取试用、注册限制全站统一配置
+- **卡密与会员**: 全站卡池 + 卡密套餐（面值快照）+ 会员等级（累充自动升级、充值返利、额外多开、赠送换绑、混合模式点数折扣）
 - **变量管理**: 独立的变量系统，支持变量的增删改查和别名管理
 - **函数管理**: 支持自定义函数代码管理，可绑定特定应用或全局使用
 - **用户管理**: 完整的用户认证和权限管理系统
 - **系统设置**: 灵活的系统配置和参数管理
 - **系统初始化**: 提供引导式的数据表初始化和默认设置注入
 - **日志审计**: 详细的登录日志和操作日志记录，保障系统安全
+
+> **文档入口**：
+> - [docs/api-guide.md](docs/api-guide.md) — **客户端对接协议**（含两级授权、错误码、算法实现）
+> - [docs/architecture.md](docs/architecture.md) — **架构总览，唯一入口**（数据归属 / 计费模型 / 会话模型 / 不变量 / 代码地图）
+> - [docs/flows.md](docs/flows.md) — **各场景工作流程表**（请求流水线 / 登录 / 激活 / 心跳 / 清理）
+> - [docs/app-settings.md](docs/app-settings.md) — 后台每个开关的逐项说明（运维向）
+> - [docs/plan-unified-account.md](docs/plan-unified-account.md) — 一号通改造的设计与实施记录
+> - [docs/plan-host-plugin-session.md](docs/plan-host-plugin-session.md) — 外壳 + 插件方案（设计过程记录，字段以 api-guide 为准）
 
 ### 🔧 技术特性
 - **RESTful API**: 标准的 REST API 接口设计
@@ -45,6 +58,8 @@ NetworkAuth/
 ├── constants/              # 全局常量定义 (版本号、状态码等)
 ├── controllers/            # 控制器层 (处理 HTTP 请求)
 ├── database/               # 数据库连接、迁移与默认数据填充
+├── docs/                   # 架构、后台设置与客户端对接文档
+├── frontend/               # Vue 3 管理后台（构建产物嵌入二进制）
 ├── middleware/             # Gin 中间件 (日志、认证、维护模式等)
 ├── models/                 # GORM 数据模型定义
 ├── server/                 # HTTP 服务器路由注册
@@ -53,6 +68,17 @@ NetworkAuth/
 └── main.go                 # 项目入口
 ```
 
+一号通改造涉及的核心文件：
+
+| 文件 | 职责 |
+|---|---|
+| `models/billing.go` | 计费三模式常量、14 项全局账号策略键名 |
+| `models/app_level_point.go` | 混合模式：`(应用, 会员等级) → 点数消耗` |
+| `services/billing.go` | `EffectiveBilling` 解析、门禁判定、`AccountPolicy` 读写、等级点数维护 |
+| `services/api_seed.go` | `EnsureGlobalAPIs()` 幂等补齐 27 条全局接口 |
+| `services/member_auth.go` | 鉴权、登录扣费（条件原子更新）、注册/试用/充值 |
+| `services/unified_account_test.go` | 一号通不变量回归测试 |
+
 ## 快速开始
 
 ### 环境要求
@@ -60,6 +86,7 @@ NetworkAuth/
 - Go 1.26.0 或更高版本
 - MySQL 5.7+ 或 SQLite 3
 - Redis (可选)
+- Node.js 18+ 与 pnpm（仅修改前端时需要；仓库内已含构建好的 `frontend/dist`）
 
 ### 安装与运行
 
@@ -78,11 +105,33 @@ NetworkAuth/
    ```bash
    # 直接运行
    go run main.go server
-   
+
    # 或者编译后运行
    go build -o networkauth main.go
    ./networkauth server
    ```
+
+   > 首次启动会进入引导式安装：建表 → 写入 14 项账号策略默认值 → 写入 27 条全局接口条目 → 创建超级管理员。
+   > 安装完成后 `apps` 为空，先到「接口设置」确认 27 条已就绪，再到「应用管理」添加应用。
+
+4. **修改前端后重建静态资源**
+   ```bash
+   cd frontend
+   pnpm install     # 首次或依赖变更时
+   pnpm build       # 输出到 frontend/dist，会被 go:embed 打进二进制
+   cd ..
+   go build -o networkauth main.go   # 必须重新编译才会切换到新前端
+   ```
+
+   > ⚠️ `frontend/dist` 是构建产物（已被 gitignore）。若为生产构建二进制时该目录不存在，`go build` 会因 `//go:embed all:frontend/dist` 找不到文件而失败。
+
+### 测试
+
+```bash
+go test ./...                                    # 全部
+go test ./services/ -run TestWalletShared -v     # 一号通不变量：跨应用钱包共享
+go test ./services/ -run TestHybridMode -v       # 混合模式按等级取价
+```
 
 ### 命令行工具
 

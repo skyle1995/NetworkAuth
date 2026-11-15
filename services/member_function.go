@@ -46,7 +46,7 @@ func ExecuteFunction(appUUID, token, alias string, params any) (any, error) {
 
 	// 别名全局唯一，限定属于本应用或全局("0")
 	var function models.Function
-	if err := db.Where("alias = ? AND app_uuid IN ?", alias, []string{strings.TrimSpace(appUUID), "0"}).
+	if err := db.Where("alias = ?", alias).
 		First(&function).Error; err != nil {
 		return nil, errors.New("函数不存在")
 	}
@@ -83,23 +83,36 @@ func memberInfoMap(m *models.Member) map[string]any {
 }
 
 // appInfoMap 当前应用的只读信息（不含应用密钥 secret）。
+// 计费与账号策略为全局配置，故此处返回应用的全局生效值 + 应用自身运行时配置，
+// 保持脚本侧字段名与旧版兼容。
 func appInfoMap(a *models.App) map[string]any {
+	billing := EffectiveBilling(a)
+	policy := GetAccountPolicy()
 	return map[string]any{
 		"uuid":                  a.UUID,
 		"name":                  a.Name,
 		"version":               a.Version,
 		"status":                a.Status,
-		"operation_mode":        a.OperationMode,
-		"points_charge_mode":    a.PointsChargeMode,
-		"points_per_login":      a.PointsPerLogin,
-		"points_period_minutes": a.PointsPeriodMinutes,
-		"points_per_period":     a.PointsPerPeriod,
-		"card_login_enabled":    a.CardLoginEnabled,
-		"recharge_enabled":      a.RechargeEnabled,
-		"register_enabled":      a.RegisterEnabled,
+		"free":                  billing.Free,
+		"operation_mode":        billing.Mode,
+		"points_charge_mode":    billing.ChargeMode,
+		"points_per_login":      billing.PerLogin,
+		"points_period_minutes": billing.PeriodMinutes,
+		"points_per_period":     billing.PerPeriod,
+		"card_login_enabled":    boolToInt(policy.CardLoginEnabled),
+		"recharge_enabled":      boolToInt(policy.RechargeEnabled),
+		"register_enabled":      boolToInt(policy.RegisterEnabled),
 		"download_type":         a.DownloadType,
 		"download_url":          a.DownloadURL,
 	}
+}
+
+// boolToInt 把布尔转成 0/1，保持旧版脚本里的整型开关语义。
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // runJSFunction 在带超时的 goja 沙箱内执行函数体，注入只读 getUser/getApp，

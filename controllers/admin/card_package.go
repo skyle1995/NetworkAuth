@@ -1,4 +1,4 @@
-package admin
+﻿package admin
 
 import (
 	"NetworkAuth/controllers"
@@ -19,10 +19,9 @@ var packageBaseController = controllers.NewBaseController()
 
 // CardPackageListHandler 列出套餐（按 app_uuid 筛选；enabled=1 只列启用的，供制卡下拉用）
 func CardPackageListHandler(c *gin.Context) {
-	appUUID := strings.TrimSpace(c.Query("app_uuid"))
 	onlyEnabled := c.Query("enabled") == "1"
 
-	pkgs, err := services.ListCardPackages(appUUID, onlyEnabled)
+	pkgs, err := services.ListCardPackages(onlyEnabled)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to list card packages")
 		packageBaseController.HandleInternalError(c, "查询套餐失败", err)
@@ -38,7 +37,6 @@ func CardPackageSaveHandler(c *gin.Context) {
 		return
 	}
 	if !packageBaseController.ValidateRequired(c, map[string]interface{}{
-		"应用UUID": req.AppUUID,
 		"套餐名称":   req.Name,
 	}) {
 		return
@@ -54,7 +52,7 @@ func CardPackageSaveHandler(c *gin.Context) {
 	if isNew {
 		action = "新增套餐"
 	}
-	recordCardLog(c, action, fmt.Sprintf("%s：%s（应用 %s）", action, req.Name, req.AppUUID))
+	recordCardLog(c, action, fmt.Sprintf("%s：%s", action, req.Name))
 	packageBaseController.HandleSuccess(c, "保存成功", req)
 }
 

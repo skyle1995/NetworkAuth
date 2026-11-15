@@ -129,6 +129,18 @@ func (s *SettingsService) GetInt(name string, defaultValue int) int {
 	return defaultValue
 }
 
+// GetFloat 获取浮点类型的设置值（用于支持小数的点数配置）
+func (s *SettingsService) GetFloat(name string, defaultValue float64) float64 {
+	strValue := s.GetString(name, "")
+	if strValue == "" {
+		return defaultValue
+	}
+	if v, err := strconv.ParseFloat(strValue, 64); err == nil {
+		return v
+	}
+	return defaultValue
+}
+
 // GetBool 获取布尔类型的设置值
 func (s *SettingsService) GetBool(name string, defaultValue bool) bool {
 	strValue := s.GetString(name, "")

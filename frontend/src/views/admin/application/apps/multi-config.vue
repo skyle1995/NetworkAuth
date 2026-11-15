@@ -4,22 +4,18 @@ import { ref } from "vue";
 export interface FormProps {
   formInline: {
     login_type: number;
-    multi_open_scope: number;
-    clean_interval: number;
+      clean_interval: number;
     check_interval: number;
     offline_timeout: number;
-    multi_open_count: number;
-  };
+    };
 }
 
 const props = withDefaults(defineProps<FormProps>(), {
   formInline: () => ({
     login_type: 0,
-    multi_open_scope: 0,
     clean_interval: 1,
     check_interval: 10,
     offline_timeout: 30,
-    multi_open_count: 1
   })
 });
 
@@ -35,20 +31,17 @@ defineExpose({ getRef, newFormInline });
 
 <template>
   <el-form ref="formRef" :model="newFormInline" label-width="100px">
-    <el-form-item label="登录方式" prop="login_type">
+    <el-form-item label="满员策略" prop="login_type">
       <el-radio-group v-model="newFormInline.login_type">
-        <el-radio :value="0">顶号登录</el-radio>
-        <el-radio :value="1">非顶号登录</el-radio>
-        <el-radio :value="2">手动顶号</el-radio>
+        <el-radio :value="0">顶掉最早的一个</el-radio>
+        <el-radio :value="1">拒绝新的</el-radio>
+        <el-radio :value="2">让用户手动选</el-radio>
       </el-radio-group>
+      <div class="text-xs text-gray-500 mt-1">
+        账号的「同时在线」名额满了以后，进入本应用时怎么处理
+      </div>
     </el-form-item>
-    <el-form-item label="多开范围" prop="multi_open_scope">
-      <el-radio-group v-model="newFormInline.multi_open_scope">
-        <el-radio :value="0">单设备</el-radio>
-        <el-radio :value="1">单IP</el-radio>
-        <el-radio :value="2">全部设备</el-radio>
-      </el-radio-group>
-    </el-form-item>
+
     <el-form-item label="清理间隔" prop="clean_interval">
       <el-input-number v-model="newFormInline.clean_interval" :min="1" />
       <span class="ml-2">小时</span>
@@ -64,9 +57,6 @@ defineExpose({ getRef, newFormInline });
       <span class="ml-2 text-xs text-gray-400"
         >分钟 · 超过该时长未心跳则后台自动离线（建议 ≥ 心跳间隔）</span
       >
-    </el-form-item>
-    <el-form-item label="多开数量" prop="multi_open_count">
-      <el-input-number v-model="newFormInline.multi_open_count" :min="1" />
     </el-form-item>
   </el-form>
 </template>

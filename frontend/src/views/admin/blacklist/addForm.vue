@@ -3,26 +3,22 @@ import { ref } from "vue";
 
 export interface FormProps {
   formInline: {
-    app_uuid: string;
     type: number;
     value: string;
     province: string;
     city: string;
     remark: string;
   };
-  apps: any[];
 }
 
 const props = withDefaults(defineProps<FormProps>(), {
   formInline: () => ({
-    app_uuid: "",
     type: 0,
     value: "",
     province: "",
     city: "",
     remark: ""
-  }),
-  apps: () => []
+  })
 });
 
 const model = ref(props.formInline);
@@ -30,20 +26,6 @@ const model = ref(props.formInline);
 
 <template>
   <el-form :model="model" label-width="90px" class="py-1">
-    <el-form-item label="所属应用" required>
-      <el-select
-        v-model="model.app_uuid"
-        placeholder="请选择应用"
-        class="w-full"
-      >
-        <el-option
-          v-for="app in apps"
-          :key="app.uuid"
-          :label="app.name"
-          :value="app.uuid"
-        />
-      </el-select>
-    </el-form-item>
 
     <el-form-item label="类型" required>
       <el-radio-group v-model="model.type">

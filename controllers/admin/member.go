@@ -71,9 +71,6 @@ func MemberListHandler(c *gin.Context) {
 
 	query := db.Model(&models.Member{})
 
-	if appUUID := strings.TrimSpace(c.Query("app_uuid")); appUUID != "" {
-		query = query.Where("app_uuid = ?", appUUID)
-	}
 	if typeStr := strings.TrimSpace(c.Query("type")); typeStr != "" {
 		if t, err := strconv.Atoi(typeStr); err == nil {
 			query = query.Where("type = ?", t)
@@ -103,36 +100,17 @@ func MemberListHandler(c *gin.Context) {
 		return
 	}
 
-	// 批量取这些用户所属应用的运营模式，用于前端展示到期/点数
-	modeByApp := make(map[string]int)
-	if len(members) > 0 {
-		appUUIDs := make([]string, 0, len(members))
-		for _, m := range members {
-			appUUIDs = append(appUUIDs, m.AppUUID)
-		}
-		var appModes []struct {
-			UUID          string
-			OperationMode int
-		}
-		db.Model(&models.App{}).Select("uuid, operation_mode").
-			Where("uuid IN ?", appUUIDs).Find(&appModes)
-		for _, a := range appModes {
-			modeByApp[a.UUID] = a.OperationMode
-		}
-	}
-
+	// 一号通：账号全站唯一，同时持有到期时间与点数两个钱包，列表无需按应用区分
 	type MemberResponse struct {
 		ID                uint   `json:"id"`
 		UUID              string `json:"uuid"`
-		AppUUID           string `json:"app_uuid"`
 		Username          string `json:"username"`
 		Type              int    `json:"type"`
 		TypeText          string `json:"type_text"`
 		Status            int    `json:"status"`
 		StatusText        string `json:"status_text"`
-		Mode              int    `json:"mode"`
 		ExpiredAt         string `json:"expired_at"`
-		Points            int    `json:"points"`
+		Points            float64    `json:"points"`
 		TotalRecharge     int    `json:"total_recharge"`
 		LevelUUID         string `json:"level_uuid"`
 		Level             int    `json:"level"`
@@ -161,18 +139,16 @@ func MemberListHandler(c *gin.Context) {
 		if m.LastLoginAt != nil {
 			lastLogin = m.LastLoginAt.Format("2006-01-02 15:04:05")
 		}
-		// 等级展示含默认档逻辑（无等级=默认档：level=1、名称取应用 level=1 等级或「默认会员」、颜色默认灰）
-		levelName, levelValue, levelColor := services.ResolveMemberLevelName(db, m.AppUUID, m.LevelUUID)
+		// 等级展示含默认档逻辑（无等级=默认档：level=1、名称取 level=1 等级或「默认会员」、颜色默认灰）
+		levelName, levelValue, levelColor := services.ResolveMemberLevelName(db, m.LevelUUID)
 		responseData = append(responseData, MemberResponse{
 			ID:                m.ID,
 			UUID:              m.UUID,
-			AppUUID:           m.AppUUID,
 			Username:          m.Username,
 			Type:              m.Type,
 			TypeText:          memberTypeText(m.Type),
 			Status:            m.Status,
 			StatusText:        memberStatusText(m.Status),
-			Mode:              modeByApp[m.AppUUID],
 			ExpiredAt:         expiredAt,
 			Points:            m.Points,
 			TotalRecharge:     m.TotalRecharge,
@@ -205,21 +181,21 @@ func MemberListHandler(c *gin.Context) {
 // MemberCreateHandler 后台创建注册型账号API处理器
 func MemberCreateHandler(c *gin.Context) {
 	var req struct {
-		AppUUID       string `json:"app_uuid"`
+		// 一号通：账号全站唯一，建号不归属任何应用（members 表无 app_uuid），
+		// 故不再接收 app_uuid。
 		Username      string `json:"username"`
 		Password      string `json:"password"`
-		DurationValue int    `json:"duration_value"`
+		DurationValue float64 `json:"duration_value"`
 		DurationUnit  string `json:"duration_unit"`
-		Points        int    `json:"points"`
+		Points        float64    `json:"points"`
 		Remark        string `json:"remark"`
 	}
 	if !memberBaseController.BindJSON(c, &req) {
 		return
 	}
 	if !memberBaseController.ValidateRequired(c, map[string]interface{}{
-		"应用UUID": req.AppUUID,
-		"用户名":    req.Username,
-		"密码":     req.Password,
+		"用户名": req.Username,
+		"密码":  req.Password,
 	}) {
 		return
 	}
@@ -235,14 +211,14 @@ func MemberCreateHandler(c *gin.Context) {
 		}
 	}
 
-	member, err := services.CreateMember(req.AppUUID, req.Username, req.Password, durationMinutes, req.Points, strings.TrimSpace(req.Remark))
+	member, err := services.CreateMember(req.Username, req.Password, durationMinutes, req.Points, strings.TrimSpace(req.Remark))
 	if err != nil {
 		logrus.WithError(err).Error("Failed to create member")
 		memberBaseController.HandleValidationError(c, err.Error())
 		return
 	}
 
-	recordMemberLog(c, "创建账号", fmt.Sprintf("为应用 %s 创建用户 %s", req.AppUUID, member.Username))
+	recordMemberLog(c, "创建账号", fmt.Sprintf("创建账号 %s", member.Username))
 	memberBaseController.HandleSuccess(c, "创建成功", gin.H{"id": member.ID, "uuid": member.UUID})
 }
 
@@ -253,7 +229,7 @@ func MemberUpdateHandler(c *gin.Context) {
 	var req struct {
 		ID            uint    `json:"id"`
 		ExpiredAt     *string `json:"expired_at"`
-		Points        *int    `json:"points"`
+		Points        *float64 `json:"points"`
 		TotalRecharge *int    `json:"total_recharge"`
 		Remark        *string `json:"remark"`
 	}
@@ -323,9 +299,9 @@ func MemberSetStatusHandler(c *gin.Context) {
 func MemberRechargeHandler(c *gin.Context) {
 	var req struct {
 		ID            uint   `json:"id"`
-		DurationValue int    `json:"duration_value"`
+		DurationValue float64 `json:"duration_value"`
 		DurationUnit  string `json:"duration_unit"`
-		Points        int    `json:"points"`
+		Points        float64    `json:"points"`
 	}
 	if !memberBaseController.BindJSON(c, &req) {
 		return
@@ -335,13 +311,13 @@ func MemberRechargeHandler(c *gin.Context) {
 		return
 	}
 
-	// 点数模式：加点数
-	if mode, err := services.GetMemberAppMode(req.ID); err == nil && mode == models.OperationModePoints {
+	// 一号通：账号同时有「到期时间」与「点数」两个钱包，点数充值独立处理
+	if req.Points > 0 {
 		if err := services.RechargeMemberPoints(req.ID, req.Points); err != nil {
 			memberBaseController.HandleValidationError(c, err.Error())
 			return
 		}
-		recordMemberLog(c, "用户充值", fmt.Sprintf("为用户ID %d 充值 %d 点", req.ID, req.Points))
+		recordMemberLog(c, "用户充值", fmt.Sprintf("为用户ID %d 充值 %s 点", req.ID, fmtNum(req.Points)))
 		memberBaseController.HandleSuccess(c, "充值成功", nil)
 		return
 	}
@@ -374,9 +350,9 @@ func MemberRechargeHandler(c *gin.Context) {
 func MemberDeductHandler(c *gin.Context) {
 	var req struct {
 		ID            uint   `json:"id"`
-		DurationValue int    `json:"duration_value"`
+		DurationValue float64 `json:"duration_value"`
 		DurationUnit  string `json:"duration_unit"`
-		Points        int    `json:"points"`
+		Points        float64    `json:"points"`
 	}
 	if !memberBaseController.BindJSON(c, &req) {
 		return
@@ -386,13 +362,13 @@ func MemberDeductHandler(c *gin.Context) {
 		return
 	}
 
-	// 点数模式：扣点数
-	if mode, err := services.GetMemberAppMode(req.ID); err == nil && mode == models.OperationModePoints {
+	// 一号通：点数扣减独立处理
+	if req.Points > 0 {
 		if err := services.DeductMemberPoints(req.ID, req.Points); err != nil {
 			memberBaseController.HandleValidationError(c, err.Error())
 			return
 		}
-		recordMemberLog(c, "用户扣减", fmt.Sprintf("为用户ID %d 扣除 %d 点", req.ID, req.Points))
+		recordMemberLog(c, "用户扣减", fmt.Sprintf("为用户ID %d 扣除 %s 点", req.ID, fmtNum(req.Points)))
 		memberBaseController.HandleSuccess(c, "扣减成功", nil)
 		return
 	}
@@ -416,10 +392,9 @@ func MemberBatchRechargeHandler(c *gin.Context) {
 	var req struct {
 		IDs           []uint `json:"ids"`
 		All           bool   `json:"all"`
-		AppUUID       string `json:"app_uuid"`
-		DurationValue int    `json:"duration_value"`
+		DurationValue float64 `json:"duration_value"`
 		DurationUnit  string `json:"duration_unit"`
-		Points        int    `json:"points"`
+		Points        float64    `json:"points"`
 	}
 	if !memberBaseController.BindJSON(c, &req) {
 		return
@@ -440,7 +415,7 @@ func MemberBatchRechargeHandler(c *gin.Context) {
 		minutes = m
 	}
 
-	res, err := services.BatchRecharge(req.IDs, req.All, req.AppUUID, minutes, req.Points)
+	res, err := services.BatchRecharge(req.IDs, req.All, minutes, req.Points)
 	if err != nil {
 		memberBaseController.HandleValidationError(c, err.Error())
 		return
@@ -451,8 +426,8 @@ func MemberBatchRechargeHandler(c *gin.Context) {
 		scope = "全体账号"
 	}
 	recordMemberLog(c, "批量加时/点", fmt.Sprintf(
-		"%s 批量补偿：命中%d（加时%d/加点%d/永久跳过%d，时长%d分钟/点数%d）",
-		scope, res.Total, res.TimeAdded, res.PointsAdded, res.SkipPermanent, minutes, req.Points,
+		"%s 批量补偿：命中%d（加时%d/加点%d/永久跳过%d，时长%d分钟/点数%s）",
+		scope, res.Total, res.TimeAdded, res.PointsAdded, res.SkipPermanent, minutes, fmtNum(req.Points),
 	))
 	memberBaseController.HandleSuccess(c, "操作完成", res)
 }
@@ -617,7 +592,9 @@ func MemberKickSessionHandler(c *gin.Context) {
 		return
 	}
 
-	q := db.Model(&models.MemberSession{})
+	// 二级令牌：踢下线 = 释放激活（置 deactivated_at），名额立即回收。
+	now := time.Now()
+	q := db.Model(&models.AppActivation{}).Where("deactivated_at IS NULL")
 	if req.ID > 0 {
 		q = q.Where("id = ?", req.ID)
 	} else if strings.TrimSpace(req.MemberUUID) != "" {
@@ -627,13 +604,13 @@ func MemberKickSessionHandler(c *gin.Context) {
 		return
 	}
 
-	res := q.Delete(&models.MemberSession{})
+	res := q.Updates(map[string]any{"deactivated_at": now, "updated_at": now})
 	if res.Error != nil {
 		memberBaseController.HandleInternalError(c, "踢下线失败", res.Error)
 		return
 	}
 
-	recordMemberLog(c, "踢下线", fmt.Sprintf("下线了 %d 个会话", res.RowsAffected))
+	recordMemberLog(c, "踢下线", fmt.Sprintf("下线了 %d 个激活", res.RowsAffected))
 	memberBaseController.HandleSuccess(c, "操作成功", gin.H{"count": res.RowsAffected})
 }
 

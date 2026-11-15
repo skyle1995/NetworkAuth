@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { fmtPoints } from "@/utils/points";
 import { computed } from "vue";
 
 const props = defineProps<{ row: any }>();
@@ -10,7 +11,7 @@ const statusText = computed(
   () => props.row.status_text || String(props.row.status)
 );
 const quota = computed(() =>
-  props.row.mode === 1 ? `${props.row.points} 点` : props.row.expired_at
+  props.row.mode === 1 ? `${fmtPoints(props.row.points)} 点` : props.row.expired_at
 );
 const trialText = computed(() =>
   props.row.trial_used

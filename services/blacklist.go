@@ -18,6 +18,9 @@ import (
 // 与账号级黑名单（Member.Status=2）互补：账号黑名单封的是「人」，本表封的是
 // 「设备 / 网络 / 地域」。登录收尾 CheckBlacklist 命中任一即拒绝。
 // 地区以「省+市」为粒度（地级）。
+//
+// 一号通语义：黑名单**全站生效**，不区分应用。
+// 原因：账号跨应用通用，若按应用隔离封禁，换个应用即可绕过封禁。
 
 // RegionValue 组装地区黑名单的 Value（"省/市"），用于唯一约束与展示。
 func RegionValue(province, city string) string {
@@ -42,8 +45,8 @@ func blacklistReason(typ int) string {
 
 // CheckBlacklist 登录收尾校验：机器码/IP/地区任一命中黑名单即返回 blocked=true。
 // province/city 为登录 IP 解析出的归属地（可为空，空则地区维度不参与匹配）。
-func CheckBlacklist(db *gorm.DB, appUUID, machineCode, ip, province, city string) (bool, string) {
-	appUUID = strings.TrimSpace(appUUID)
+// 全站校验：命中即拒绝，与来源应用无关。
+func CheckBlacklist(db *gorm.DB, machineCode, ip, province, city string) (bool, string) {
 	machineCode = strings.TrimSpace(machineCode)
 	ip = strings.TrimSpace(ip)
 	province = strings.TrimSpace(province)
@@ -51,28 +54,28 @@ func CheckBlacklist(db *gorm.DB, appUUID, machineCode, ip, province, city string
 
 	// 逐维度精确查询，命中即返回对应文案（比一次性 OR 更易给出准确原因）
 	if machineCode != "" {
-		if existsBlacklist(db, appUUID, models.BlacklistTypeMachine, "value = ?", machineCode) {
+		if existsBlacklist(db, models.BlacklistTypeMachine, "value = ?", machineCode) {
 			return true, blacklistReason(models.BlacklistTypeMachine)
 		}
 	}
 	if ip != "" {
-		if existsBlacklist(db, appUUID, models.BlacklistTypeIP, "value = ?", ip) {
+		if existsBlacklist(db, models.BlacklistTypeIP, "value = ?", ip) {
 			return true, blacklistReason(models.BlacklistTypeIP)
 		}
 	}
 	// 地区需省市都能解析出来才匹配（避免空串误伤）
 	if province != "" && city != "" {
-		if existsBlacklist(db, appUUID, models.BlacklistTypeRegion, "province = ? AND city = ?", province, city) {
+		if existsBlacklist(db, models.BlacklistTypeRegion, "province = ? AND city = ?", province, city) {
 			return true, blacklistReason(models.BlacklistTypeRegion)
 		}
 	}
 	return false, ""
 }
 
-// existsBlacklist 判断某应用下指定类型 + 条件的黑名单是否存在。
-func existsBlacklist(db *gorm.DB, appUUID string, typ int, cond string, args ...any) bool {
+// existsBlacklist 判断指定类型 + 条件的黑名单是否存在（全站）。
+func existsBlacklist(db *gorm.DB, typ int, cond string, args ...any) bool {
 	q := db.Model(&models.Blacklist{}).
-		Where("app_uuid = ? AND type = ?", appUUID, typ).
+		Where("type = ?", typ).
 		Where(cond, args...)
 	var count int64
 	if err := q.Count(&count).Error; err != nil {
@@ -83,14 +86,13 @@ func existsBlacklist(db *gorm.DB, appUUID string, typ int, cond string, args ...
 
 // AddBlacklistEntry 新增一条黑名单（存在则忽略，不报错）。
 func AddBlacklistEntry(db *gorm.DB, entry *models.Blacklist) error {
-	entry.AppUUID = strings.TrimSpace(entry.AppUUID)
 	entry.Value = strings.TrimSpace(entry.Value)
-	if entry.AppUUID == "" || entry.Value == "" {
-		return errors.New("应用与命中值不能为空")
+	if entry.Value == "" {
+		return errors.New("命中值不能为空")
 	}
-	// app_uuid + type + value 冲突时跳过（幂等）
+	// type + value 冲突时跳过（幂等）
 	return db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "app_uuid"}, {Name: "type"}, {Name: "value"}},
+		Columns:   []clause.Column{{Name: "type"}, {Name: "value"}},
 		DoNothing: true,
 	}).Create(entry).Error
 }
@@ -129,7 +131,7 @@ func BlacklistMemberFull(memberID uint, opts BlacklistOptions) (map[string]any, 
 		if err := tx.Model(&member).Update("status", models.MemberStatusBlack).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("member_uuid = ?", member.UUID).Delete(&models.MemberSession{}).Error; err != nil {
+		if err := tx.Where("member_uuid = ?", member.UUID).Delete(&models.AppActivation{}).Error; err != nil {
 			return err
 		}
 
@@ -138,7 +140,7 @@ func BlacklistMemberFull(memberID uint, opts BlacklistOptions) (map[string]any, 
 			case models.BindingTypeMachine:
 				if opts.Device {
 					if err := AddBlacklistEntry(tx, &models.Blacklist{
-						AppUUID: member.AppUUID, Type: models.BlacklistTypeMachine, Value: b.Value,
+						Type: models.BlacklistTypeMachine, Value: b.Value,
 						MemberUUID: member.UUID, Username: member.Username, Remark: "拉黑账号时附带",
 					}); err != nil {
 						return err
@@ -148,7 +150,7 @@ func BlacklistMemberFull(memberID uint, opts BlacklistOptions) (map[string]any, 
 			case models.BindingTypeIP:
 				if opts.IP {
 					if err := AddBlacklistEntry(tx, &models.Blacklist{
-						AppUUID: member.AppUUID, Type: models.BlacklistTypeIP, Value: b.Value,
+						Type: models.BlacklistTypeIP, Value: b.Value,
 						Province: b.Province, City: b.City,
 						MemberUUID: member.UUID, Username: member.Username, Remark: "拉黑账号时附带",
 					}); err != nil {
@@ -167,7 +169,7 @@ func BlacklistMemberFull(memberID uint, opts BlacklistOptions) (map[string]any, 
 						if !regionSeen[key] {
 							regionSeen[key] = true
 							if err := AddBlacklistEntry(tx, &models.Blacklist{
-								AppUUID: member.AppUUID, Type: models.BlacklistTypeRegion, Value: key,
+								Type: models.BlacklistTypeRegion, Value: key,
 								Province: province, City: city,
 								MemberUUID: member.UUID, Username: member.Username, Remark: "拉黑账号时附带",
 							}); err != nil {
@@ -185,7 +187,8 @@ func BlacklistMemberFull(memberID uint, opts BlacklistOptions) (map[string]any, 
 		return nil, err
 	}
 
-	AddMemberLog(member.AppUUID, member.UUID, member.Username, "拉黑", "", "")
+	// 后台操作，无来源应用
+	AddMemberLog(models.SystemAppUUID, member.UUID, member.Username, "拉黑", "", "")
 	return map[string]any{
 		"username": member.Username,
 		"device":   added["device"],
@@ -203,7 +206,9 @@ type SessionBlacklistOptions struct {
 }
 
 // BlacklistFromSession 从一条在线会话直接拉黑其 设备/IP/地区（可选连带拉黑账号），
-// 并踢掉本应用内命中该设备/IP 的所有在线会话，使封禁立即生效。
+// 并踢掉命中该设备/IP 的所有在线会话，使封禁立即生效。
+// appUUID 为该会话的来源应用，仅用于日志与「本应用内立即踢线」的范围控制；
+// 黑名单本身全站生效。
 func BlacklistFromSession(appUUID, memberUUID, username, machineCode, ip, province, city string, opts SessionBlacklistOptions) (map[string]any, error) {
 	db, err := database.GetDB()
 	if err != nil {
@@ -229,14 +234,14 @@ func BlacklistFromSession(appUUID, memberUUID, username, machineCode, ip, provin
 	err = db.Transaction(func(tx *gorm.DB) error {
 		if opts.Device && machineCode != "" {
 			if err := AddBlacklistEntry(tx, &models.Blacklist{
-				AppUUID: appUUID, Type: models.BlacklistTypeMachine, Value: machineCode,
+				Type: models.BlacklistTypeMachine, Value: machineCode,
 				MemberUUID: memberUUID, Username: username, Remark: "在线会话拉黑",
 			}); err != nil {
 				return err
 			}
 			added["device"] = 1
-			// 踢掉本应用内该设备的全部在线会话
-			res := tx.Where("app_uuid = ? AND machine_code = ?", appUUID, machineCode).Delete(&models.MemberSession{})
+			// 踢掉全站该设备的在线会话（黑名单全站生效，故不限于本应用）
+			res := tx.Where("fingerprint = ?", machineCode).Delete(&models.AppActivation{})
 			if res.Error != nil {
 				return res.Error
 			}
@@ -244,14 +249,14 @@ func BlacklistFromSession(appUUID, memberUUID, username, machineCode, ip, provin
 		}
 		if opts.IP && ip != "" {
 			if err := AddBlacklistEntry(tx, &models.Blacklist{
-				AppUUID: appUUID, Type: models.BlacklistTypeIP, Value: ip,
+				Type: models.BlacklistTypeIP, Value: ip,
 				Province: province, City: city,
 				MemberUUID: memberUUID, Username: username, Remark: "在线会话拉黑",
 			}); err != nil {
 				return err
 			}
 			added["ip"] = 1
-			res := tx.Where("app_uuid = ? AND ip = ?", appUUID, ip).Delete(&models.MemberSession{})
+			res := tx.Where("ip = ?", ip).Delete(&models.AppActivation{})
 			if res.Error != nil {
 				return res.Error
 			}
@@ -259,7 +264,7 @@ func BlacklistFromSession(appUUID, memberUUID, username, machineCode, ip, provin
 		}
 		if opts.Region && province != "" && city != "" {
 			if err := AddBlacklistEntry(tx, &models.Blacklist{
-				AppUUID: appUUID, Type: models.BlacklistTypeRegion, Value: RegionValue(province, city),
+				Type: models.BlacklistTypeRegion, Value: RegionValue(province, city),
 				Province: province, City: city,
 				MemberUUID: memberUUID, Username: username, Remark: "在线会话拉黑",
 			}); err != nil {
@@ -273,7 +278,7 @@ func BlacklistFromSession(appUUID, memberUUID, username, machineCode, ip, provin
 				Update("status", models.MemberStatusBlack).Error; err != nil {
 				return err
 			}
-			res := tx.Where("member_uuid = ?", memberUUID).Delete(&models.MemberSession{})
+			res := tx.Where("member_uuid = ?", memberUUID).Delete(&models.AppActivation{})
 			if res.Error != nil {
 				return res.Error
 			}
@@ -292,16 +297,13 @@ func BlacklistFromSession(appUUID, memberUUID, username, machineCode, ip, provin
 	}, nil
 }
 
-// ListBlacklist 分页查询黑名单（app_uuid / type 筛选，value/username 搜索）。
-func ListBlacklist(appUUID string, typ *int, search string, page, limit int) ([]models.Blacklist, int64, error) {
+// ListBlacklist 分页查询黑名单（type 筛选，value/username 搜索）。全站一份，无应用维度。
+func ListBlacklist(typ *int, search string, page, limit int) ([]models.Blacklist, int64, error) {
 	db, err := database.GetDB()
 	if err != nil {
 		return nil, 0, err
 	}
 	query := db.Model(&models.Blacklist{})
-	if appUUID = strings.TrimSpace(appUUID); appUUID != "" {
-		query = query.Where("app_uuid = ?", appUUID)
-	}
 	if typ != nil {
 		query = query.Where("type = ?", *typ)
 	}
@@ -312,8 +314,8 @@ func ListBlacklist(appUUID string, typ *int, search string, page, limit int) ([]
 	return Paginate[models.Blacklist](query, page, limit, "created_at DESC")
 }
 
-// AddBlacklistManual 后台手动新增一条黑名单。
-func AddBlacklistManual(appUUID string, typ int, value, province, city, remark string) error {
+// AddBlacklistManual 后台手动新增一条黑名单（全站生效）。
+func AddBlacklistManual(typ int, value, province, city, remark string) error {
 	db, err := database.GetDB()
 	if err != nil {
 		return err
@@ -322,7 +324,7 @@ func AddBlacklistManual(appUUID string, typ int, value, province, city, remark s
 		return errors.New("无效的黑名单类型")
 	}
 	entry := &models.Blacklist{
-		AppUUID: appUUID, Type: typ, Province: strings.TrimSpace(province),
+		Type: typ, Province: strings.TrimSpace(province),
 		City: strings.TrimSpace(city), Remark: strings.TrimSpace(remark),
 	}
 	if typ == models.BlacklistTypeRegion {

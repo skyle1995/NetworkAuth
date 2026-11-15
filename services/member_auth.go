@@ -26,11 +26,10 @@ import (
 type LoginResult struct {
 	Token             string    `json:"token"`
 	Username          string    `json:"username"`
-	Type              int       `json:"type"`
-	Mode              int       `json:"mode"` // 运营模式：0时长/1点数
+	Type              int       `json:"type"` // 来源类型：0 注册 / 1 卡密
 	Permanent         bool      `json:"permanent"`
 	ExpiredAt         time.Time `json:"expired_at"`         // 时长模式有效
-	Points            int       `json:"points"`             // 点数模式有效
+	Points            float64   `json:"points"`             // 点数模式有效
 	HeartbeatInterval int       `json:"heartbeat_interval"` // 心跳间隔（分钟），客户端据此周期心跳
 	// 会员信息：累计充值（分）+ 当前会员等级（权限等级值、名称、返利比例）；空等级即默认「免费账号」
 	TotalRecharge int    `json:"total_recharge"` // 累计充值金额（单位：分）
@@ -38,8 +37,55 @@ type LoginResult struct {
 	LevelName     string `json:"level_name"`     // 会员等级名（默认档为 level=1 等级名或「默认会员」）
 	LevelColor    string `json:"level_color"`    // 等级显示颜色（hex，默认档灰 #909399）
 	RebateRate    int    `json:"rebate_rate"`    // 当前等级充值返利比例（%）
+
+	// 绑定与转绑：设备与 IP 各自一套额度，客户端据此显示
+	// 「已绑 2/3 台」「本窗口还能免费换设备 1 次 / 换 IP 2 次」
+	MaxDevices   int           `json:"max_devices"`   // 本账号可绑定设备数
+	BoundDevices []BoundDevice `json:"bound_devices"` // 已绑定设备列表（按绑定时间升序）
+	BoundIPs     []string      `json:"bound_ips"`     // 已绑定 IP 列表
+
+	MachineRebindFreeLeft  int `json:"machine_rebind_free_left"`  // 设备转绑：本窗口剩余免费次数
+	MachineRebindUsed      int `json:"machine_rebind_used"`       // 设备转绑：本窗口已用
+	MachineRebindMaxCount  int `json:"machine_rebind_max_count"`  // 设备转绑：上限，0=不限
+	MachineRebindLimitTime int `json:"machine_rebind_limit_time"` // 设备转绑：0=每天 / 1=永久
+
+	IPRebindFreeLeft  int `json:"ip_rebind_free_left"`  // IP 转绑：本窗口剩余免费次数
+	IPRebindUsed      int `json:"ip_rebind_used"`       // IP 转绑：本窗口已用
+	IPRebindMaxCount  int `json:"ip_rebind_max_count"`  // IP 转绑：上限，0=不限
+	IPRebindLimitTime int `json:"ip_rebind_limit_time"` // IP 转绑：0=每天 / 1=永久
+
 	// Update：更新判断结果。仅当应用更新方式非「不启用」时返回；据登录提交的版本号判断是否需要更新。
 	Update *LoginUpdate `json:"update,omitempty"`
+}
+
+// applyBindingInfo 把绑定快照写进登录返回（两个结果结构共用同一批字段）
+func (r *LoginResult) applyBindingInfo(b BindingInfo) {
+	r.MaxDevices = b.MaxDevices
+	r.BoundDevices = b.BoundDevices
+	r.BoundIPs = b.BoundIPs
+	r.MachineRebindFreeLeft = b.MachineFreeLeft
+	r.MachineRebindUsed = b.MachineUsed
+	r.MachineRebindMaxCount = b.MachineMaxCount
+	r.MachineRebindLimitTime = b.MachineLimitTime
+	r.IPRebindFreeLeft = b.IPFreeAllLeft
+	r.IPRebindUsed = b.IPUsed
+	r.IPRebindMaxCount = b.IPMaxCount
+	r.IPRebindLimitTime = b.IPLimitTime
+}
+
+// applyBindingInfo 同上，用于心跳/状态查询返回
+func (r *StatusResult) applyBindingInfo(b BindingInfo) {
+	r.MaxDevices = b.MaxDevices
+	r.BoundDevices = b.BoundDevices
+	r.BoundIPs = b.BoundIPs
+	r.MachineRebindFreeLeft = b.MachineFreeLeft
+	r.MachineRebindUsed = b.MachineUsed
+	r.MachineRebindMaxCount = b.MachineMaxCount
+	r.MachineRebindLimitTime = b.MachineLimitTime
+	r.IPRebindFreeLeft = b.IPFreeAllLeft
+	r.IPRebindUsed = b.IPUsed
+	r.IPRebindMaxCount = b.IPMaxCount
+	r.IPRebindLimitTime = b.IPLimitTime
 }
 
 // LoginUpdate 登录时的更新判断结果（仅 download_type != 0 时随登录返回）。
@@ -117,17 +163,31 @@ type StatusResult struct {
 	Username          string    `json:"username"`
 	Type              int       `json:"type"` // 来源类型：0注册/1卡密
 	Status            int       `json:"status"`
-	Mode              int       `json:"mode"`
 	Permanent         bool      `json:"permanent"`
 	ExpiredAt         time.Time `json:"expired_at"`
-	Points            int       `json:"points"`
+	Points            float64   `json:"points"`
 	HeartbeatInterval int       `json:"heartbeat_interval"` // 心跳间隔（分钟），客户端可据此动态调整
 	// 会员信息：随心跳/状态查询实时下发，客户端据此同步权限，避免中途改等级后仍用旧权限
-	TotalRecharge int    `json:"total_recharge"` // 累计充值金额（单位：分）
+	TotalRecharge  int    `json:"total_recharge"`  // 累计充值金额（单位：分）
 	Level         int    `json:"level"`          // 权限等级数值（越大权限越高；默认档=1）
 	LevelName     string `json:"level_name"`     // 会员等级名（默认档为 level=1 等级名或「默认会员」）
 	LevelColor    string `json:"level_color"`    // 等级显示颜色（hex，默认档灰 #909399）
 	RebateRate    int    `json:"rebate_rate"`    // 当前等级充值返利比例（%）
+
+	// 绑定与转绑：随心跳实时刷新，客户端不必另发请求
+	MaxDevices   int           `json:"max_devices"`
+	BoundDevices []BoundDevice `json:"bound_devices"`
+	BoundIPs     []string      `json:"bound_ips"`
+
+	MachineRebindFreeLeft  int `json:"machine_rebind_free_left"`
+	MachineRebindUsed      int `json:"machine_rebind_used"`
+	MachineRebindMaxCount  int `json:"machine_rebind_max_count"`
+	MachineRebindLimitTime int `json:"machine_rebind_limit_time"`
+
+	IPRebindFreeLeft  int `json:"ip_rebind_free_left"`
+	IPRebindUsed      int `json:"ip_rebind_used"`
+	IPRebindMaxCount  int `json:"ip_rebind_max_count"`
+	IPRebindLimitTime int `json:"ip_rebind_limit_time"`
 }
 
 // generateSessionToken 生成 32 字节随机会话令牌（64 位十六进制）
@@ -144,34 +204,50 @@ func isPermanent(expiredAt time.Time) bool {
 	return expiredAt.Equal(models.PermanentTime)
 }
 
-// checkMemberUsable 按运营模式校验账号是否可用（时长：未到期；点数：余额>0）。
-func checkMemberUsable(app *models.App, m *models.Member) error {
-	// 免费模式：不计费，账号即便已到期/无点数也放行（仅令牌、账号状态等仍由调用方校验）。
-	if app.OperationMode == models.OperationModeFree {
+// checkMemberUsable 校验账号对本应用的可用性。
+//
+// 判定维度由 Billing 决定：
+//   - 计时模式：账号未到期（永久放行）
+//   - 点数模式：不校验等级与到期，只看余额是否够一次消耗
+//   - 高级模式：等级达标 + 余额够一次消耗
+//
+// 免费豁免时全部跳过。
+func checkMemberUsable(db *gorm.DB, billing *Billing, m *models.Member) error {
+	if billing.Free {
 		return nil
 	}
-	if app.OperationMode == models.OperationModePoints {
-		if app.PointsChargeMode == models.PointsChargePerTime {
-			// 按时：仍在已预扣周期内，或余额够买下一个周期
-			if time.Now().Before(m.ExpiredAt) {
-				return nil
-			}
-			if m.Points >= pointsPerPeriod(app) {
-				return nil
-			}
-			return errors.New("点数不足")
+	// 等级门槛（计时模式与高级模式）
+	if billing.RequiresLevel() {
+		cur := memberPermissionLevel(db, m)
+		if cur < billing.RequiredLevel {
+			name := levelNameByValue(db, billing.RequiredLevel)
+			return &EntitlementError{NeedLevel: billing.RequiredLevel, NeedName: name}
 		}
-		// 按次：登录时已扣费，会话内不再以点数拦截
-		return nil
 	}
-	if !isPermanent(m.ExpiredAt) && m.ExpiredAt.Before(time.Now()) {
-		return errors.New("账号已到期")
+	// 有效期门槛（仅计时模式）
+	if billing.RequiresValidPeriod() && !isPermanent(m.ExpiredAt) && m.ExpiredAt.Before(time.Now()) {
+		return &LicenseExpiredError{}
+	}
+	// 点数门槛：按次看单次价，按时看一个周期价
+	if billing.UsesPoints() {
+		cost := billing.PointsCostForLevel(m.LevelUUID, !billing.IsPointsChargeMode())
+		if cost > 0 && m.Points+1e-6 < cost {
+			return &InsufficientCreditsError{Need: cost, Have: m.Points}
+		}
 	}
 	return nil
 }
 
+// effectiveMaxConcurrent 账号级并发上限 = 账号策略 + 等级加量，下限 1。
+//
+// 并发是**账号**资源：一个账号同时最多几台设备在线（跨所有应用合计），
+// 按设备去重，同一台电脑开多个插件不重复占位。
+func effectiveMaxConcurrent(db *gorm.DB, m *models.Member) int {
+	return ResolveAccountQuota(db, m).MaxConcurrent
+}
+
 // pointsPerPeriod 按时模式每周期扣点（至少1）
-func pointsPerPeriod(app *models.App) int {
+func pointsPerPeriod(app *models.App) float64 {
 	if app.PointsPerPeriod <= 0 {
 		return 1
 	}
@@ -185,41 +261,8 @@ func pointsPeriodMinutes(app *models.App) int {
 	}
 	return app.PointsPeriodMinutes
 }
-
-// applyLoginCharge 登录时的点数扣费（在事务内调用）。
-//   - 时长模式：无扣费
-//   - 按次：登录扣 PointsPerLogin，不足则拒绝
-//   - 按时：若已过预扣周期，扣一个周期并顺延到期时间，不足则拒绝
-func applyLoginCharge(tx *gorm.DB, app *models.App, m *models.Member) error {
-	if app.OperationMode != models.OperationModePoints {
-		return nil
-	}
-	if app.PointsChargeMode == models.PointsChargePerTime {
-		// 心跳触发扣费模式：登录不预扣，交由心跳按需结算
-		if app.PointsHeartbeatCharge == 1 {
-			return nil
-		}
-		return settlePointsTime(tx, app, m)
-	}
-	// 按次
-	cost := app.PointsPerLogin
-	if cost <= 0 {
-		return nil // 登录免费，点数仅由显式扣点消耗
-	}
-	if m.Points < cost {
-		return errors.New("点数不足")
-	}
-	newPoints := m.Points - cost
-	if err := tx.Model(m).Update("points", newPoints).Error; err != nil {
-		return err
-	}
-	m.Points = newPoints
-	return nil
-}
-
-// settlePointsTime 按时预扣费结算：过了预扣周期则扣一个周期并顺延（离线不补扣）。
 func settlePointsTime(tx *gorm.DB, app *models.App, m *models.Member) error {
-	if app.OperationMode != models.OperationModePoints || app.PointsChargeMode != models.PointsChargePerTime {
+	if app.BillingMode != models.BillingModePoints || app.PointsChargeMode != models.PointsChargePerTime {
 		return nil
 	}
 	now := time.Now()
@@ -255,7 +298,6 @@ func buildStatusResult(app *models.App, m *models.Member) *StatusResult {
 		Username:          m.Username,
 		Type:              m.Type,
 		Status:            m.Status,
-		Mode:              app.OperationMode,
 		Permanent:         isPermanent(m.ExpiredAt),
 		ExpiredAt:         m.ExpiredAt,
 		Points:            m.Points,
@@ -293,8 +335,8 @@ func CardLogin(appUUID, cardNo, machineCode, ip, version, deviceName string) (*L
 	if app.Status != 1 {
 		return nil, errors.New("应用已停用")
 	}
-	if app.CardLoginEnabled != 1 {
-		return nil, errors.New("该应用未开启卡密登录")
+	if !GetAccountPolicy().CardLoginEnabled {
+		return nil, errors.New("卡密登录已关闭")
 	}
 	// 强制更新门禁：须在核销卡密/建号前拦截，避免拒绝登录却已消费卡
 	if err := checkForceUpdate(&app, version); err != nil {
@@ -304,7 +346,7 @@ func CardLogin(appUUID, cardNo, machineCode, ip, version, deviceName string) (*L
 	var member models.Member
 	err = db.Transaction(func(tx *gorm.DB) error {
 		var card models.Card
-		if err := tx.Where("app_uuid = ? AND card_no = ?", appUUID, cardNo).First(&card).Error; err != nil {
+		if err := tx.Where("card_no = ?", cardNo).First(&card).Error; err != nil {
 			return errors.New("卡号不存在")
 		}
 		if card.Status == models.CardStatusFrozen {
@@ -312,25 +354,25 @@ func CardLogin(appUUID, cardNo, machineCode, ip, version, deviceName string) (*L
 		}
 
 		if card.Status == models.CardStatusUnused {
-			// 首次使用：激活并创建绑定该卡的账号
+			// 首次使用：激活并创建绑定该卡的全局账号
 			member = models.Member{
-				AppUUID:  appUUID,
 				Username: cardNo,
 				Type:     models.MemberTypeCard,
 				CardUUID: card.UUID,
 				Status:   models.MemberStatusNormal,
 			}
-			// 新号无等级、返利为 0，故按原面值发放
-			if app.OperationMode == models.OperationModePoints {
-				// 点数模式：卡面值为点数；ExpiredAt 留零值——按次不参与、按时首登即购一个周期
+			// 新号无等级、返利为 0，故按原面值发放。
+			// 一号通：卡面值可能同时含时长与点数，各自按非零项发放
+			if card.Points > 0 {
 				member.Points = card.Points
-			} else {
+			}
+			if card.Duration != 0 {
 				member.ExpiredAt = expiryFromDuration(card.Duration)
 			}
 			if err := tx.Create(&member).Error; err != nil {
 				return errors.New("激活卡密失败")
 			}
-			if err := settleMemberLevel(tx, appUUID, &member, card.Price); err != nil {
+			if err := settleMemberLevel(tx, &member, card.Price); err != nil {
 				return err
 			}
 			if err := MarkCardUsed(tx, card.ID, member.UUID); err != nil {
@@ -339,8 +381,8 @@ func CardLogin(appUUID, cardNo, machineCode, ip, version, deviceName string) (*L
 			return nil
 		}
 
-		// 已使用：定位其绑定的账号
-		if err := tx.Where("app_uuid = ? AND username = ?", appUUID, cardNo).First(&member).Error; err != nil {
+		// 已使用：定位其绑定的账号（卡号即用户名，全站唯一）
+		if err := tx.Where("username = ?", cardNo).First(&member).Error; err != nil {
 			return errors.New("卡密账号不存在")
 		}
 		return nil
@@ -349,179 +391,9 @@ func CardLogin(appUUID, cardNo, machineCode, ip, version, deviceName string) (*L
 		return nil, err
 	}
 
-	return finishMemberLogin(db, &app, &member, machineCode, ip, version, deviceName)
+	// 二级令牌：只做身份认证，计费与绑定留给 70 激活
+	return issueAccountTokenResult(db, &app, &member, machineCode, ip, version, deviceName)
 }
-
-// finishMemberLogin 完成登录的公共收尾：状态/到期校验、机器码绑定、多开会话管理、颁发令牌。
-// version 为客户端提交的版本号：更新方式开启时用于判断是否需要更新，结果随登录返回。
-func finishMemberLogin(db *gorm.DB, app *models.App, member *models.Member, machineCode, ip, version, deviceName string) (*LoginResult, error) {
-	deviceName = strings.TrimSpace(deviceName)
-	// 有效多开 = 应用多开数 + 会员等级额外多开（下限 1）；三处（机器绑定/IP绑定/会话）统一使用
-	effMultiOpen := effectiveMultiOpen(db, app, member)
-	if member.Status == models.MemberStatusBlack {
-		return nil, errors.New("账号已被拉黑")
-	}
-	if member.Status == models.MemberStatusDisabled {
-		return nil, errors.New("账号已被封停")
-	}
-	if err := checkMemberUsable(app, member); err != nil {
-		return nil, err
-	}
-
-	// 设备/IP/地区黑名单校验：命中任一即拒绝（先于绑定，避免为黑名单目标建立绑定/扣费）
-	blProvince, blCity := ResolveIPRegion(ip)
-	if blocked, reason := CheckBlacklist(db, app.UUID, machineCode, ip, blProvince, blCity); blocked {
-		return nil, errors.New(reason)
-	}
-
-	token, err := generateSessionToken()
-	if err != nil {
-		return nil, err
-	}
-
-	err = db.Transaction(func(tx *gorm.DB) error {
-		// 账号级互斥：串行化同一账号的并发登录，保护本事务内所有「先查后写」逻辑
-		// （绑定计数、会话计数）在并发下不被击穿多开上限。
-		if err := lockMemberRow(tx, member.UUID); err != nil {
-			return err
-		}
-		// 机器码/IP绑定：事务内执行、受账号锁保护，杜绝并发超绑。
-		// 已绑定放行；未绑定且未超多开则新增；超出则拒绝
-		if app.MachineVerify == 1 && strings.TrimSpace(machineCode) != "" {
-			if err := ensureMachineBinding(tx, member.UUID, machineCode, deviceName, effMultiOpen); err != nil {
-				return err
-			}
-		}
-		if err := ensureIPBinding(tx, member.UUID, ip, app.IPVerify, effMultiOpen); err != nil {
-			return err
-		}
-		// 点数模式登录扣费（按次扣点 / 按时预扣一个周期）
-		if err := applyLoginCharge(tx, app, member); err != nil {
-			return err
-		}
-		// 清理该用户的失效会话（超过校验间隔未活跃）
-		if err := cleanStaleSessions(tx, member.UUID, offlineTimeoutMinutes(app)); err != nil {
-			return err
-		}
-		// 多开数量控制：按「多开范围」以设备/IP/会话为单位计数（含会员额外多开）
-		maxOpen := effMultiOpen
-		var sessions []models.MemberSession
-		if err := tx.Where("member_uuid = ?", member.UUID).
-			Order("last_active_at ASC").Find(&sessions).Error; err != nil {
-			return err
-		}
-
-		newKey := sessionOpenKey(app.MultiOpenScope, machineCode, ip, token)
-		// 同「开」重登（同一机器/IP）先清掉旧会话，保证一个开只占一个名额
-		var sameKey []uint
-		for _, s := range sessions {
-			if sessionOpenKey(app.MultiOpenScope, s.MachineCode, s.IP, s.Token) == newKey {
-				sameKey = append(sameKey, s.ID)
-			}
-		}
-		if len(sameKey) > 0 {
-			if err := tx.Delete(&models.MemberSession{}, sameKey).Error; err != nil {
-				return err
-			}
-		}
-
-		// 统计剩余不同「开」的数量
-		distinct := map[string][]uint{}
-		var order []string
-		for _, s := range sessions {
-			k := sessionOpenKey(app.MultiOpenScope, s.MachineCode, s.IP, s.Token)
-			if k == newKey {
-				continue // 已在上面清除
-			}
-			if _, ok := distinct[k]; !ok {
-				order = append(order, k)
-			}
-			distinct[k] = append(distinct[k], s.ID)
-		}
-
-		if len(distinct) >= maxOpen {
-			if app.LoginType == models.LoginTypeReject {
-				return errors.New("已达最大同时在线数")
-			}
-			if app.LoginType == models.LoginTypeManual {
-				// 手动顶号：返回当前在线会话列表，由客户端选择踢出后再重试登录。
-				// 事务随错误回滚，本次登录不产生任何副作用（绑定/扣费/清理均撤销）。
-				infos, err := buildSessionInfos(tx, member.UUID)
-				if err != nil {
-					return err
-				}
-				return &SessionsFullError{Sessions: infos}
-			}
-			// 顶号：踢掉最早的「开」(该机器/IP 的全部会话)直到腾出空位
-			for _, k := range order {
-				if len(distinct) < maxOpen {
-					break
-				}
-				if err := tx.Delete(&models.MemberSession{}, distinct[k]).Error; err != nil {
-					return err
-				}
-				delete(distinct, k)
-			}
-		}
-
-		now := time.Now()
-		session := models.MemberSession{
-			Token:        token,
-			MemberUUID:   member.UUID,
-			AppUUID:      member.AppUUID,
-			MachineCode:  machineCode,
-			DeviceName:   deviceName,
-			IP:           ip,
-			Version:      strings.TrimSpace(version),
-			LastActiveAt: now,
-		}
-		if err := tx.Create(&session).Error; err != nil {
-			return err
-		}
-		updates := map[string]interface{}{
-			"last_login_at": &now,
-			"last_login_ip": ip,
-		}
-		// 账号尚无注册设备时，用本次登录设备回填为注册设备。
-		// 后台建号 / 卡密登录 / 未开设备限制时注册的账号 register_machine 为空，
-		// 回填后设备维度注册限制与风控才有据可依。
-		if strings.TrimSpace(member.RegisterMachine) == "" && strings.TrimSpace(machineCode) != "" {
-			mc := strings.TrimSpace(machineCode)
-			updates["register_machine"] = mc
-			member.RegisterMachine = mc
-		}
-		return tx.Model(member).Updates(updates).Error
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	loginAction := "账号登录"
-	if member.Type == models.MemberTypeCard {
-		loginAction = "卡密登录"
-	}
-	AddMemberLog(member.AppUUID, member.UUID, member.Username, loginAction, machineCode, ip)
-
-	levelName, levelValue, rebateRate, levelColor := memberLevelInfo(db, member)
-	return &LoginResult{
-		Token:             token,
-		Username:          member.Username,
-		Type:              member.Type,
-		Mode:              app.OperationMode,
-		Permanent:         isPermanent(member.ExpiredAt),
-		ExpiredAt:         member.ExpiredAt,
-		Points:            member.Points,
-		HeartbeatInterval: heartbeatMinutes(app),
-		TotalRecharge:     member.TotalRecharge,
-		Level:             levelValue,
-		LevelName:         levelName,
-		LevelColor:        levelColor,
-		RebateRate:        rebateRate,
-		Update:            buildLoginUpdate(app, version),
-	}, nil
-}
-
-// heartbeatMinutes 返回应用的心跳间隔（分钟），未配置时回退默认 10。
 func heartbeatMinutes(app *models.App) int {
 	if app.CheckInterval <= 0 {
 		return 10
@@ -536,62 +408,12 @@ func offlineTimeoutMinutes(app *models.App) int {
 	}
 	return app.OfflineTimeout
 }
-
-// sessionOpenKey 依据多开范围计算一个会话属于哪个「开」：
-// 单电脑按机器码、单IP按IP；无法分组(空值)或全部电脑范围时按会话令牌(各自独立)。
-func sessionOpenKey(scope int, machineCode, ip, token string) string {
-	switch scope {
-	case models.MultiOpenScopeMachine:
-		if strings.TrimSpace(machineCode) != "" {
-			return "m:" + machineCode
-		}
-	case models.MultiOpenScopeIP:
-		if strings.TrimSpace(ip) != "" {
-			return "i:" + ip
-		}
-	}
-	return "t:" + token
-}
-
-// cleanStaleSessions 删除某用户超过 checkIntervalMin 分钟未活跃的会话。
-func cleanStaleSessions(tx *gorm.DB, memberUUID string, checkIntervalMin int) error {
-	if checkIntervalMin <= 0 {
-		checkIntervalMin = 10
-	}
-	deadline := time.Now().Add(-time.Duration(checkIntervalMin) * time.Minute)
-	return tx.Where("member_uuid = ? AND last_active_at < ?", memberUUID, deadline).
-		Delete(&models.MemberSession{}).Error
-}
-
-// buildSessionInfos 查询某账号当前在线会话并转换为返回结构（按最近活跃倒序）。
-// 供手动顶号满员时返回给客户端；须在持有账号锁的事务内调用，保证读到一致状态。
-func buildSessionInfos(tx *gorm.DB, memberUUID string) ([]SessionInfo, error) {
-	var sessions []models.MemberSession
-	if err := tx.Where("member_uuid = ?", memberUUID).
-		Order("last_active_at DESC").Find(&sessions).Error; err != nil {
-		return nil, err
-	}
-	infos := make([]SessionInfo, 0, len(sessions))
-	for _, s := range sessions {
-		province, city := ResolveIPRegion(s.IP)
-		infos = append(infos, SessionInfo{
-			ID:           s.ID,
-			DeviceName:   s.DeviceName,
-			MachineCode:  s.MachineCode,
-			IP:           s.IP,
-			Province:     province,
-			City:         city,
-			Version:      s.Version,
-			LastActiveAt: s.LastActiveAt,
-			CreatedAt:    s.CreatedAt,
-		})
-	}
-	return infos, nil
-}
-
-// ensureMachineBinding 确保机器码已绑定；未绑定时在多开数量内新增，超出则拒绝。
-// 须在持有账号锁的事务内调用（见 lockMemberRow），否则并发的先查后写会击穿绑定数量上限。
-func ensureMachineBinding(db *gorm.DB, memberUUID, machineCode, deviceName string, multiOpenCount int) error {
+// ensureMachineBinding 确保机器码已绑定。
+//
+// 未绑定时在**账号级设备配额**内新增（账号最多绑几台机器），超出则拒绝；
+// 配额来自「账号策略·可绑定设备」+ 会员等级额外设备。
+// 须在持有账号锁的事务内调用（见 lockMemberRow），否则并发的先查后写会击穿上限。
+func ensureMachineBinding(db *gorm.DB, memberUUID, machineCode, deviceName string, maxDevices int) error {
 	var existing models.Binding
 	err := db.Where("member_uuid = ? AND type = ? AND value = ?",
 		memberUUID, models.BindingTypeMachine, machineCode).First(&existing).Error
@@ -612,10 +434,10 @@ func ensureMachineBinding(db *gorm.DB, memberUUID, machineCode, deviceName strin
 		Count(&count).Error; err != nil {
 		return err
 	}
-	if multiOpenCount <= 0 {
-		multiOpenCount = 1
+	if maxDevices <= 0 {
+		maxDevices = 1
 	}
-	if int(count) >= multiOpenCount {
+	if int(count) >= maxDevices {
 		return errors.New("机器码未绑定，请先进行机器码转绑")
 	}
 	return db.Create(&models.Binding{
@@ -637,19 +459,10 @@ func lockMemberRow(tx *gorm.DB, memberUUID string) error {
 		UpdateColumn("id", gorm.Expr("id")).Error
 }
 
-// effectiveMultiOpen 有效多开数 = 应用多开数 + 会员等级额外多开，下限 1。
-func effectiveMultiOpen(db *gorm.DB, app *models.App, m *models.Member) int {
-	extra, _ := memberLevelExtras(db, m)
-	n := app.MultiOpenCount + extra
-	if n <= 0 {
-		n = 1
-	}
-	return n
-}
 
 // ensureIPBinding 确保登录 IP 满足应用 IP 验证配置；首次登录会自动绑定当前 IP。
 // 须在持有账号锁的事务内调用（见 lockMemberRow），否则并发的先查后写会击穿绑定数量上限。
-func ensureIPBinding(db *gorm.DB, memberUUID, ip string, ipVerify, multiOpenCount int) error {
+func ensureIPBinding(db *gorm.DB, memberUUID, ip string, ipVerify, maxDevices int) error {
 	if ipVerify == 0 {
 		return nil
 	}
@@ -679,10 +492,10 @@ func ensureIPBinding(db *gorm.DB, memberUUID, ip string, ipVerify, multiOpenCoun
 		}
 	}
 
-	if multiOpenCount <= 0 {
-		multiOpenCount = 1
+	if maxDevices <= 0 {
+		maxDevices = 1
 	}
-	if len(bindings) >= multiOpenCount {
+	if len(bindings) >= maxDevices {
 		return errors.New("登录IP未绑定，请先进行IP转绑")
 	}
 	return db.Create(&models.Binding{
@@ -693,41 +506,17 @@ func ensureIPBinding(db *gorm.DB, memberUUID, ip string, ipVerify, multiOpenCoun
 		City:       city,
 	}).Error
 }
-
-// authMemberByToken 按应用与会话令牌定位有效账号，并刷新会话活跃时间。
-func authMemberByToken(db *gorm.DB, appUUID, token string) (*models.Member, error) {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return nil, errors.New("令牌不能为空")
-	}
-	var session models.MemberSession
-	if err := db.Where("app_uuid = ? AND token = ?", strings.TrimSpace(appUUID), token).First(&session).Error; err != nil {
-		return nil, errors.New("会话无效或已被顶号")
-	}
-	var member models.Member
-	if err := db.Where("uuid = ?", session.MemberUUID).First(&member).Error; err != nil {
-		return nil, errors.New("账号不存在")
-	}
-	// 刷新会话活跃时间（心跳）
-	db.Model(&models.MemberSession{}).Where("id = ?", session.ID).Update("last_active_at", time.Now())
-	return &member, nil
-}
-
-// authActiveMember 校验令牌并要求账号正常且可用（按运营模式），返回有效账号及其应用。
-// 供需要“已登录且可用”前提的接口（数据获取、改密、转绑、扣点等）复用。
 func authActiveMember(db *gorm.DB, appUUID, token string) (*models.Member, *models.App, error) {
-	member, err := authMemberByToken(db, appUUID, token)
+	// 激活令牌走正常路径；账号令牌会隐式激活（幂等，不重复扣费）
+	member, app, _, err := AuthForApp(db, appUUID, token)
 	if err != nil {
 		return nil, nil, err
 	}
 	if member.Status != models.MemberStatusNormal {
 		return nil, nil, errors.New("账号状态异常")
 	}
-	app, err := loadEnabledApp(db, appUUID)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := checkMemberUsable(app, member); err != nil {
+	billing := EffectiveBilling(app)
+	if err := checkMemberUsable(db, billing, member); err != nil {
 		return nil, nil, err
 	}
 	return member, app, nil
@@ -736,13 +525,13 @@ func authActiveMember(db *gorm.DB, appUUID, token string) (*models.Member, *mode
 // authMemberByCredential 用凭据鉴权账号（不依赖会话令牌）：
 // 注册账号校验用户名+密码；卡密账号以卡号为身份、无密码。供转绑等“可能登录不了”的场景用，
 // 避免“设备/IP 不匹配→登不进→拿不到令牌→无法转绑”的死循环。
-func authMemberByCredential(db *gorm.DB, appUUID, username, password string) (*models.Member, error) {
+func authMemberByCredential(db *gorm.DB, username, password string) (*models.Member, error) {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return nil, errors.New("用户名不能为空")
 	}
 	var member models.Member
-	if err := db.Where("app_uuid = ? AND username = ?", strings.TrimSpace(appUUID), username).
+	if err := db.Where("username = ?", username).
 		First(&member).Error; err != nil {
 		return nil, errors.New("账号不存在")
 	}
@@ -761,91 +550,34 @@ func authMemberByCredential(db *gorm.DB, appUUID, username, password string) (*m
 	return &member, nil
 }
 
-// CheckMemberStatus 心跳/状态查询：校验令牌有效、账号正常且可用。
-// 按时点数模式在心跳时结算：过了预扣周期则自动续扣下一周期。
-// CheckMemberStatus 检测账号状态/心跳（type 41）。
-// noCharge：本次心跳是否跳过扣费。点数-按时模式下心跳**默认结算扣费**，客户端传 no_charge=true 才跳过
-// （用于免费功能）；免费模式/时长模式/按次模式本就不在心跳扣费，忽略该参数。
-func CheckMemberStatus(appUUID, token string, noCharge bool) (*StatusResult, error) {
+// CheckMemberStatus 心跳（type 41）：续租 + 按应用的计费配置结算。
+//
+// 扣不扣点完全由应用配置决定，客户端无权干预：
+//   - 免费豁免 / 计时模式 / 按次模式：心跳不扣费，只续租
+//   - 按时模式 + 登录预扣（charge_basis=0）：激活时已扣，心跳只在周期走完后续下一个
+//   - 按时模式 + 首次心跳起算（charge_basis=1）：首次心跳扣一次，之后按周期续
+//
+// 续费失败（余额不足）会返回错误，激活已被置死——客户端应退出并提示充值。
+func CheckMemberStatus(appUUID, token string) (*StatusResult, error) {
 	db, err := database.GetDB()
 	if err != nil {
 		return nil, err
 	}
-	member, err := authMemberByToken(db, appUUID, token)
+	// 应用级接口只接受激活令牌（账号令牌返回 ACTIVATION_REQUIRED）
+	member, app, act, err := AuthForApp(db, appUUID, token)
 	if err != nil {
 		return nil, err
 	}
-	if member.Status != models.MemberStatusNormal {
-		return nil, errors.New("账号状态异常")
-	}
-	app, err := loadEnabledApp(db, appUUID)
-	if err != nil {
+	if _, _, _, err := RenewLease(db, act.Token); err != nil {
 		return nil, err
 	}
-	// 按时预扣费结算：心跳**默认结算扣费**，客户端传 no_charge=true 才跳过本次扣费（免费功能）。
-	// 免费/时长/按次模式下 settlePointsTime 自身即会跳过，不受影响。
-	// 尽力续期，忽略无法续期的错误，交由 usable 判定。
-	if !noCharge {
-		_ = settlePointsTime(db, app, member)
-	}
-	if err := checkMemberUsable(app, member); err != nil {
+	// 重新读一次，拿到扣费后的最新余额/到期
+	if err := db.Where("uuid = ?", member.UUID).First(member).Error; err != nil {
 		return nil, err
 	}
 	return buildStatusResult(app, member), nil
 }
 
-// MemberLogout 登出：删除当前会话。
-func MemberLogout(appUUID, token string) error {
-	db, err := database.GetDB()
-	if err != nil {
-		return err
-	}
-	token = strings.TrimSpace(token)
-	res := db.Where("app_uuid = ? AND token = ?", strings.TrimSpace(appUUID), token).
-		Delete(&models.MemberSession{})
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return errors.New("会话无效")
-	}
-	return nil
-}
-
-// KickSession 手动顶号：凭据验证后踢掉本人账号的指定会话。
-// 满员时客户端拿不到令牌，故用凭据（注册账号=用户名+密码，卡密=卡号）验证，
-// 沿用 authMemberByCredential 模式，避免「满员→拿不到令牌→无法踢下线」的死循环。
-// 仅允许踢出当前账号自己的会话，防止越权下线他人。
-func KickSession(appUUID, username, password string, sessionID uint, ip string) error {
-	db, err := database.GetDB()
-	if err != nil {
-		return err
-	}
-	member, err := authMemberByCredential(db, appUUID, username, password)
-	if err != nil {
-		return err
-	}
-	if sessionID == 0 {
-		return errors.New("会话ID不能为空")
-	}
-	res := db.Where("id = ? AND member_uuid = ?", sessionID, member.UUID).
-		Delete(&models.MemberSession{})
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return errors.New("会话不存在或不属于当前账号")
-	}
-	AddMemberLog(member.AppUUID, member.UUID, member.Username, "手动顶号",
-		"下线会话 #"+strconv.FormatUint(uint64(sessionID), 10), ip)
-	return nil
-}
-
-// ============================================================================
-// 账号模式（注册/登录/充值/到期查询）
-// ============================================================================
-
-// loadEnabledApp 读取应用并校验其存在且启用
 func loadEnabledApp(db *gorm.DB, appUUID string) (*models.App, error) {
 	var app models.App
 	if err := db.Where("uuid = ?", strings.TrimSpace(appUUID)).First(&app).Error; err != nil {
@@ -866,14 +598,15 @@ func registerInitialExpiry() time.Time {
 func enforceRegisterLimit(db *gorm.DB, app *models.App, registerIP, machineCode string) error {
 	registerIP = strings.TrimSpace(registerIP)
 	machineCode = strings.TrimSpace(machineCode)
-	limit := app.RegisterCount
+	policy := GetAccountPolicy()
+	limit := policy.RegisterCount
 	if limit <= 0 {
 		limit = 1
 	}
 
 	// 时间窗口（每天/永久），IP 与设备维度共用
 	withWindow := func(q *gorm.DB) *gorm.DB {
-		if app.RegisterLimitTime == 0 {
+		if policy.RegisterLimitTime == 0 {
 			today := time.Now()
 			startOfDay := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
 			q = q.Where("created_at >= ?", startOfDay)
@@ -883,13 +616,13 @@ func enforceRegisterLimit(db *gorm.DB, app *models.App, registerIP, machineCode 
 	countBy := func(field, value string) (int64, error) {
 		var count int64
 		q := withWindow(db.Model(&models.Member{}).
-			Where("app_uuid = ? AND "+field+" = ?", app.UUID, value))
+			Where(field+" = ?", value))
 		err := q.Count(&count).Error
 		return count, err
 	}
 
 	// IP 维度
-	if app.RegisterLimitEnabled == 1 {
+	if GetAccountPolicy().RegisterLimitEnabled {
 		if registerIP == "" {
 			return errors.New("注册IP不能为空")
 		}
@@ -903,7 +636,7 @@ func enforceRegisterLimit(db *gorm.DB, app *models.App, registerIP, machineCode 
 	}
 
 	// 设备维度：开启后注册必须提交设备码
-	if app.RegisterDeviceLimitEnabled == 1 {
+	if GetAccountPolicy().RegisterDeviceLimitEnabled {
 		if machineCode == "" {
 			return errors.New("注册需提供设备码")
 		}
@@ -938,13 +671,13 @@ func AccountRegister(appUUID, email, password, code, card, registerIP, machineCo
 	if err != nil {
 		return nil, err
 	}
-	if app.RegisterEnabled != 1 {
+	if !GetAccountPolicy().RegisterEnabled {
 		return nil, errors.New("该应用未开启账号注册")
 	}
 
 	// 卡密注册：开启后须提交卡号，注册时核销该卡并按面值发放（先校验非空，落库前占用）
 	cardNo := strings.TrimSpace(card)
-	if app.CardRegisterEnabled == 1 && cardNo == "" {
+	if GetAccountPolicy().CardRegisterEnabled && cardNo == "" {
 		return nil, errors.New("请提供注册卡密")
 	}
 
@@ -953,14 +686,14 @@ func AccountRegister(appUUID, email, password, code, card, registerIP, machineCo
 	}
 
 	// 开启邮箱验证则校验验证码
-	if app.EmailVerifyEnabled == 1 {
-		if err := VerifyRegisterCode(app.UUID, email, code); err != nil {
+	if GetAccountPolicy().EmailVerifyEnabled {
+		if err := VerifyRegisterCode(email, code); err != nil {
 			return nil, err
 		}
 	}
 
 	var dup int64
-	if err := db.Model(&models.Member{}).Where("app_uuid = ? AND username = ?", app.UUID, email).Count(&dup).Error; err != nil {
+	if err := db.Model(&models.Member{}).Where("username = ?", email).Count(&dup).Error; err != nil {
 		return nil, err
 	}
 	if dup > 0 {
@@ -975,9 +708,7 @@ func AccountRegister(appUUID, email, password, code, card, registerIP, machineCo
 	if err != nil {
 		return nil, err
 	}
-
 	member := models.Member{
-		AppUUID:         app.UUID,
 		Username:        email,
 		Email:           email,
 		Type:            models.MemberTypeRegister,
@@ -987,7 +718,7 @@ func AccountRegister(appUUID, email, password, code, card, registerIP, machineCo
 		RegisterIP:      strings.TrimSpace(registerIP),
 		RegisterMachine: strings.TrimSpace(machineCode),
 	}
-	if app.OperationMode == models.OperationModePoints {
+	if app.BillingMode == models.BillingModePoints {
 		// 点数模式：默认注册初始 0 点，需充值；ExpiredAt 留零值
 		member.Points = 0
 	} else {
@@ -995,11 +726,11 @@ func AccountRegister(appUUID, email, password, code, card, registerIP, machineCo
 	}
 
 	logDetail := ""
-	if app.CardRegisterEnabled == 1 {
+	if GetAccountPolicy().CardRegisterEnabled {
 		// 事务内：校验并核销卡密、按面值发放、创建账号（一卡一号，避免并发双花）
 		err = db.Transaction(func(tx *gorm.DB) error {
 			var cardRec models.Card
-			if err := tx.Where("app_uuid = ? AND card_no = ?", app.UUID, cardNo).First(&cardRec).Error; err != nil {
+			if err := tx.Where("card_no = ?", cardNo).First(&cardRec).Error; err != nil {
 				return errors.New("卡号不存在")
 			}
 			if cardRec.Status == models.CardStatusFrozen {
@@ -1010,7 +741,7 @@ func AccountRegister(appUUID, email, password, code, card, registerIP, machineCo
 			}
 			// 按运营模式发放卡面值：点数模式发点数，时长模式发到期时长（-1 为永久）
 			// 新号无等级、返利为 0，故按原面值发放
-			if app.OperationMode == models.OperationModePoints {
+			if app.BillingMode == models.BillingModePoints {
 				member.Points = cardRec.Points
 			} else {
 				member.ExpiredAt = expiryFromDuration(cardRec.Duration)
@@ -1018,7 +749,7 @@ func AccountRegister(appUUID, email, password, code, card, registerIP, machineCo
 			if err := tx.Create(&member).Error; err != nil {
 				return errors.New("注册失败")
 			}
-			if err := settleMemberLevel(tx, app.UUID, &member, cardRec.Price); err != nil {
+			if err := settleMemberLevel(tx, &member, cardRec.Price); err != nil {
 				return err
 			}
 			return MarkCardUsed(tx, cardRec.ID, member.UUID)
@@ -1031,6 +762,10 @@ func AccountRegister(appUUID, email, password, code, card, registerIP, machineCo
 		if err := db.Create(&member).Error; err != nil {
 			return nil, errors.New("注册失败")
 		}
+		// 无卡密注册：同样要落到默认档，避免 level_uuid 为空
+		if err := settleMemberLevel(db, &member, 0); err != nil {
+			return nil, err
+		}
 	}
 
 	AddMemberLog(app.UUID, member.UUID, member.Username, "注册", logDetail, "")
@@ -1041,15 +776,14 @@ func AccountRegister(appUUID, email, password, code, card, registerIP, machineCo
 //   - 点数模式：点数 <= 0
 //   - 时长模式：非永久且已到期
 //   - 免费模式：恒可用，不允许领取
+// trialEligible 「资源耗尽」判定：到期没时长 或 点数见底，任一成立即可领。
+//
+// 一号通下同一账号可能既有时长又有点数，因此不再按计费模式二选一，
+// 而是看两类资源是不是都耗光了（有点数或有到期时间 = 还能用，不该再领）。
 func trialEligible(app *models.App, m *models.Member) bool {
-	switch app.OperationMode {
-	case models.OperationModePoints:
-		return m.Points <= 0
-	case models.OperationModeFree:
-		return false
-	default:
-		return !isPermanent(m.ExpiredAt) && !m.ExpiredAt.After(time.Now())
-	}
+	hasTime := isPermanent(m.ExpiredAt) || m.ExpiredAt.After(time.Now())
+	hasPoints := m.Points > 0
+	return !hasTime && !hasPoints
 }
 
 // ClaimTrial 领取试用：仅当账号资源已耗尽（到期/点数为0）且未超每天/永久领取次数时发放。
@@ -1067,12 +801,12 @@ func ClaimTrial(appUUID, username, password string) (*StatusResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if app.TrialEnabled != 1 || app.TrialDuration <= 0 {
+	if !GetAccountPolicy().TrialEnabled || !GetAccountPolicy().HasTrialQuota() {
 		return nil, errors.New("该应用未开启试用领取")
 	}
 
 	var member models.Member
-	if err := db.Where("app_uuid = ? AND username = ?", app.UUID, username).First(&member).Error; err != nil {
+	if err := db.Where("username = ?", username).First(&member).Error; err != nil {
 		return nil, errors.New("账号或密码错误")
 	}
 	if member.Type != models.MemberTypeRegister || !utils.VerifyPasswordWithSalt(password, member.PasswordSalt, member.Password) {
@@ -1082,13 +816,13 @@ func ClaimTrial(appUUID, username, password string) (*StatusResult, error) {
 		return nil, errors.New("账号状态异常")
 	}
 	// 「到期可领」方案：仅资源已耗尽（到期/点数为0）才可领取，避免有效期内反复叠加
-	if app.TrialClaimMode == models.TrialClaimExhaustedOnly && !trialEligible(app, &member) {
+	if GetAccountPolicy().TrialClaimMode == models.TrialClaimExhaustedOnly && !trialEligible(app, &member) {
 		return nil, errors.New("账号仍可用，无需领取试用")
 	}
 
 	today := time.Now().Format("2006-01-02")
 	used := member.TrialUsed
-	if app.TrialLimitTime == 0 && member.TrialDate != today {
+	if GetAccountPolicy().TrialLimitTime == 0 && member.TrialDate != today {
 		used = 0
 	}
 	if used > 0 {
@@ -1101,17 +835,18 @@ func ClaimTrial(appUUID, username, password string) (*StatusResult, error) {
 		"trial_used": member.TrialUsed,
 		"trial_date": member.TrialDate,
 	}
-	if app.OperationMode == models.OperationModePoints {
-		// 点数模式：发放试用点数
-		member.Points += app.TrialDuration
+	// 试用额度是全局策略：点数与时长可同时发放，各自独立判断
+	trialPolicy := GetAccountPolicy()
+	if trialPolicy.TrialPoints > 0 {
+		member.Points += trialPolicy.TrialPoints
 		updates["points"] = member.Points
-	} else {
-		// 时长模式：在当前到期时间（或现在）基础上顺延试用时长
+	}
+	if trialPolicy.TrialDurationMinutes > 0 {
 		base := member.ExpiredAt
 		if base.Before(time.Now()) || base.IsZero() {
 			base = time.Now()
 		}
-		member.ExpiredAt = base.Add(time.Duration(app.TrialDuration) * time.Minute)
+		member.ExpiredAt = base.Add(time.Duration(trialPolicy.TrialDurationMinutes) * time.Minute)
 		updates["expired_at"] = member.ExpiredAt
 	}
 	if err := db.Model(&member).Updates(updates).Error; err != nil {
@@ -1140,7 +875,7 @@ func AccountLogin(appUUID, username, password, machineCode, ip, version, deviceN
 	}
 
 	var member models.Member
-	if err := db.Where("app_uuid = ? AND username = ?", app.UUID, username).First(&member).Error; err != nil {
+	if err := db.Where("username = ?", username).First(&member).Error; err != nil {
 		return nil, errors.New("账号或密码错误")
 	}
 	if !utils.VerifyPasswordWithSalt(password, member.PasswordSalt, member.Password) {
@@ -1151,7 +886,8 @@ func AccountLogin(appUUID, username, password, machineCode, ip, version, deviceN
 		return nil, err
 	}
 
-	return finishMemberLogin(db, app, &member, machineCode, ip, version, deviceName)
+	// 二级令牌：只做身份认证，计费与绑定留给 70 激活
+	return issueAccountTokenResult(db, app, &member, machineCode, ip, version, deviceName)
 }
 
 // RechargeByCard 用一张卡为账号充值：把卡面值加到该账号到期时间，并核销卡密。
@@ -1171,17 +907,17 @@ func RechargeByCard(appUUID, username, cardNo string) (*StatusResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if app.RechargeEnabled != 1 {
+	if !GetAccountPolicy().RechargeEnabled {
 		return nil, errors.New("该应用未开启卡密充值")
 	}
 
 	var member models.Member
 	err = db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("app_uuid = ? AND username = ?", app.UUID, username).First(&member).Error; err != nil {
+		if err := tx.Where("username = ?", username).First(&member).Error; err != nil {
 			return errors.New("账号不存在")
 		}
 		var card models.Card
-		if err := tx.Where("app_uuid = ? AND card_no = ?", app.UUID, cardNo).First(&card).Error; err != nil {
+		if err := tx.Where("card_no = ?", cardNo).First(&card).Error; err != nil {
 			return errors.New("卡号不存在")
 		}
 		if card.Status != models.CardStatusUnused {
@@ -1191,14 +927,14 @@ func RechargeByCard(appUUID, username, cardNo string) (*StatusResult, error) {
 		// 会员返利：按「充值前」等级放大面值，之后再结算累充升级
 		grantDuration, grantPoints := rebatedCardValue(tx, &member, &card)
 
-		if app.OperationMode == models.OperationModePoints {
+		if app.BillingMode == models.BillingModePoints {
 			// 点数模式：卡面值为点数，累加到余额
 			newPoints := member.Points + grantPoints
 			if err := tx.Model(&member).Update("points", newPoints).Error; err != nil {
 				return err
 			}
 			member.Points = newPoints
-			if err := settleMemberLevel(tx, app.UUID, &member, card.Price); err != nil {
+			if err := settleMemberLevel(tx, &member, card.Price); err != nil {
 				return err
 			}
 			return MarkCardUsed(tx, card.ID, member.UUID)
@@ -1223,7 +959,7 @@ func RechargeByCard(appUUID, username, cardNo string) (*StatusResult, error) {
 			return err
 		}
 		member.ExpiredAt = newExpiry
-		if err := settleMemberLevel(tx, app.UUID, &member, card.Price); err != nil {
+		if err := settleMemberLevel(tx, &member, card.Price); err != nil {
 			return err
 		}
 		return MarkCardUsed(tx, card.ID, member.UUID)
@@ -1242,7 +978,9 @@ func GetMemberExpiry(appUUID, token string) (*StatusResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	member, err := authMemberByToken(db, appUUID, token)
+	// 账号级查询：接受账号令牌（激活令牌也放行，方便客户端复用）。
+	// 只回报资源，不因已到期/点数耗尽而失败——客户端要能查到「为什么不能用」。
+	member, err := AuthForAccountAny(db, token)
 	if err != nil {
 		return nil, err
 	}
@@ -1254,7 +992,7 @@ func GetMemberExpiry(appUUID, token string) (*StatusResult, error) {
 }
 
 // DeductPoints 显式功能扣点（点数模式）：从余额扣除 amount 点，不足则拒绝。
-func DeductPoints(appUUID, token string, amount int) (*StatusResult, error) {
+func DeductPoints(appUUID, token string, amount float64) (*StatusResult, error) {
 	if amount <= 0 {
 		return nil, errors.New("扣除点数必须大于0")
 	}
@@ -1266,7 +1004,7 @@ func DeductPoints(appUUID, token string, amount int) (*StatusResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if app.OperationMode != models.OperationModePoints {
+	if app.BillingMode != models.BillingModePoints {
 		return nil, errors.New("当前应用非点数模式")
 	}
 	if member.Points < amount {
@@ -1277,6 +1015,93 @@ func DeductPoints(appUUID, token string, amount int) (*StatusResult, error) {
 		return nil, err
 	}
 	member.Points = newPoints
-	AddMemberLog(app.UUID, member.UUID, member.Username, "扣点", "扣"+strconv.Itoa(amount)+"点", "")
+	AddMemberLog(app.UUID, member.UUID, member.Username, "扣点", "扣"+strconv.FormatFloat(amount, 'f', -1, 64)+"点", "")
 	return buildStatusResult(app, member), nil
+}
+
+// issueAccountTokenResult 登录收尾：只校验账号状态，然后颁发**账号令牌**。
+//
+// 二级令牌模型下，登录只回答「你是谁」：
+//   - 不扣费、不校验等级与到期、不做设备绑定、不占在线名额
+//   - 到期账号也能登录（否则用户没法进去充值续费）
+//
+// 计费与绑定统一下放到 70 应用激活。
+func issueAccountTokenResult(db *gorm.DB, app *models.App, member *models.Member, machineCode, ip, version, deviceName string) (*LoginResult, error) {
+	if member.Status == models.MemberStatusBlack {
+		return nil, errors.New("账号已被拉黑")
+	}
+	if member.Status == models.MemberStatusDisabled {
+		return nil, errors.New("账号已被封停")
+	}
+
+	machineCode = strings.TrimSpace(machineCode)
+	deviceName = strings.TrimSpace(deviceName)
+
+	// 设备与 IP 绑定：**登录时立即建立**，不等到 70 激活。
+	//
+	// 理由：设备白名单是账号级资产（上限取 account_max_devices），登录时就能算，
+	// 不依赖具体应用。用户"登录"本身就代表这台机器开始使用，白名单该在这一刻成型；
+	// 70 激活时的绑定校验只是复核（幂等放行）。
+	//
+	// 与应用的 machine_verify / ip_verify 解耦：那两个开关只决定「激活时是否复核」，
+	// 不影响登录是否把设备记进白名单。
+	quota := ResolveAccountQuota(db, member)
+	policy := GetAccountPolicy()
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		// 账号级互斥：串行化同账号并发登录，防止并发的「先查后写」击穿设备上限
+		if err := lockMemberRow(tx, member.UUID); err != nil {
+			return err
+		}
+		// 只有开启「设备校验」才建立绑定；关闭时登录不写白名单，
+		// 也不受「可绑定设备」上限约束（与原应用级开关语义一致）
+		if policy.MachineVerify == 1 && machineCode != "" {
+			if err := ensureMachineBinding(tx, member.UUID, machineCode, deviceName, quota.MaxDevices); err != nil {
+				return &FingerprintMismatchError{Cause: err}
+			}
+		}
+		// IP 绑定**不在登录时校验**：用户换网络（家用/公司/移动热点）很常见，
+		// 登录就拦会把人锁在门外。IP 复核放在 70 激活时做。
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	acct, err := IssueAccountToken(db, member.UUID, machineCode, ip, version, deviceName)
+	if err != nil {
+		return nil, err
+	}
+
+	levelName, level, rebate, levelColor := memberLevelInfo(db, member)
+
+	res := &LoginResult{
+		Token:             acct.Token,
+		Username:          member.Username,
+		Type:              member.Type,
+
+		Permanent:         isPermanent(member.ExpiredAt),
+		ExpiredAt:         member.ExpiredAt,
+		Points:            member.Points,
+		HeartbeatInterval: heartbeatMinutes(app),
+		TotalRecharge:     member.TotalRecharge,
+		Level:             level,
+		LevelName:         levelName,
+		LevelColor:        levelColor,
+		RebateRate:        rebate,
+	}
+	res.Update = buildLoginUpdate(app, version)
+	res.applyBindingInfo(BuildBindingInfo(db, member))
+
+	// 登录痕迹：不计费，仅供风控与后台展示。
+	// 注册时没采集设备码的账号（如邮箱注册），首次带设备码登录时补上，供后台与风控使用。
+	trace := map[string]any{
+		"last_login_at": time.Now(),
+		"last_login_ip": ip,
+	}
+	if strings.TrimSpace(member.RegisterMachine) == "" && strings.TrimSpace(machineCode) != "" {
+		trace["register_machine"] = strings.TrimSpace(machineCode)
+		member.RegisterMachine = strings.TrimSpace(machineCode)
+	}
+	db.Model(&models.Member{}).Where("uuid = ?", member.UUID).Updates(trace)
+	AddMemberLog(app.UUID, member.UUID, member.Username, "账号登录", machineCode, ip)
+	return res, nil
 }

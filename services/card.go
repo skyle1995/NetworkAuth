@@ -4,6 +4,7 @@ import (
 	"NetworkAuth/database"
 	"NetworkAuth/models"
 	"errors"
+	"math"
 	"strconv"
 	"time"
 
@@ -27,7 +28,11 @@ var durationUnitMinutes = map[string]int{
 }
 
 // CardDurationToMinutes 将“数值 + 单位”换算为分钟；unit 为 permanent 时返回永久标记。
-func CardDurationToMinutes(value int, unit string) (int, error) {
+// CardDurationToMinutes 把「数值 + 单位」换算成分钟。
+//
+// value 支持小数（0.5 天 = 720 分钟），换算后四舍五入到整分钟；
+// 不足 1 分钟按 1 分钟计，避免用户填 0.001 天却拿到 0 分钟。
+func CardDurationToMinutes(value float64, unit string) (int, error) {
 	if unit == "permanent" {
 		return models.CardDurationPermanent, nil
 	}
@@ -38,13 +43,16 @@ func CardDurationToMinutes(value int, unit string) (int, error) {
 	if value <= 0 {
 		return 0, errors.New("时长必须大于0")
 	}
-	return value * factor, nil
+	mins := int(math.Round(value * float64(factor)))
+	if mins < 1 {
+		mins = 1
+	}
+	return mins, nil
 }
 
-// BatchCreateCards 为指定应用批量制卡。
-// durationMinutes 为面值时长（-1 表示永久，时长模式用）；points 为面值点数（点数模式用）。
-// 返回生成的卡密记录及本次批次号。
-func BatchCreateCards(appUUID, prefix string, randomLen, count int, packageUUID, remark string) ([]models.Card, string, error) {
+// BatchCreateCards 批量制卡（全站卡池）。
+// 面值与售价取自套餐快照。
+func BatchCreateCards(prefix string, randomLen, count int, packageUUID, remark string) ([]models.Card, string, error) {
 	if count <= 0 {
 		return nil, "", errors.New("生成数量必须大于0")
 	}
@@ -54,18 +62,13 @@ func BatchCreateCards(appUUID, prefix string, randomLen, count int, packageUUID,
 		return nil, "", err
 	}
 
-	// 校验应用存在
-	var app models.App
-	if err := db.Where("uuid = ?", appUUID).First(&app).Error; err != nil {
-		return nil, "", errors.New("应用不存在")
-	}
 
 	// 面值与售价取自套餐
-	pkg, err := LoadEnabledPackage(db, appUUID, packageUUID)
+	pkg, err := LoadEnabledPackage(db, packageUUID)
 	if err != nil {
 		return nil, "", err
 	}
-	if err := checkPackageMatchesApp(&app, pkg); err != nil {
+	if err := checkPackageValue(pkg); err != nil {
 		return nil, "", err
 	}
 
@@ -80,15 +83,14 @@ func BatchCreateCards(appUUID, prefix string, randomLen, count int, packageUUID,
 	for _, code := range codes {
 		// 面值与售价快照进卡：套餐后续改动不影响已售出的卡
 		cards = append(cards, models.Card{
-			CardNo:      code,
-			AppUUID:     appUUID,
-			BatchNo:     batchNo,
-			PackageUUID: pkg.UUID,
-			Duration:    pkg.Duration,
-			Points:      pkg.Points,
-			Price:       pkg.Price,
-			Status:      models.CardStatusUnused,
-			Remark:      remark,
+			CardNo:        code,
+			BatchNo:       batchNo,
+			PackageUUID:   pkg.UUID,
+			Duration:      pkg.Duration,
+			Points:        pkg.Points,
+			Price:         pkg.Price,
+			Status:        models.CardStatusUnused,
+			Remark:        remark,
 		})
 	}
 
@@ -146,13 +148,13 @@ func DeleteCards(ids []uint) error {
 	return db.Delete(&models.Card{}, ids).Error
 }
 
-// DeleteCardsByBatch 按批次号删除某应用下整批卡密，返回删除数量。
-func DeleteCardsByBatch(appUUID, batchNo string) (int64, error) {
+// DeleteCardsByBatch 按批次号删除整批卡密（全站），返回删除数量。
+func DeleteCardsByBatch(batchNo string) (int64, error) {
 	db, err := database.GetDB()
 	if err != nil {
 		return 0, err
 	}
-	res := db.Where("app_uuid = ? AND batch_no = ?", appUUID, batchNo).Delete(&models.Card{})
+	res := db.Where("batch_no = ?", batchNo).Delete(&models.Card{})
 	return res.RowsAffected, res.Error
 }
 

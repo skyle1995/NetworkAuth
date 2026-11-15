@@ -10,49 +10,38 @@ defineOptions({
   name: "Apis"
 });
 
-const formRef = ref();
 const exporting = ref(false);
 const {
-  form,
   loading,
   columns,
   dataList,
-  appList,
-  apiTypes,
   pagination,
   selectedIds,
   handleSelectionChange,
   openBatchDialog,
   onSearch,
-  resetForm,
   openDialog,
   handleSizeChange,
   handleCurrentChange
 } = useApi();
 
-// 导出所选应用的对接密钥为 JSON 文件
+// 导出对接密钥：一次拿到「全部应用的 uuid/secret」+「全站统一的接口配置」
 async function handleExport() {
-  if (!form.app_uuid) {
-    ElMessage.warning("请先在上方选择要导出的应用");
-    return;
-  }
   exporting.value = true;
   try {
-    const { code, msg, data } = await exportApiKeys({
-      app_uuid: form.app_uuid
-    });
+    const { code, msg, data } = await exportApiKeys({});
     if (code !== 0) {
       ElMessage.error(msg || "导出失败");
       return;
     }
-    const appName = data?.app?.name || "app";
+    const count = data?.app_count ?? data?.apps?.length ?? 0;
     const blob = new Blob([JSON.stringify(data, null, 2)], {
       type: "application/json"
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${appName}_对接密钥.json`;
+    a.download = `对接密钥_${count}个应用.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -68,72 +57,7 @@ async function handleExport() {
 
 <template>
   <div class="main-content">
-    <el-form
-      ref="formRef"
-      :inline="true"
-      :model="form"
-      class="search-form bg-bg_color w-full pl-8 pt-3 overflow-auto"
-    >
-      <el-form-item label="所属应用" prop="app_uuid">
-        <el-select
-          v-model="form.app_uuid"
-          placeholder="请选择应用"
-          clearable
-          class="!w-[200px]"
-        >
-          <el-option
-            v-for="item in appList"
-            :key="item.uuid"
-            :label="item.name"
-            :value="item.uuid"
-          />
-        </el-select>
-      </el-form-item>
-
-      <el-form-item label="接口类型" prop="api_type">
-        <el-select
-          v-model="form.api_type"
-          placeholder="请选择接口类型"
-          clearable
-          class="!w-[200px]"
-        >
-          <el-option
-            v-for="item in apiTypes"
-            :key="item.value"
-            :label="item.label"
-            :value="item.value"
-          />
-        </el-select>
-      </el-form-item>
-
-      <el-form-item>
-        <el-button
-          type="primary"
-          :icon="useRenderIcon('ep:search')"
-          :loading="loading"
-          @click="onSearch"
-        >
-          搜索
-        </el-button>
-        <el-button
-          :icon="useRenderIcon('ep:refresh')"
-          @click="resetForm(formRef)"
-        >
-          重置
-        </el-button>
-        <el-button
-          type="success"
-          :icon="useRenderIcon('ep:download')"
-          :loading="exporting"
-          :disabled="!form.app_uuid"
-          @click="handleExport"
-        >
-          导出密钥
-        </el-button>
-      </el-form-item>
-    </el-form>
-
-    <el-card shadow="never" class="table-wrapper mt-4">
+    <el-card shadow="never" class="table-wrapper">
       <PureTableBar title="接口设置" :columns="columns" @refresh="onSearch">
         <template #buttons>
           <el-button
@@ -145,6 +69,14 @@ async function handleExport() {
             批量设置算法{{
               selectedIds.length ? `(${selectedIds.length})` : ""
             }}
+          </el-button>
+          <el-button
+            type="success"
+            :icon="useRenderIcon('ep:download')"
+            :loading="exporting"
+            @click="handleExport"
+          >
+            导出密钥
           </el-button>
         </template>
         <template v-slot="{ size, dynamicColumns }">
@@ -207,9 +139,5 @@ async function handleExport() {
   margin: 24px !important;
 }
 
-.search-form {
-  :deep(.el-form-item) {
-    margin-bottom: 12px;
-  }
-}
+
 </style>

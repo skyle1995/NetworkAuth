@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -24,10 +25,8 @@ type Function struct {
 	UUID string `gorm:"uniqueIndex;size:36;not null;comment:函数的唯一标识符" json:"uuid"`
 
 	// Number：函数编号，13位Unix时间戳（毫秒级）
-	Number string `gorm:"uniqueIndex;size:13;not null;comment:函数编号，13位Unix时间戳" json:"number"`
+	Number string `gorm:"uniqueIndex;size:16;not null;comment:函数编号，13位Unix毫秒 + 3位随机" json:"number"`
 
-	// AppUUID：应用绑定标识符，"0"表示全局函数，其他UUID表示绑定到特定应用
-	AppUUID string `gorm:"size:36;not null;default:'0';comment:应用绑定标识符" json:"app_uuid"`
 
 	// Alias：函数别名，便于识别和管理
 	Alias string `gorm:"uniqueIndex;size:100;not null;comment:函数别名" json:"alias"`
@@ -54,8 +53,8 @@ func (function *Function) BeforeCreate(tx *gorm.DB) error {
 		function.UUID = strings.ToUpper(uuid.New().String())
 	}
 
-	// 生成Number：使用13位Unix时间戳（毫秒级）
-	function.Number = fmt.Sprintf("%d", time.Now().UnixMilli())
+	// 生成Number：13 位 Unix 毫秒 + 3 位随机（共 16 位）
+	function.Number = fmt.Sprintf("%d%03d", time.Now().UnixMilli(), rand.Intn(1000))
 	return nil
 }
 

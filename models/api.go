@@ -1,4 +1,4 @@
-package models
+﻿package models
 
 import (
 	"strings"
@@ -54,6 +54,25 @@ const (
 	APITypeDisableUser      = 60 // 封停用户
 	APITypeBlackUser        = 61 // 添加黑名单
 	APITypeUserDeductedTime = 62 // 扣除时间
+
+	// ========================================================================
+	// 二级令牌（外壳 + 插件）
+	// ========================================================================
+	//
+	// 70/71/72 与原 1~62 的关系：
+	//   登录（10/20）只发「账号令牌」，不计费、不绑定；
+	//   70 用账号令牌换取「应用激活」，**计费与设备绑定都发生在这里**；
+	//   71 显式释放激活，立即归还并发名额；
+	//   72 下发权益清单（含插件的 uuid/secret），按账号权限过滤。
+	//
+	// 编号选 70+ 是为了与既有 1~62 完全隔开，老客户端忽略未知类型即可。
+
+	// APITypeAppActivate 应用激活（幂等，计费入口）
+	APITypeAppActivate = 70
+	// APITypeAppDeactivate 应用释放（deactivation，立即归还名额）
+	APITypeAppDeactivate = 71
+	// APITypeEntitlements 权益清单（entitlements，含 secret 下发）
+	APITypeEntitlements = 72
 )
 
 // 已移除的历史接口类型：仅用于启动时清理数据库中的遗留记录，不再作为有效接口。
@@ -74,24 +93,29 @@ const (
 // 结构体定义
 // ============================================================================
 
-// API 接口表模型
-// 用于管理API接口的配置信息
+// API 接口表模型（一号通：全站接口定义）
+//
+// 接口条目全局唯一，每个 api_type 全站仅一条，应用不再各自持有一套。
+// 应用身份由请求签名（app_uuid + app_secret）区分，见 services.VerifyOpenSign，
+// 因此本表不区分应用：任何应用都用同一套接口定义与加密配置。
+//
+// 安全模型：
+//   - 应用鉴权 = 签名（证明持有该应用的 secret）
+//   - 载荷加密 = 全站共用一套密钥（防抓包/提高协议分析成本，不承担身份认证职责）
+//
 // CreatedAt/UpdatedAt 由 GORM 自动维护
 type API struct {
 	// ID：主键，自增
 	ID uint `gorm:"primaryKey;comment:API接口ID，自增主键" json:"id"`
 
-	// UUID：API接口唯一标识符，自动生成
-	UUID string `gorm:"uniqueIndex;size:36;not null;comment:API接口UUID，唯一标识符" json:"uuid"`
+	// UUID：接口唯一标识符，自动生成
+	UUID string `gorm:"uniqueIndex;size:36;not null;comment:接口UUID，唯一标识符" json:"uuid"`
 
-	// API类型（int型）
-	APIType int `gorm:"not null;comment:API类型" json:"api_type"`
+	// APIType：接口类型，全站唯一（每个类型只有一条配置）
+	APIType int `gorm:"not null;uniqueIndex:idx_api_type;comment:接口类型，全站唯一" json:"api_type"`
 
-	// 应用UUID，关联到App表
-	AppUUID string `gorm:"size:36;not null;index;comment:关联的应用UUID" json:"app_uuid"`
-
-	// 接口状态（1=启用，0=禁用）
-	Status int `gorm:"default:0;not null;comment:接口状态，1=启用，0=禁用" json:"status"`
+	// Status：接口状态（1=启用，0=禁用）。全站生效：禁用后所有应用均不可调用
+	Status int `gorm:"default:0;not null;comment:接口状态，1=启用，0=禁用（全站生效）" json:"status"`
 
 	// 接口提交算法
 	// 支持的算法：0=不加密，1=RC4，2=RSA，3=RSA（动态），4=易加密
@@ -195,6 +219,14 @@ func GetAPITypes(categorized bool) interface{} {
 			Name: "卡密相关",
 			Types: []APITypeInfo{
 				{Type: APITypeSingleLogin, Name: "卡密登录"},
+			},
+		},
+		{
+			Name: "应用激活",
+			Types: []APITypeInfo{
+				{Type: APITypeAppActivate, Name: "应用激活（计费入口，幂等）"},
+				{Type: APITypeAppDeactivate, Name: "应用释放"},
+				{Type: APITypeEntitlements, Name: "权益清单"},
 			},
 		},
 		{

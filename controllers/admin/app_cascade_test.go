@@ -9,14 +9,17 @@ import (
 	"gorm.io/gorm"
 )
 
+// TestCascadeDeleteAppData 验证删除应用时的清理边界（一号通）：
+// 只删该应用专属的会话/日志/变量/函数；
+// **账号、卡密、接口是全站共享资产，绝不随应用删除**。
 func TestCascadeDeleteAppData(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
 	if err := db.AutoMigrate(&models.App{}, &models.API{}, &models.Card{},
-		&models.Member{}, &models.Binding{}, &models.MemberSession{},
-		&models.MemberLog{}, &models.Variable{}, &models.Function{}); err != nil {
+		&models.Member{}, &models.Binding{}, &models.AppActivation{},
+		&models.MemberLog{}, &models.Variable{}, &models.Function{}, &models.MemberAccountToken{}, &models.AppActivation{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
 
@@ -26,26 +29,26 @@ func TestCascadeDeleteAppData(t *testing.T) {
 		}
 	}
 
-	// —— APP-1 及其全部衍生数据 ——
+	// —— APP-1 及其专属数据 ——
 	mustCreate(&models.App{UUID: "APP-1", Name: "待删", Secret: "S"})
-	member := models.Member{AppUUID: "APP-1", Username: "u1"}
+	member := models.Member{Username: "u1"}
 	mustCreate(&member)
 	mustCreate(&models.Binding{MemberUUID: member.UUID, Type: models.BindingTypeMachine, Value: "MC-1"})
-	mustCreate(&models.MemberSession{Token: "t1", MemberUUID: member.UUID, AppUUID: "APP-1"})
+	mustCreate(&models.AppActivation{Token: "t1", MemberUUID: member.UUID, AppUUID: "APP-1"})
 	mustCreate(&models.MemberLog{AppUUID: "APP-1", Username: "u1", Action: "卡密登录"})
-	mustCreate(&models.Card{CardNo: "K1", AppUUID: "APP-1"})
-	mustCreate(&models.API{AppUUID: "APP-1", APIType: 10})
-	mustCreate(&models.Variable{Alias: "v1", AppUUID: "APP-1"})
-	time.Sleep(2 * time.Millisecond) // Variable/Function.Number 为毫秒唯一索引
-	mustCreate(&models.Function{Alias: "f1", AppUUID: "APP-1"})
 
-	// —— 应保留：全局变量/函数(app_uuid="0") 与其它应用 ——
+	// —— 全站共享资产：账号、卡密、接口 ——
+	mustCreate(&models.Card{CardNo: "K1"})
+	mustCreate(&models.API{APIType: 10})
+
+	// —— 变量/函数是全站资源，不属于任何应用，删应用不应动它们 ——
 	time.Sleep(2 * time.Millisecond)
-	mustCreate(&models.Variable{Alias: "gv", AppUUID: "0"})
+	mustCreate(&models.Variable{Alias: "gv"})
 	time.Sleep(2 * time.Millisecond)
-	mustCreate(&models.Function{Alias: "gf", AppUUID: "0"})
+	mustCreate(&models.Function{Alias: "gf"})
 	mustCreate(&models.App{UUID: "APP-2", Name: "保留", Secret: "S2"})
-	mustCreate(&models.Member{AppUUID: "APP-2", Username: "o1"})
+	mustCreate(&models.Member{Username: "o1"})
+	mustCreate(&models.AppActivation{Token: "t2", MemberUUID: member.UUID, AppUUID: "APP-2"})
 
 	if err := cascadeDeleteAppData(db, []string{"APP-1"}); err != nil {
 		t.Fatalf("cascadeDeleteAppData: %v", err)
@@ -61,34 +64,41 @@ func TestCascadeDeleteAppData(t *testing.T) {
 		return n
 	}
 
-	// APP-1 衍生数据应清空
+	// 应用专属数据应清空
 	checks := []struct {
 		name string
 		got  int64
 	}{
-		{"card", count(&models.Card{}, "app_uuid = ?", "APP-1")},
-		{"member", count(&models.Member{}, "app_uuid = ?", "APP-1")},
-		{"binding", count(&models.Binding{}, "member_uuid = ?", member.UUID)},
-		{"session", count(&models.MemberSession{}, "app_uuid = ?", "APP-1")},
-		{"memberlog", count(&models.MemberLog{}, "app_uuid = ?", "APP-1")},
-		{"api", count(&models.API{}, "app_uuid = ?", "APP-1")},
-		{"variable", count(&models.Variable{}, "app_uuid = ?", "APP-1")},
-		{"function", count(&models.Function{}, "app_uuid = ?", "APP-1")},
+		{"session(APP-1)", count(&models.AppActivation{}, "app_uuid = ?", "APP-1")},
+		{"memberlog(APP-1)", count(&models.MemberLog{}, "app_uuid = ?", "APP-1")},
+
 	}
 	for _, c := range checks {
 		if c.got != 0 {
-			t.Fatalf("%s should be cascade-deleted, got %d", c.name, c.got)
+			t.Fatalf("%s should be cascade-deleted, got %v", c.name, c.got)
 		}
 	}
 
-	// 全局与其它应用应保留
-	if count(&models.Variable{}, "app_uuid = ?", "0") != 1 {
-		t.Fatalf("global variable should survive")
+	// 全站共享资产必须存活（这是本次改造最关键的回归点）
+	if count(&models.Member{}, "") != 2 {
+		t.Fatalf("members are global assets and must survive, got %v", count(&models.Member{}, ""))
 	}
-	if count(&models.Function{}, "app_uuid = ?", "0") != 1 {
-		t.Fatalf("global function should survive")
+	if count(&models.Binding{}, "") != 1 {
+		t.Fatalf("bindings belong to accounts and must survive, got %v", count(&models.Binding{}, ""))
 	}
-	if count(&models.Member{}, "app_uuid = ?", "APP-2") != 1 {
-		t.Fatalf("other app's member should survive")
+	if count(&models.Variable{}, "") != 1 {
+		t.Fatalf("variables are site-wide resources and must survive app deletion, got %v", count(&models.Variable{}, ""))
+	}
+	if count(&models.Function{}, "") != 1 {
+		t.Fatalf("functions are site-wide resources and must survive app deletion, got %v", count(&models.Function{}, ""))
+	}
+	if count(&models.Card{}, "") != 1 {
+		t.Fatalf("cards are global pool and must survive, got %v", count(&models.Card{}, ""))
+	}
+	if count(&models.API{}, "") != 1 {
+		t.Fatalf("apis are global definitions and must survive, got %v", count(&models.API{}, ""))
+	}
+	if count(&models.AppActivation{}, "app_uuid = ?", "APP-2") != 1 {
+		t.Fatalf("other app's session should survive")
 	}
 }

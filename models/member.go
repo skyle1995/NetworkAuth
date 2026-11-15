@@ -33,12 +33,14 @@ var PermanentTime = time.Date(2099, 12, 31, 23, 59, 59, 0, time.UTC)
 // 结构体定义
 // ============================================================================
 
-// Member 账号表模型
-// 应用的账号（区别于后台管理员 [User]），两种来源统一存储于此表：
+// Member 账号表模型（一号通：全站唯一账号）
+//
+// 一个自然人在全站只有一个账号，区别于后台管理员 [User]。两种来源统一存储于此表：
 //   - 注册账号（Type=0）：用户名+密码登录，可用卡密充值
 //   - 卡密账号（Type=1）：卡密登录时自动创建，Username=卡号，通过 CardUUID 绑定来源卡
 //
-// 到期时间、绑定、封停等一切运行时状态都落在本表，两种来源在运行时逻辑上无差别。
+// 到期时间、点数、累充、等级、绑定、封停等一切运行时状态都落在本表，全站共享一份，
+// 不再按应用拆分。账号与应用的关联只体现在登录会话（[MemberSession].AppUUID）与操作日志上。
 // CreatedAt/UpdatedAt 由 GORM 自动维护
 type Member struct {
 	// ID：主键，自增
@@ -47,11 +49,8 @@ type Member struct {
 	// UUID：账号唯一标识符，自动生成
 	UUID string `gorm:"uniqueIndex;size:36;not null;comment:账号UUID，唯一标识符" json:"uuid"`
 
-	// AppUUID：归属应用UUID，与 Username 联合唯一（不同应用的用户互相隔离）
-	AppUUID string `gorm:"size:36;not null;index;uniqueIndex:idx_member_app_username;comment:归属应用UUID" json:"app_uuid"`
-
-	// Username：用户名。邮箱注册账号为邮箱，卡密账号为卡号
-	Username string `gorm:"size:64;not null;uniqueIndex:idx_member_app_username;comment:用户名，邮箱注册为邮箱、卡密为卡号" json:"username"`
+	// Username：用户名，全站唯一。邮箱注册账号为邮箱，卡密账号为卡号
+	Username string `gorm:"size:64;not null;uniqueIndex:idx_member_username;comment:用户名，全站唯一；邮箱注册为邮箱、卡密为卡号" json:"username"`
 
 	// Email：注册邮箱（邮箱注册时等于 Username；卡密账号为空）
 	Email string `gorm:"size:128;index;comment:注册邮箱" json:"email"`
@@ -75,7 +74,7 @@ type Member struct {
 	ExpiredAt time.Time `gorm:"comment:到期时间，永久有效为2099年" json:"expired_at"`
 
 	// Points：点数余额（点数模式）。显式功能扣点消耗，余额>0 方可使用
-	Points int `gorm:"default:0;not null;comment:点数余额，点数模式使用" json:"points"`
+	Points float64 `gorm:"default:0;not null;comment:点数余额（支持小数，如 1.5）" json:"points"`
 
 	// TotalRecharge：累计充值金额（单位：分），按卡密售价快照累加，用于会员等级升级
 	TotalRecharge int `gorm:"default:0;not null;comment:累计充值金额，单位分" json:"total_recharge"`
@@ -83,10 +82,10 @@ type Member struct {
 	// LevelUUID：当前会员等级UUID（空=无等级），由累充自动结算，只升不降
 	LevelUUID string `gorm:"size:36;index;comment:当前会员等级UUID" json:"level_uuid"`
 
-	// RegisterIP：注册时的客户端IP，用于应用注册次数限制
+	// RegisterIP：注册时的客户端IP，用于全站注册次数限制
 	RegisterIP string `gorm:"size:50;index;comment:注册IP" json:"register_ip"`
 
-	// RegisterMachine：注册时提交的设备码，用于设备维度注册次数限制
+	// RegisterMachine：注册时提交的设备码，用于全站设备维度注册次数限制
 	RegisterMachine string `gorm:"size:255;index;comment:注册设备码" json:"register_machine"`
 
 	// TrialUsed：已领取试用次数，用于永久限制

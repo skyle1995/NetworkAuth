@@ -19,7 +19,6 @@ const {
   columns,
   dataList,
   pagination,
-  apps,
   onSearch,
   resetFormSearch,
   openDialog,
@@ -80,25 +79,6 @@ async function onBatchDel() {
           class="!w-[180px]"
           @keyup.enter="onSearch"
         />
-      </el-form-item>
-
-      <el-form-item label="所属应用" prop="app_uuid">
-        <el-select
-          v-model="form.app_uuid"
-          placeholder="请选择所属应用"
-          clearable
-          class="!w-[180px]"
-          @change="onSearch"
-        >
-          <el-option label="全部" value="" />
-          <el-option label="全局函数" value="0" />
-          <el-option
-            v-for="app in apps"
-            :key="app.uuid"
-            :label="app.name"
-            :value="app.uuid"
-          />
-        </el-select>
       </el-form-item>
 
       <el-form-item>

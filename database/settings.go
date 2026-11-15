@@ -391,6 +391,164 @@ func SeedDefaultSettings() error {
 		},
 	}...)
 
+	// ===== 全局账号策略（一号通：注册/卡密/充值/试用全站统一）=====
+	defaultSettings = append(defaultSettings, []models.Settings{
+		{
+			Name:        models.SettingAccountRegisterEnabled,
+			Value:       "1",
+			Description: "账号注册开关：0=关闭，1=开启（全站生效）",
+		},
+		{
+			Name:        models.SettingAccountEmailVerifyEnabled,
+			Value:       "0",
+			Description: "注册邮箱验证开关：0=关闭，1=开启（依赖系统 SMTP 配置）",
+		},
+		{
+			Name:        models.SettingAccountCardRegisterEnabled,
+			Value:       "0",
+			Description: "卡密注册开关：开启后邮箱注册须额外提交有效卡密",
+		},
+		{
+			Name:        models.SettingAccountRegisterLimitEnabled,
+			Value:       "0",
+			Description: "IP 注册限制开关：0=关闭，1=开启（全站计数）",
+		},
+		{
+			Name:        models.SettingAccountRegisterDeviceLimitEnabled,
+			Value:       "0",
+			Description: "设备注册限制开关：开启后注册须提交设备码（全站计数）",
+		},
+		{
+			Name:        models.SettingAccountRegisterLimitTime,
+			Value:       "1",
+			Description: "注册限制时间窗口：0=每天，1=永久（IP 与设备共用）",
+		},
+		{
+			Name:        models.SettingAccountRegisterCount,
+			Value:       "3",
+			Description: "注册次数上限（全站计数；建议大于 1，否则同 IP 仅能注册一个账号）",
+		},
+		{
+			Name:        models.SettingAccountCardLoginEnabled,
+			Value:       "1",
+			Description: "卡密登录开关：开启后卡密可直接登录并自动创建绑定账号",
+		},
+		{
+			Name:        models.SettingAccountRechargeEnabled,
+			Value:       "1",
+			Description: "卡密充值开关：开启后卡密可为账号充值时长/点数",
+		},
+		{
+			Name:        models.SettingAccountTrialEnabled,
+			Value:       "0",
+			Description: "领取试用开关：0=关闭，1=开启",
+		},
+		{
+			Name:        models.SettingAccountTrialLimitTime,
+			Value:       "1",
+			Description: "试用限制时间窗口：0=每天，1=永久",
+		},
+		{
+			Name:        models.SettingAccountTrialPoints,
+			Value:       "0",
+			Description: "试用发放点数（与试用时长可同时配置）",
+		},
+		{
+			Name:        models.SettingAccountTrialDurationMinutes,
+			Value:       "0",
+			Description: "试用发放在期时长（分钟），与试用点数可同时配置",
+		},
+		{
+			Name:        models.SettingAccountTrialClaimMode,
+			Value:       "1",
+			Description: "试用领取方案：0=无限制，1=仅账号资源耗尽时可领",
+		},
+
+		// ---- 账号级资源配额（设备 / 并发 / 转绑）----
+		// 这三项是账号维度，不属于任何单个应用；会员等级可在此基础上加量。
+		{
+			Name:        models.SettingAccountMaxDevices,
+			Value:       "3",
+			Description: "一个账号最多绑定几台设备（跨所有应用共用一份设备白名单）",
+		},
+		{
+			Name:        models.SettingAccountMaxConcurrent,
+			Value:       "1",
+			Description: "一个账号最多同时开着几个实例（跨所有应用合计）",
+		},
+		{
+			Name:        models.SettingAccountMachineVerify,
+			Value:       "1",
+			Description: "是否校验设备码：0=不校验，1=校验（校验时设备码必填）",
+		},
+		{
+			Name:        models.SettingAccountIPVerify,
+			Value:       "0",
+			Description: "IP 校验强度：0=关闭，1=精确IP，2=同市，3=同省",
+		},
+		{
+			Name:        models.SettingAccountMachineRebindEnabled,
+			Value:       "1",
+			Description: "允许设备（机器码）转绑：0=关闭，1=开启",
+		},
+		{
+			Name:        models.SettingAccountMachineRebindFreeCount,
+			Value:       "1",
+			Description: "设备转绑：每窗口免费次数",
+		},
+		{
+			Name:        models.SettingAccountMachineRebindLimitTime,
+			Value:       "1",
+			Description: "设备转绑：计数窗口 0=每天重置，1=永久累计",
+		},
+		{
+			Name:        models.SettingAccountMachineRebindMaxCount,
+			Value:       "0",
+			Description: "设备转绑：每窗口次数上限，0=不限",
+		},
+		{
+			Name:        models.SettingAccountMachineRebindDeductMinutes,
+			Value:       "0",
+			Description: "设备转绑：计时模式下超免费次数后每次扣多少分钟",
+		},
+		{
+			Name:        models.SettingAccountMachineRebindDeductPoints,
+			Value:       "0",
+			Description: "设备转绑：点数模式下超免费次数后每次扣多少点",
+		},
+		{
+			Name:        models.SettingAccountIPRebindEnabled,
+			Value:       "1",
+			Description: "允许 IP 转绑：0=关闭，1=开启",
+		},
+		{
+			Name:        models.SettingAccountIPRebindFreeCount,
+			Value:       "2",
+			Description: "IP 转绑：每窗口免费次数（换网络常见，默认比设备宽松）",
+		},
+		{
+			Name:        models.SettingAccountIPRebindLimitTime,
+			Value:       "1",
+			Description: "IP 转绑：计数窗口 0=每天重置，1=永久累计",
+		},
+		{
+			Name:        models.SettingAccountIPRebindMaxCount,
+			Value:       "0",
+			Description: "IP 转绑：每窗口次数上限，0=不限",
+		},
+		{
+			Name:        models.SettingAccountIPRebindDeductMinutes,
+			Value:       "0",
+			Description: "IP 转绑：计时模式下超免费次数后每次扣多少分钟",
+		},
+		{
+			Name:        models.SettingAccountIPRebindDeductPoints,
+			Value:       "0",
+			Description: "IP 转绑：点数模式下超免费次数后每次扣多少点",
+		},
+
+	}...)
+
 	// 逐个检查并创建不存在的设置项
 	for _, setting := range defaultSettings {
 		var count int64

@@ -1,3 +1,4 @@
+import { fmtPoints } from "@/utils/points";
 import { reactive, ref, onMounted, h } from "vue";
 import { message } from "@/utils/message";
 import { addDialog } from "@/components/ReDialog";
@@ -29,7 +30,6 @@ import {
   batchRechargeMembers,
   batchDeleteMembers
 } from "@/api/admin/member";
-import { getAppsSimple } from "@/api/admin/app";
 import { getMemberLevels } from "@/api/admin/memberLevel";
 
 // 来源类型：0注册 1卡密
@@ -47,7 +47,6 @@ const STATUS_META: Record<number, { text: string; type: any }> = {
 export function useMember() {
   const form = reactive({
     search: "",
-    app_uuid: "",
     type: "",
     status: "",
     level_uuid: ""
@@ -55,7 +54,6 @@ export function useMember() {
 
   const dataList = ref([]);
   const loading = ref(true);
-  const apps = ref([]);
   const levels = ref<any[]>([]);
 
   const pagination = reactive<PaginationProps>({
@@ -69,15 +67,6 @@ export function useMember() {
     { type: "selection", width: 55, align: "center" },
     { label: "ID", prop: "id", width: 70 },
     { label: "用户名", prop: "username", minWidth: 140 },
-    {
-      label: "所属应用",
-      prop: "app_uuid",
-      minWidth: 130,
-      cellRenderer: ({ row }) => {
-        const app = apps.value.find(a => a.uuid === row.app_uuid);
-        return app ? app.name : "未知应用";
-      }
-    },
     {
       label: "类型",
       prop: "type",
@@ -97,11 +86,16 @@ export function useMember() {
       }
     },
     {
-      label: "额度(到期/余额)",
+      label: "到期时间",
       prop: "expired_at",
       minWidth: 160,
-      cellRenderer: ({ row }) =>
-        row.mode === 1 ? `${row.points} 点` : row.expired_at
+      cellRenderer: ({ row }) => row.expired_at || "—"
+    },
+    {
+      label: "点数余额",
+      prop: "points",
+      minWidth: 100,
+      cellRenderer: ({ row }) => `${fmtPoints(row.points)}`
     },
     {
       label: "会员等级",
@@ -127,6 +121,7 @@ export function useMember() {
       minWidth: 110,
       cellRenderer: ({ row }) => `${(row.total_recharge / 100).toFixed(2)} 元`
     },
+
     {
       label: "最近登录",
       prop: "last_login_at",
@@ -138,24 +133,13 @@ export function useMember() {
     { label: "操作", fixed: "right", width: 260, slot: "operation" }
   ];
 
-  async function fetchApps() {
-    try {
-      const { code, data } = await getAppsSimple();
-      if (code === 0 && Array.isArray(data)) {
-        apps.value = data;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }
 
-  // 会员等级筛选选项随所选应用变化；切换应用时重置已选等级
+  // 会员等级是全站一份（会员等级表无 app_uuid），进页面加载一次即可
   async function fetchLevels() {
     levels.value = [];
     form.level_uuid = "";
-    if (!form.app_uuid) return;
     try {
-      const { code, data } = await getMemberLevels({ app_uuid: form.app_uuid });
+      const { code, data } = await getMemberLevels({});
       if (code === 0 && Array.isArray(data)) {
         levels.value = data;
       }
@@ -171,7 +155,6 @@ export function useMember() {
         page: pagination.currentPage,
         limit: pagination.pageSize,
         search: form.search,
-        app_uuid: form.app_uuid,
         type: form.type,
         status: form.status,
         level_uuid: form.level_uuid
@@ -199,15 +182,13 @@ export function useMember() {
       title: "新增终端账号",
       props: {
         formInline: {
-          app_uuid: form.app_uuid || "",
           username: "",
           password: "",
           duration_value: 30,
           duration_unit: "day",
           points: 10,
           remark: ""
-        },
-        apps: apps.value
+        }
       },
       width: "600px",
       draggable: true,
@@ -251,8 +232,7 @@ export function useMember() {
   // 改累充后端会按新值重新校准会员等级。
   function openProfileDialog(row: any) {
     const dialogFormRef = ref();
-    const pointsMode = row.mode === 1;
-    const permanent = !pointsMode && row.expired_at === "永久";
+    const permanent = row.expired_at === "永久";
     addDialog({
       title: `编辑账号 - ${row.username}`,
       props: {
@@ -263,8 +243,7 @@ export function useMember() {
           points: row.points ?? 0,
           total_recharge_yuan: (row.total_recharge ?? 0) / 100,
           remark: row.remark ?? ""
-        },
-        pointsMode
+        }
       },
       width: "480px",
       draggable: true,
@@ -289,11 +268,9 @@ export function useMember() {
               total_recharge: Math.round(cur.total_recharge_yuan * 100),
               remark: cur.remark
             };
-            if (pointsMode) {
-              payload.points = cur.points;
-            } else {
-              payload.expired_at = cur.permanent ? "permanent" : cur.expired_at;
-            }
+            // 一号通：到期与点数一起提交，两个钱包都能改
+            payload.points = cur.points;
+            payload.expired_at = cur.permanent ? "permanent" : cur.expired_at;
             const { code, msg } = await updateMemberProfile(payload);
             if (code === 0) {
               message("保存成功", { type: "success" });
@@ -312,16 +289,18 @@ export function useMember() {
   function openDurationDialog(row: any, mode: "recharge" | "deduct") {
     const dialogFormRef = ref();
     const isRecharge = mode === "recharge";
-    const pointsMode = row.mode === 1;
-    const deductLabel = pointsMode ? "扣点" : "扣时";
     addDialog({
-      title: `${isRecharge ? "充值" : deductLabel} - ${row.username}`,
+      title: `${isRecharge ? "充值" : "扣减"} - ${row.username}`,
       props: {
-        formInline: { duration_value: 30, duration_unit: "day", points: 10 },
-        allowPermanent: isRecharge && !pointsMode,
-        pointsMode
+        formInline: {
+          duration_value: isRecharge ? 30 : 1,
+          duration_unit: "day",
+          points: 0
+        },
+        allowPermanent: isRecharge,
+        pointsMode: false
       },
-      width: "420px",
+      width: "400px",
       draggable: true,
       closeOnClickModal: false,
       contentRenderer: () => h(durationForm, { ref: dialogFormRef } as any),
@@ -338,12 +317,22 @@ export function useMember() {
           text: true,
           bg: true,
           btnClick: async ({ dialog: { options } }) => {
-            const payload = { id: row.id, ...options.props.formInline };
+            const f = options.props.formInline;
+            // 单位决定这次改哪个钱包：点数 → 只传 points；其余 → 只传时长
+            const payload =
+              f.duration_unit === "points"
+                ? { id: row.id, points: f.points, duration_value: 0, duration_unit: "" }
+                : {
+                    id: row.id,
+                    duration_value: f.duration_value,
+                    duration_unit: f.duration_unit,
+                    points: 0
+                  };
             const { code, msg } = isRecharge
               ? await rechargeMember(payload)
               : await deductMember(payload);
             if (code === 0) {
-              message(isRecharge ? "充值成功" : `${deductLabel}成功`, {
+              message(isRecharge ? "充值成功" : "扣减成功", {
                 type: "success"
               });
               options.visible = false;
@@ -552,14 +541,13 @@ export function useMember() {
       props: {
         formInline: {
           scope: selectedNum > 0 ? "selected" : "all",
-          app_uuid: "",
           duration_value: 1,
           duration_unit: "day",
           points: 0,
           selectedNum
         }
       },
-      contentRenderer: () => h(batchRechargeForm, { apps: apps.value } as any),
+      contentRenderer: () => h(batchRechargeForm),
       footerButtons: [
         {
           label: "取消",
@@ -587,12 +575,9 @@ export function useMember() {
             };
             if (f.scope === "all") {
               payload.all = true;
-              payload.app_uuid = f.app_uuid;
               try {
                 await ElMessageBox.confirm(
-                  f.app_uuid
-                    ? "确认为该应用下的全体账号批量加时/点吗？"
-                    : "确认为『所有应用的全体账号』批量加时/点吗？此操作影响范围很大。",
+                  "确认为全体账号批量加时/点吗？此操作影响范围很大。",
                   "提示",
                   { type: "warning" }
                 );
@@ -708,7 +693,7 @@ export function useMember() {
   }
 
   onMounted(() => {
-    fetchApps();
+    fetchLevels();
     onSearch();
   });
 
@@ -718,7 +703,6 @@ export function useMember() {
     columns,
     dataList,
     pagination,
-    apps,
     levels,
     fetchLevels,
     onSearch,

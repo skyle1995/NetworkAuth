@@ -1,4 +1,4 @@
-package services
+﻿package services
 
 import (
 	"NetworkAuth/database"
@@ -49,6 +49,7 @@ func CheckVersion(appUUID, clientVersion string) (any, error) {
 
 // GetCardInfo 获取卡密信息（type 4）：返回卡密的状态与面值。
 // 同时返回 mode/duration/points：时长模式看 duration，点数模式看 points。
+// 卡密全站唯一，不再按应用隔离查询；mode 为全局计费模式。
 func GetCardInfo(app *models.App, cardNo string) (any, error) {
 	cardNo = strings.TrimSpace(cardNo)
 	if cardNo == "" {
@@ -59,18 +60,19 @@ func GetCardInfo(app *models.App, cardNo string) (any, error) {
 		return nil, err
 	}
 	var card models.Card
-	if err := db.Where("app_uuid = ? AND card_no = ?", app.UUID, cardNo).First(&card).Error; err != nil {
+	if err := db.Where("card_no = ?", cardNo).First(&card).Error; err != nil {
 		return nil, errors.New("卡号不存在")
 	}
 	usedAt := ""
 	if card.UsedAt != nil {
 		usedAt = card.UsedAt.Format("2006-01-02 15:04:05")
 	}
+	billing := EffectiveBilling(app)
 	return map[string]any{
 		"card_no":     card.CardNo,
 		"status":      card.Status,
 		"status_text": cardStatusName(card.Status),
-		"mode":        app.OperationMode,
+		"mode":        billing.Mode,
 		"duration":    card.Duration,
 		"points":      card.Points,
 		"used_at":     usedAt,

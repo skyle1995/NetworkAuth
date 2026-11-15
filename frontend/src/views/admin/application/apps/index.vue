@@ -8,8 +8,8 @@ import { addDialog } from "@/components/ReDialog";
 
 import Form from "./form.vue";
 import MultiConfig from "./multi-config.vue";
-import BindConfig from "./bind-config.vue";
 import RegisterConfig from "./register-config.vue";
+import LevelPoints from "./level-points.vue";
 import TextConfig from "./text-config.vue";
 
 import {
@@ -25,10 +25,10 @@ import {
   updateAppAnnouncement,
   getAppMultiConfig,
   updateAppMultiConfig,
-  getAppBindConfig,
-  updateAppBindConfig,
   getAppRegisterConfig,
-  updateAppRegisterConfig
+  updateAppRegisterConfig,
+  getAppLevelPoints,
+  saveAppLevelPoints,
 } from "@/api/admin/app";
 
 defineOptions({
@@ -72,14 +72,17 @@ function openDialog(title = "新增", row?: any) {
         status: row?.status ?? 1,
         download_type: row?.download_type ?? 0,
         download_url: row?.download_url ?? "",
-        operation_mode: row?.operation_mode ?? 0,
+            free_mode: row?.free_mode ?? 0,
+            billing_mode: row?.billing_mode ?? 0,
+            required_level: row?.required_level ?? 1,
         points_charge_mode: row?.points_charge_mode ?? 0,
+        billing_scope: row?.billing_scope ?? 0,
         points_per_login: row?.points_per_login ?? 1,
         points_period_minutes: row?.points_period_minutes ?? 60,
         points_per_period: row?.points_per_period ?? 1,
         points_heartbeat_charge: row?.points_heartbeat_charge ?? 0,
-        card_login_enabled: row?.card_login_enabled ?? 1,
-        recharge_enabled: row?.recharge_enabled ?? 1
+        // 授权期限（分钟）。旧数据可能是 0，兜底 30，避免数字框空白
+        lease_ttl_minutes: row?.lease_ttl_minutes || 30
       }
     },
     width: "460px",
@@ -228,11 +231,11 @@ async function handleCommand(command: string, row: any) {
     case "multi_config":
       openMultiConfigDialog(row.uuid);
       break;
-    case "bind_config":
-      openBindConfigDialog(row.uuid, row.operation_mode);
-      break;
+        case "level_points":
+          openLevelPointsDialog(row.uuid, row.name);
+          break;
     case "register_config":
-      openRegisterConfigDialog(row.uuid, row.operation_mode);
+      openRegisterConfigDialog();
       break;
   }
 }
@@ -284,12 +287,10 @@ async function openMultiConfigDialog(uuid: string) {
         props: {
           formInline: res.data || {
             login_type: 0,
-            multi_open_scope: 0,
-            clean_interval: 1,
+                clean_interval: 1,
             check_interval: 10,
             offline_timeout: 30,
-            multi_open_count: 1
-          }
+              }
         },
         width: "650px",
         draggable: true,
@@ -309,37 +310,38 @@ async function openMultiConfigDialog(uuid: string) {
   } catch (e) {}
 }
 
-async function openBindConfigDialog(uuid: string, operationMode = 0) {
+    async function openRegisterConfigDialog() {
   try {
-    const res = await getAppBindConfig({ uuid });
+    const res = await getAppRegisterConfig({});
     if (res.code === 0) {
       addDialog({
-        title: "绑定设置",
+        title: "账号策略（全站生效）",
         props: {
-          operation_mode: operationMode,
           formInline: res.data || {
-            machine_verify: 0,
-            machine_rebind_enabled: 0,
-            machine_rebind_limit: 0,
-            machine_free_count: 0,
-            machine_rebind_count: 0,
-            machine_rebind_deduct: 0,
-            ip_verify: 0,
-            ip_rebind_enabled: 0,
-            ip_rebind_limit: 0,
-            ip_free_count: 0,
-            ip_rebind_count: 0,
-            ip_rebind_deduct: 0
+            register_enabled: 0,
+            email_verify_enabled: 0,
+            card_register_enabled: 0,
+            register_limit_enabled: 0,
+            register_device_limit_enabled: 0,
+                register_limit_time: 1,
+                register_count: 3,
+            trial_enabled: 0,
+            trial_limit_time: 0,
+                card_login_enabled: 1,
+                recharge_enabled: 1,
+                trial_points: 0,
+                trial_duration_minutes: 0,
+                trial_claim_mode: 1
           }
         },
         width: "650px",
         draggable: true,
         fullscreenIcon: true,
         closeOnClickModal: false,
-        contentRenderer: () => BindConfig,
+        contentRenderer: () => RegisterConfig,
         beforeSure: async (done, { options }) => {
           const curData = options.props.formInline as any;
-          const { code } = await updateAppBindConfig({ uuid, ...curData });
+          const { code } = await updateAppRegisterConfig({ ...curData });
           if (code === 0) {
             ElMessage.success("保存成功");
             done();
@@ -350,44 +352,42 @@ async function openBindConfigDialog(uuid: string, operationMode = 0) {
   } catch (e) {}
 }
 
-async function openRegisterConfigDialog(uuid: string, operationMode = 0) {
-  try {
-    const res = await getAppRegisterConfig({ uuid });
-    if (res.code === 0) {
+    const levelPointsRef = ref();
+
+  // 高级模式：等级点数配置
+  async function openLevelPointsDialog(uuid: string, appName: string) {
+    try {
+      const res = await getAppLevelPoints({ uuid });
+      if (res.code !== 0) return;
+      const data = res.data || {};
       addDialog({
-        title: "注册设置",
-        props: {
-          operation_mode: operationMode,
-          formInline: res.data || {
-            register_enabled: 0,
-            email_verify_enabled: 0,
-            card_register_enabled: 0,
-            register_limit_enabled: 0,
-            register_device_limit_enabled: 0,
-            register_limit_time: 0,
-            register_count: 1,
-            trial_enabled: 0,
-            trial_limit_time: 0,
-            trial_duration: 1
-          }
-        },
-        width: "650px",
+        title: `等级点数 - ${appName || ""}`,
+        width: "620px",
         draggable: true,
         fullscreenIcon: true,
         closeOnClickModal: false,
-        contentRenderer: () => RegisterConfig,
-        beforeSure: async (done, { options }) => {
-          const curData = options.props.formInline as any;
-          const { code } = await updateAppRegisterConfig({ uuid, ...curData });
-          if (code === 0) {
-            ElMessage.success("保存成功");
-            done();
-          }
+        props: {
+          appName,
+          billingMode: data.billing_mode ?? 0,
+          defaultPoints: data.default_points ?? 0,
+          items: data.levels || []
+        },
+            contentRenderer: () => h(LevelPoints, { ref: levelPointsRef } as any),
+        beforeSure: (done, { options }) => {
+              const comp = levelPointsRef.value as any;
+          const items = comp?.getPayload?.() ?? [];
+          saveAppLevelPoints({ uuid, items }).then((r: any) => {
+            if (r.code === 0) {
+              ElMessage.success("保存成功");
+              done();
+            } else {
+              ElMessage.error(r.msg || "保存失败");
+            }
+          });
         }
       });
-    }
-  } catch (e) {}
-}
+    } catch (e) {}
+  }
 </script>
 
 <template>
@@ -527,12 +527,9 @@ async function openRegisterConfigDialog(uuid: string, operationMode = 0) {
                       <el-dropdown-item divided command="multi_config"
                         >登录配置</el-dropdown-item
                       >
-                      <el-dropdown-item command="bind_config"
-                        >绑定设置</el-dropdown-item
-                      >
-                      <el-dropdown-item command="register_config"
-                        >注册设置</el-dropdown-item
-                      >
+                          <el-dropdown-item divided command="level_points"
+                            >等级点数</el-dropdown-item
+                          >
                     </el-dropdown-menu>
                   </template>
                 </el-dropdown>

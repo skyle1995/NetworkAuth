@@ -130,9 +130,7 @@ func CardListHandler(c *gin.Context) {
 
 	query := db.Model(&models.Card{})
 
-	if appUUID := strings.TrimSpace(c.Query("app_uuid")); appUUID != "" {
-		query = query.Where("app_uuid = ?", appUUID)
-	}
+
 	if batchNo := strings.TrimSpace(c.Query("batch_no")); batchNo != "" {
 		query = query.Where("batch_no = ?", batchNo)
 	}
@@ -169,15 +167,14 @@ func CardListHandler(c *gin.Context) {
 type cardResponse struct {
 	ID           uint   `json:"id"`
 	UUID         string `json:"uuid"`
-	CardNo       string `json:"card_no"`
-	AppUUID      string `json:"app_uuid"`
-	BatchNo      string `json:"batch_no"`
+	CardNo        string `json:"card_no"`
+	BatchNo       string `json:"batch_no"`
 	PackageUUID  string `json:"package_uuid"`
 	PackageName  string `json:"package_name"`
 	Price        int    `json:"price"`
 	Duration     int    `json:"duration"`
 	DurationText string `json:"duration_text"`
-	Points       int    `json:"points"`
+	Points       float64    `json:"points"`
 	Status       int    `json:"status"`
 	StatusText   string `json:"status_text"`
 	UsedByMember string `json:"used_by_member"`
@@ -198,8 +195,7 @@ func toCardResponses(cards []models.Card) []cardResponse {
 		list = append(list, cardResponse{
 			ID:           card.ID,
 			UUID:         card.UUID,
-			CardNo:       card.CardNo,
-			AppUUID:      card.AppUUID,
+			CardNo:        card.CardNo,
 			BatchNo:      card.BatchNo,
 			PackageUUID:  card.PackageUUID,
 			Price:        card.Price,
@@ -218,11 +214,10 @@ func toCardResponses(cards []models.Card) []cardResponse {
 }
 
 // CardExportHandler 卡密导出API处理器
-// 勾选了 ids 则导出指定卡密；否则按筛选条件（应用/状态/批次/卡号）导出全部（不分页）。
+// 勾选了 ids 则导出指定卡密；否则按筛选条件（状态/批次/卡号）导出全部（不分页）。
 func CardExportHandler(c *gin.Context) {
 	var req struct {
 		IDs     []uint `json:"ids"`
-		AppUUID string `json:"app_uuid"`
 		BatchNo string `json:"batch_no"`
 		Status  string `json:"status"`
 		Search  string `json:"search"`
@@ -241,9 +236,7 @@ func CardExportHandler(c *gin.Context) {
 		// 导出选中：仅按 ids 过滤，忽略其它筛选
 		query = query.Where("id IN ?", req.IDs)
 	} else {
-		if appUUID := strings.TrimSpace(req.AppUUID); appUUID != "" {
-			query = query.Where("app_uuid = ?", appUUID)
-		}
+
 		if batchNo := strings.TrimSpace(req.BatchNo); batchNo != "" {
 			query = query.Where("batch_no = ?", batchNo)
 		}
@@ -277,7 +270,6 @@ func CardExportHandler(c *gin.Context) {
 // CardCreateHandler 批量制卡API处理器
 func CardCreateHandler(c *gin.Context) {
 	var req struct {
-		AppUUID     string `json:"app_uuid"`
 		Prefix      string `json:"prefix"`
 		Length      int    `json:"length"`
 		Count       int    `json:"count"`
@@ -289,9 +281,9 @@ func CardCreateHandler(c *gin.Context) {
 		return
 	}
 
+	// 卡密是**全站资源**：任何卡可在任何应用核销，不归属某个应用。
 	if !cardBaseController.ValidateRequired(c, map[string]interface{}{
-		"应用UUID": req.AppUUID,
-		"套餐":     req.PackageUUID,
+		"套餐": req.PackageUUID,
 	}) {
 		return
 	}
@@ -306,7 +298,6 @@ func CardCreateHandler(c *gin.Context) {
 
 	// 面值与售价由套餐决定，制卡时快照进卡
 	cards, batchNo, err := services.BatchCreateCards(
-		strings.TrimSpace(req.AppUUID),
 		strings.TrimSpace(req.Prefix),
 		req.Length,
 		req.Count,
@@ -319,7 +310,7 @@ func CardCreateHandler(c *gin.Context) {
 		return
 	}
 
-	recordCardLog(c, "制卡", fmt.Sprintf("为应用 %s 生成 %d 张卡密（批次 %s）", req.AppUUID, len(cards), batchNo))
+	recordCardLog(c, "制卡", fmt.Sprintf("生成 %d 张卡密（批次 %s）", len(cards), batchNo))
 
 	cardBaseController.HandleSuccess(c, "制卡成功", gin.H{
 		"batch_no": batchNo,
@@ -399,20 +390,18 @@ func CardsBatchDeleteHandler(c *gin.Context) {
 // CardDeleteByBatchHandler 按批次号删除整批卡密API处理器
 func CardDeleteByBatchHandler(c *gin.Context) {
 	var req struct {
-		AppUUID string `json:"app_uuid"`
 		BatchNo string `json:"batch_no"`
 	}
 	if !cardBaseController.BindJSON(c, &req) {
 		return
 	}
 	if !cardBaseController.ValidateRequired(c, map[string]interface{}{
-		"应用UUID": req.AppUUID,
-		"批次号":    req.BatchNo,
+		"批次号": req.BatchNo,
 	}) {
 		return
 	}
 
-	affected, err := services.DeleteCardsByBatch(strings.TrimSpace(req.AppUUID), strings.TrimSpace(req.BatchNo))
+	affected, err := services.DeleteCardsByBatch(strings.TrimSpace(req.BatchNo))
 	if err != nil {
 		logrus.WithError(err).Error("Failed to delete cards by batch")
 		cardBaseController.HandleInternalError(c, "按批次删除失败", err)

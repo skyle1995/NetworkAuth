@@ -1,4 +1,4 @@
-package services
+﻿package services
 
 import (
 	"NetworkAuth/database"
@@ -53,12 +53,12 @@ func IsValidEmail(email string) bool {
 	return emailRegex.MatchString(email)
 }
 
-func emailCodeKey(appUUID, email string) string {
-	return fmt.Sprintf("email_code:%s:%s", appUUID, strings.ToLower(email))
+func emailCodeKey(email string) string {
+	return fmt.Sprintf("email_code:%s", strings.ToLower(email))
 }
 
-func emailCodeCooldownKey(appUUID, email string) string {
-	return fmt.Sprintf("email_code_cd:%s:%s", appUUID, strings.ToLower(email))
+func emailCodeCooldownKey(email string) string {
+	return fmt.Sprintf("email_code_cd:%s", strings.ToLower(email))
 }
 
 // genNumericCode 生成 n 位数字验证码
@@ -93,15 +93,16 @@ func SendRegisterCode(appUUID, email string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if app.RegisterEnabled != 1 {
-		return nil, errors.New("该应用未开启账号注册")
+	policy := GetAccountPolicy()
+	if !policy.RegisterEnabled {
+		return nil, errors.New("账号注册已关闭")
 	}
-	if app.EmailVerifyEnabled != 1 {
-		return nil, errors.New("该应用未开启邮箱验证")
+	if !policy.EmailVerifyEnabled {
+		return nil, errors.New("邮箱验证未开启")
 	}
 	// 邮箱已注册则不再发码（避免枚举可按需调整，这里直接提示）
 	var dup int64
-	if err := db.Model(&models.Member{}).Where("app_uuid = ? AND username = ?", app.UUID, email).Count(&dup).Error; err != nil {
+	if err := db.Model(&models.Member{}).Where("username = ?", email).Count(&dup).Error; err != nil {
 		return nil, err
 	}
 	if dup > 0 {
@@ -112,7 +113,7 @@ func SendRegisterCode(appUUID, email string) (any, error) {
 	rdb := utils.GetRedis()
 
 	// 频率限制：命中冷却则返回剩余秒数
-	cdKey := emailCodeCooldownKey(appUUID, email)
+	cdKey := emailCodeCooldownKey(email)
 	if remain := cooldownRemain(ctx, rdb, cdKey); remain > 0 {
 		return nil, fmt.Errorf("发送过于频繁，请%d秒后再试", remain)
 	}
@@ -122,7 +123,7 @@ func SendRegisterCode(appUUID, email string) (any, error) {
 		return nil, err
 	}
 	cooldown := emailCooldownSeconds()
-	if err := rdb.Set(ctx, emailCodeKey(appUUID, email), code, emailCodeTTL).Err(); err != nil {
+	if err := rdb.Set(ctx, emailCodeKey(email), code, emailCodeTTL).Err(); err != nil {
 		return nil, errors.New("验证码存储失败")
 	}
 	rdb.Set(ctx, cdKey, "1", time.Duration(cooldown)*time.Second)
@@ -137,19 +138,19 @@ func SendRegisterCode(appUUID, email string) (any, error) {
 
 	if err := SendMail(email, subject, body); err != nil {
 		// 发送失败则清掉已存的码，允许立即重试
-		rdb.Del(ctx, emailCodeKey(appUUID, email), cdKey)
+		rdb.Del(ctx, emailCodeKey(email), cdKey)
 		return nil, errors.New("邮件发送失败: " + err.Error())
 	}
 
 	return map[string]any{"message": "验证码已发送，请查收邮箱", "cooldown": cooldown}, nil
 }
 
-func emailResetCodeKey(appUUID, email string) string {
-	return fmt.Sprintf("email_reset_code:%s:%s", appUUID, strings.ToLower(email))
+func emailResetCodeKey(email string) string {
+	return fmt.Sprintf("email_reset_code:%s", strings.ToLower(email))
 }
 
-func emailResetCooldownKey(appUUID, email string) string {
-	return fmt.Sprintf("email_reset_cd:%s:%s", appUUID, strings.ToLower(email))
+func emailResetCooldownKey(email string) string {
+	return fmt.Sprintf("email_reset_cd:%s", strings.ToLower(email))
 }
 
 // SendResetCode 发送找回密码验证码到指定邮箱（邮箱必须为本应用已注册账号）。
@@ -173,7 +174,7 @@ func SendResetCode(appUUID, email string) (any, error) {
 	}
 	// 找回密码要求邮箱为已注册的注册型账号
 	var member models.Member
-	if err := db.Where("app_uuid = ? AND username = ?", app.UUID, email).First(&member).Error; err != nil {
+	if err := db.Where("username = ?", email).First(&member).Error; err != nil {
 		return nil, errors.New("该邮箱未注册")
 	}
 	if member.Type != models.MemberTypeRegister || member.PasswordSalt == "" {
@@ -182,7 +183,7 @@ func SendResetCode(appUUID, email string) (any, error) {
 
 	ctx := context.Background()
 	rdb := utils.GetRedis()
-	cdKey := emailResetCooldownKey(appUUID, email)
+	cdKey := emailResetCooldownKey(email)
 	if remain := cooldownRemain(ctx, rdb, cdKey); remain > 0 {
 		return nil, fmt.Errorf("发送过于频繁，请%d秒后再试", remain)
 	}
@@ -192,7 +193,7 @@ func SendResetCode(appUUID, email string) (any, error) {
 		return nil, err
 	}
 	cooldown := emailCooldownSeconds()
-	if err := rdb.Set(ctx, emailResetCodeKey(appUUID, email), code, emailCodeTTL).Err(); err != nil {
+	if err := rdb.Set(ctx, emailResetCodeKey(email), code, emailCodeTTL).Err(); err != nil {
 		return nil, errors.New("验证码存储失败")
 	}
 	rdb.Set(ctx, cdKey, "1", time.Duration(cooldown)*time.Second)
@@ -206,7 +207,7 @@ func SendResetCode(appUUID, email string) (any, error) {
 		app.Name, code)
 
 	if err := SendMail(email, subject, body); err != nil {
-		rdb.Del(ctx, emailResetCodeKey(appUUID, email), cdKey)
+		rdb.Del(ctx, emailResetCodeKey(email), cdKey)
 		return nil, errors.New("邮件发送失败: " + err.Error())
 	}
 
@@ -214,7 +215,7 @@ func SendResetCode(appUUID, email string) (any, error) {
 }
 
 // VerifyResetCode 校验找回密码验证码；成功后删除，防止复用。
-func VerifyResetCode(appUUID, email, code string) error {
+func VerifyResetCode(email, code string) error {
 	code = strings.TrimSpace(code)
 	if code == "" {
 		return errors.New("验证码不能为空")
@@ -224,7 +225,7 @@ func VerifyResetCode(appUUID, email, code string) error {
 	}
 	ctx := context.Background()
 	rdb := utils.GetRedis()
-	key := emailResetCodeKey(appUUID, email)
+	key := emailResetCodeKey(email)
 	stored, err := rdb.Get(ctx, key).Result()
 	if err == redis.Nil {
 		return errors.New("验证码不存在或已过期")
@@ -240,7 +241,7 @@ func VerifyResetCode(appUUID, email, code string) error {
 }
 
 // VerifyRegisterCode 校验注册验证码；成功后删除，防止复用。
-func VerifyRegisterCode(appUUID, email, code string) error {
+func VerifyRegisterCode(email, code string) error {
 	code = strings.TrimSpace(code)
 	if code == "" {
 		return errors.New("验证码不能为空")
@@ -250,7 +251,7 @@ func VerifyRegisterCode(appUUID, email, code string) error {
 	}
 	ctx := context.Background()
 	rdb := utils.GetRedis()
-	key := emailCodeKey(appUUID, email)
+	key := emailCodeKey(email)
 	stored, err := rdb.Get(ctx, key).Result()
 	if err == redis.Nil {
 		return errors.New("验证码不存在或已过期")

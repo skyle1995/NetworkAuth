@@ -14,19 +14,6 @@ import (
 // 常量定义
 // ============================================================================
 
-// 运营模式
-const (
-	OperationModeTime   = 0 // 时长模式（按到期时间）
-	OperationModePoints = 1 // 点数模式（按点数余额）
-	OperationModeFree   = 2 // 免费模式（不计费：账号过期/无点也可正常登录使用；心跳照常校验但不扣费；转绑不扣费）
-)
-
-// 试用领取方案
-const (
-	TrialClaimUnlimited     = 0 // 无限制：满足次数限制即可领取
-	TrialClaimExhaustedOnly = 1 // 到期可领：仅账号资源耗尽（时长到期/点数为0）时可领取
-)
-
 // 更新方式（download_type）：合并原「强制更新 + 更新方式」为单一三态。
 const (
 	DownloadTypeDisabled = 0 // 不启用更新
@@ -34,17 +21,9 @@ const (
 	DownloadTypeFree     = 2 // 自由更新（提示有新版本，可自行选择是否更新）
 )
 
-// 点数扣费方式
-const (
-	PointsChargePerCount = 0 // 按次（登录扣点）
-	PointsChargePerTime  = 1 // 按时（预扣费）
-)
-
 // 多开范围：一个"多开"以什么为单位计数
 const (
-	MultiOpenScopeMachine = 0 // 单电脑：按机器码
-	MultiOpenScopeIP      = 1 // 单IP：按登录IP
-	MultiOpenScopeAll     = 2 // 全部电脑：按会话（每次登录）
+
 )
 
 // 登录方式：会话满员时的处理策略
@@ -54,12 +33,23 @@ const (
 	LoginTypeManual     = 2 // 手动顶号：返回在线会话列表，由客户端选择踢出
 )
 
+// SystemAppUUID 表示「非应用来源」的事件（后台操作、系统任务）。
+// 用于 MemberLog.AppUUID 等需要来源应用标识的场合。
+const SystemAppUUID = "0"
+
 // ============================================================================
 // 结构体定义
 // ============================================================================
 
-// App 应用表模型
-// 用于管理应用程序的基本信息
+// App 应用表模型（一号通：仅承载「应用载体 + 运行时策略」）
+//
+// 一号通改造后，本表**不再承载任何平台级策略**：
+//   - 计费策略（运营模式、点数单价/周期）→ 全局，见 [models.Setting] 与 services/global_settings.go
+//   - 账号策略（注册/卡密登录/充值/试用/邮箱验证/注册限制）→ 全局，同上
+//
+// 保留的都是「只影响本应用如何使用」的配置：内容分发、会话节奏、多开数量、验证强度、登录方式。
+// 归属判断原则见 docs/plan-unified-account.md 第二章。
+//
 // CreatedAt/UpdatedAt 由 GORM 自动维护
 type App struct {
 	// ID：主键，自增，同时通过 json 标签保证前端接收为 id
@@ -70,8 +60,8 @@ type App struct {
 	Status int `gorm:"default:0;not null;comment:应用状态，1=启用，0=禁用" json:"status"`
 	// Name：应用名称；json 名称与前端一致
 	Name string `gorm:"size:100;not null;comment:应用名称" json:"name"`
-	// Secret：应用密钥，用于API认证
-	Secret string `gorm:"size:255;not null;comment:应用密钥，用于API认证" json:"secret"`
+	// Secret：应用密钥，一号通下是**应用身份的唯一凭据**（用于请求签名）
+	Secret string `gorm:"size:255;not null;comment:应用密钥，应用身份唯一凭据，用于请求签名" json:"secret"`
 	// Version：应用版本号
 	Version string `gorm:"size:50;default:'1.0.0';comment:应用版本号" json:"version"`
 	// DownloadType：更新方式（0=不启用，1=强制更新，2=自由更新）。启用（非0）时须配 DownloadURL。
@@ -88,89 +78,80 @@ type App struct {
 
 	// LoginType：登陆方式（0=顶号登录（默认），1=非顶号登录，2=手动顶号）
 	LoginType int `gorm:"default:0;not null;comment:登陆方式，0=顶号登录，1=非顶号登录，2=手动顶号" json:"login_type"`
-	// MultiOpenScope：多开范围（0=单电脑，1=单IP，2=全部电脑（默认））
-	MultiOpenScope int `gorm:"default:2;not null;comment:多开范围，0=单电脑，1=单IP，2=全部电脑" json:"multi_open_scope"`
+	
 	// CleanInterval：清理间隔（单位：小时，默认1小时）
 	CleanInterval int `gorm:"default:1;not null;comment:清理间隔，单位小时" json:"clean_interval"`
 	// CheckInterval：心跳间隔（单位：分钟，默认10分钟）——登录后返回客户端，告知其心跳周期
 	CheckInterval int `gorm:"default:10;not null;comment:心跳间隔，单位分钟" json:"check_interval"`
 	// OfflineTimeout：自动离线时长（单位：分钟，默认30分钟）——超过该时长未心跳，后台扫描自动离线
 	OfflineTimeout int `gorm:"default:30;not null;comment:自动离线时长，单位分钟" json:"offline_timeout"`
-	// MultiOpenCount：多开数量（默认1）
-	MultiOpenCount int `gorm:"default:1;not null;comment:多开数量" json:"multi_open_count"`
+	
 
 	// 机器验证相关字段
 	// MachineVerify：机器验证（0=关闭，1=开启）
-	MachineVerify int `gorm:"default:0;not null;comment:机器验证，0=关闭，1=开启" json:"machine_verify"`
 	// MachineRebindEnabled：机器重绑开关（0=关闭，1=开启）
-	MachineRebindEnabled int `gorm:"default:0;not null;comment:机器重绑开关，0=关闭，1=开启" json:"machine_rebind_enabled"`
-	// MachineRebindLimit：机器重绑限制（0=每天，1=永久）
-	MachineRebindLimit int `gorm:"default:0;not null;comment:机器重绑限制，0=每天，1=永久" json:"machine_rebind_limit"`
+	
 	// MachineFreeCount：机器免费次数（默认0）
-	MachineFreeCount int `gorm:"default:0;not null;comment:机器免费次数" json:"machine_free_count"`
 	// MachineRebindCount：机器重绑次数（默认0）
-	MachineRebindCount int `gorm:"default:0;not null;comment:机器重绑次数" json:"machine_rebind_count"`
 	// MachineRebindDeduct：机器重绑扣除（默认0，单位：分钟）
-	MachineRebindDeduct int `gorm:"default:0;not null;comment:机器重绑扣除，单位分钟" json:"machine_rebind_deduct"`
 
 	// IP地址验证相关字段
 	// IPVerify：IP地址验证（0=关闭，1=开启，2=开启(市)，3=开启(省)）
-	IPVerify int `gorm:"default:0;not null;comment:IP地址验证，0=关闭，1=开启，2=开启(市)，3=开启(省)" json:"ip_verify"`
 	// IPRebindEnabled：IP地址重绑开关（0=关闭，1=开启）
-	IPRebindEnabled int `gorm:"default:0;not null;comment:IP地址重绑开关，0=关闭，1=开启" json:"ip_rebind_enabled"`
-	// IPRebindLimit：IP地址重绑限制（0=每天，1=永久）
-	IPRebindLimit int `gorm:"default:0;not null;comment:IP地址重绑限制，0=每天，1=永久" json:"ip_rebind_limit"`
+	
 	// IPFreeCount：IP地址免费次数（默认0）
-	IPFreeCount int `gorm:"default:0;not null;comment:IP地址免费次数" json:"ip_free_count"`
 	// IPRebindCount：IP地址重绑次数（默认0）
-	IPRebindCount int `gorm:"default:0;not null;comment:IP地址重绑次数" json:"ip_rebind_count"`
 	// IPRebindDeduct：IP地址重绑扣除（默认0，单位：分钟）
-	IPRebindDeduct int `gorm:"default:0;not null;comment:IP地址重绑扣除，单位分钟" json:"ip_rebind_deduct"`
 
-	// OperationMode：运营模式（0=时长模式，1=点数模式，2=免费模式）
-	OperationMode int `gorm:"default:0;not null;comment:运营模式，0=时长模式，1=点数模式，2=免费模式" json:"operation_mode"`
-	// PointsChargeMode：点数扣费方式（0=按次，1=按时/预扣费）
+	// ===== 计费策略（按应用）=====
+	//
+	// 一号通：钱包（到期时间/点数/等级）全站唯一，但「怎么收费」由各应用自定。
+
+	// FreeMode：计费豁免（1=本应用完全免费）。
+	// 开启后跳过全部门禁与扣费：不看等级、不看到期、不扣点。
+	FreeMode int `gorm:"default:0;not null;comment:计费豁免，1=本应用完全免费不计费" json:"free_mode"`
+
+	// BillingMode：计费模式（见 models.BillingMode*）
+	//   0=计时模式：账号有效 + 会员权限等级 ≥ RequiredLevel，不扣点
+	//   1=点数模式：消耗账号点数
+	//   2=高级模式：等级 ≥ RequiredLevel，并按该等级在本应用配置的点数扣点
+	BillingMode int `gorm:"default:0;not null;comment:计费模式，0=会员，1=点数，2=混合" json:"billing_mode"`
+
+	// RequiredLevel：要求的最低会员权限等级（1=不限，即默认档）。
+	// 仅计时模式与高级模式生效；按 MemberLevel.Level 比较。
+	RequiredLevel int `gorm:"default:1;not null;comment:要求的最低会员权限等级，1=不限" json:"required_level"`
+
+	// BillingScope：计费范围（0=按设备单独计费，1=账号合并计费）。仅点数模式与高级模式生效
+	//
+	//   0 单独计费：每个激活各自扣费。同一账号在 3 台设备上 = 3 份钱。
+	//   1 合并计费：按「账号 + 应用」只算一份。3 台设备同时在线也只扣一次/一份周期。
+	//
+	// 按次模式下，「合并」的含义是：账号在本应用从「没有活跃设备」变为「有活跃设备」时扣一次，
+	// 期间其他设备再进来不重复扣。
+	// 按时模式下，「合并」的含义是：周期账本提升到账号维度（见 AppAccountBilling），
+	// 所有设备共享同一个 period_end。
+	BillingScope int `gorm:"default:0;not null;comment:计费范围，0=按设备单独计费，1=账号合并计费" json:"billing_scope"`
+	// PointsChargeMode：点数扣费方式（0=按次，1=按时/预扣费）。点数模式与高级模式生效
 	PointsChargeMode int `gorm:"default:0;not null;comment:点数扣费方式，0=按次，1=按时" json:"points_charge_mode"`
-	// PointsPerLogin：按次模式每次登录扣除的点数
-	PointsPerLogin int `gorm:"default:1;not null;comment:按次模式每次登录扣点" json:"points_per_login"`
+	// PointsPerLogin：按次模式每次登录扣除的点数（点数模式用；高级模式按等级表取值）
+	PointsPerLogin float64 `gorm:"default:1;not null;comment:按次模式每次登录扣点（支持小数）" json:"points_per_login"`
 	// PointsPeriodMinutes：按时模式的计费周期（分钟）
 	PointsPeriodMinutes int `gorm:"default:60;not null;comment:按时模式计费周期，分钟" json:"points_period_minutes"`
-	// PointsPerPeriod：按时模式每周期扣除的点数
-	PointsPerPeriod int `gorm:"default:1;not null;comment:按时模式每周期扣点" json:"points_per_period"`
-	// PointsHeartbeatCharge：按时扣费触发方式（0=登录预扣[默认]，1=心跳触发/登录不预扣）。仅点数-按时模式生效
+	// PointsPerPeriod：按时模式每周期扣除的点数（点数模式用；高级模式按等级表取值）
+	PointsPerPeriod float64 `gorm:"default:1;not null;comment:按时模式每周期扣点（支持小数）" json:"points_per_period"`
+	// PointsHeartbeatCharge：按时扣费触发方式（0=登录预扣，1=心跳触发）。仅按时模式生效
+	//
+	// 行业标准对应：Keygen 的 heartbeatBasis
+	//   0 = FROM_CREATION   激活即开始计时（等价"登录预扣"）
+	//   1 = FROM_FIRST_PING 首次心跳才开始计时（等价"心跳触发"）
 	PointsHeartbeatCharge int `gorm:"default:0;not null;comment:按时扣费触发方式，0=登录预扣，1=心跳触发" json:"points_heartbeat_charge"`
 
-	// 登录方式开关字段
-	// CardLoginEnabled：卡密登录开关（0=关闭，1=开启）。开启后卡密可直接登录并自动创建绑定账号
-	CardLoginEnabled int `gorm:"default:1;not null;comment:卡密登录开关，0=关闭，1=开启" json:"card_login_enabled"`
-	// RechargeEnabled：卡密充值开关（0=关闭，1=开启）。开启后卡密可为账号充值时长
-	RechargeEnabled int `gorm:"default:1;not null;comment:卡密充值开关，0=关闭，1=开启" json:"recharge_enabled"`
-
-	// 账号注册相关字段
-	// RegisterEnabled：账号注册开关（0=关闭，1=开启）
-	RegisterEnabled int `gorm:"default:1;not null;comment:账号注册开关，0=关闭，1=开启" json:"register_enabled"`
-	// EmailVerifyEnabled：注册邮箱验证开关（0=关闭，1=开启）。开启后注册须校验邮箱验证码，依赖系统SMTP配置
-	EmailVerifyEnabled int `gorm:"default:0;not null;comment:注册邮箱验证开关，0=关闭，1=开启" json:"email_verify_enabled"`
-	// CardRegisterEnabled：卡密注册开关（0=关闭，1=开启）。开启后邮箱注册须额外提交有效卡密，注册即核销该卡并按面值发放时长/点数
-	CardRegisterEnabled int `gorm:"default:0;not null;comment:卡密注册开关，0=关闭，1=开启" json:"card_register_enabled"`
-	// RegisterLimitEnabled：IP注册限制开关（0=关闭，1=开启）
-	RegisterLimitEnabled int `gorm:"default:0;not null;comment:IP注册限制开关，0=关闭，1=开启" json:"register_limit_enabled"`
-	// RegisterDeviceLimitEnabled：设备注册限制开关（0=关闭，1=开启）；开启后注册须提交设备码
-	RegisterDeviceLimitEnabled int `gorm:"default:0;not null;comment:设备注册限制开关，0=关闭，1=开启" json:"register_device_limit_enabled"`
-	// RegisterLimitTime：限制时间（0=每天，1=永久），IP与设备限制共用
-	RegisterLimitTime int `gorm:"default:1;not null;comment:注册限制时间，0=每天，1=永久" json:"register_limit_time"`
-	// RegisterCount：注册次数
-	RegisterCount int `gorm:"default:1;not null;comment:注册次数" json:"register_count"`
-
-	// 领取试用相关字段
-	// TrialEnabled：领取试用开关（0=关闭，1=开启）
-	TrialEnabled int `gorm:"default:0;not null;comment:领取试用开关，0=关闭，1=开启" json:"trial_enabled"`
-	// TrialLimitTime：试用限制时间（0=每天，1=永久）
-	TrialLimitTime int `gorm:"default:1;not null;comment:试用限制时间，0=每天，1=永久" json:"trial_limit_time"`
-	// TrialDuration：试用时间（单位：分钟）
-	TrialDuration int `gorm:"default:0;not null;comment:试用时间，单位分钟" json:"trial_duration"`
-	// TrialClaimMode：试用领取方案（0=无限制，1=到期可领）
-	TrialClaimMode int `gorm:"default:1;not null;comment:试用领取方案，0=无限制，1=到期可领" json:"trial_claim_mode"`
+	// ========================================================================
+	// LeaseTTLMinutes：应用激活的租约时长（分钟，默认 30）。
+	// 激活时 expires_at = now + 本值；客户端按心跳续约，到期未续则名额自动回收。
+	// 与 OfflineTimeout 的差别：OfflineTimeout 是"多久没心跳算离线"（观测口径），
+	// LeaseTTL 是"凭证多久失效"（授权口径）。默认取同一数值。
+	LeaseTTLMinutes int `gorm:"default:30;not null;comment:激活租约时长，分钟" json:"lease_ttl_minutes"`
 
 	// CreatedAt/UpdatedAt：时间字段，返回为 created_at/updated_at，便于前端展示
 	CreatedAt time.Time `gorm:"comment:创建时间" json:"created_at"`

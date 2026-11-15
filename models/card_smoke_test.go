@@ -1,4 +1,4 @@
-package models
+﻿package models
 
 import (
 	"strings"
@@ -14,7 +14,7 @@ func TestCardMemberBindingMigrateAndCreate(t *testing.T) {
 		t.Fatalf("open db: %v", err)
 	}
 
-	if err := db.AutoMigrate(&App{}, &Card{}, &Member{}, &Binding{}); err != nil {
+	if err := db.AutoMigrate(&App{}, &Card{}, &API{}, &Member{}, &Binding{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
 
@@ -44,7 +44,7 @@ func TestCardMemberBindingMigrateAndCreate(t *testing.T) {
 	}
 
 	// 建卡 + BeforeCreate 生成 UUID
-	card := Card{CardNo: codes[0], AppUUID: "APP-1", Duration: 60, Status: CardStatusUnused}
+	card := Card{CardNo: codes[0], Duration: 60, Status: CardStatusUnused}
 	if err := db.Create(&card).Error; err != nil {
 		t.Fatalf("create card: %v", err)
 	}
@@ -52,25 +52,20 @@ func TestCardMemberBindingMigrateAndCreate(t *testing.T) {
 		t.Fatalf("card UUID not generated")
 	}
 
-	// (app_uuid, card_no) 联合唯一：同应用同卡号应报错
-	dup := Card{CardNo: codes[0], AppUUID: "APP-1", Duration: 60}
+	// card_no 全站唯一：同卡号重复插入应报错（一号通：卡密不再按应用隔离）
+	dup := Card{CardNo: codes[0], Duration: 60}
 	if err := db.Create(&dup).Error; err == nil {
-		t.Fatalf("expected unique-index violation for duplicate card_no in same app")
-	}
-	// 不同应用允许相同卡号
-	other := Card{CardNo: codes[0], AppUUID: "APP-2", Duration: 60}
-	if err := db.Create(&other).Error; err != nil {
-		t.Fatalf("different app same card_no should be allowed: %v", err)
+		t.Fatalf("expected unique-index violation for duplicate card_no")
 	}
 
-	// (app_uuid, username) 联合唯一
-	m := Member{AppUUID: "APP-1", Username: codes[0], Type: MemberTypeCard, CardUUID: card.UUID, ExpiredAt: PermanentTime}
+	// username 全站唯一
+	m := Member{Username: codes[0], Type: MemberTypeCard, CardUUID: card.UUID, ExpiredAt: PermanentTime}
 	if err := db.Create(&m).Error; err != nil {
 		t.Fatalf("create member: %v", err)
 	}
-	dupM := Member{AppUUID: "APP-1", Username: codes[0]}
+	dupM := Member{Username: codes[0]}
 	if err := db.Create(&dupM).Error; err == nil {
-		t.Fatalf("expected unique-index violation for duplicate username in same app")
+		t.Fatalf("expected unique-index violation for duplicate username")
 	}
 
 	// (member_uuid, type, value) 联合唯一
@@ -81,5 +76,15 @@ func TestCardMemberBindingMigrateAndCreate(t *testing.T) {
 	dupB := Binding{MemberUUID: m.UUID, Type: BindingTypeMachine, Value: "MACHINE-1"}
 	if err := db.Create(&dupB).Error; err == nil {
 		t.Fatalf("expected unique-index violation for duplicate binding")
+	}
+
+	// api_type 全站唯一（一号通：接口条目不再按应用复制）
+	api := API{APIType: 10, Status: 1}
+	if err := db.Create(&api).Error; err != nil {
+		t.Fatalf("create api: %v", err)
+	}
+	dupAPI := API{APIType: 10, Status: 1}
+	if err := db.Create(&dupAPI).Error; err == nil {
+		t.Fatalf("expected unique-index violation for duplicate api_type")
 	}
 }

@@ -37,8 +37,6 @@ func FunctionListHandler(c *gin.Context) {
 		search = strings.TrimSpace(c.Query("alias"))
 	}
 
-	// 获取应用筛选参数
-	appUUID := strings.TrimSpace(c.Query("app_uuid"))
 
 	// 构建查询
 	db, ok := functionBaseController.GetDB(c)
@@ -56,10 +54,6 @@ func FunctionListHandler(c *gin.Context) {
 			search, search, search, search)
 	}
 
-	// 如果指定了应用筛选，则按应用UUID筛选
-	if appUUID != "" {
-		query = query.Where("app_uuid = ?", appUUID)
-	}
 
 	// 泛型分页查询
 	functions, total, err := services.Paginate[models.Function](query, page, limit, "created_at DESC")
@@ -74,7 +68,6 @@ func FunctionListHandler(c *gin.Context) {
 		ID        uint   `json:"id"`
 		UUID      string `json:"uuid"`
 		Number    string `json:"number"`
-		AppUUID   string `json:"app_uuid"`
 		Alias     string `json:"alias"`
 		Code      string `json:"code"`
 		Remark    string `json:"remark"`
@@ -88,7 +81,6 @@ func FunctionListHandler(c *gin.Context) {
 			ID:        function.ID,
 			UUID:      function.UUID,
 			Number:    function.Number,
-			AppUUID:   function.AppUUID,
 			Alias:     function.Alias,
 			Code:      function.Code,
 			Remark:    function.Remark,
@@ -110,7 +102,6 @@ func FunctionListHandler(c *gin.Context) {
 func FunctionCreateHandler(c *gin.Context) {
 	var req struct {
 		Alias   string `json:"alias"`
-		AppUUID string `json:"app_uuid"`
 		Code    string `json:"code"`
 		Remark  string `json:"remark"`
 	}
@@ -138,32 +129,12 @@ func FunctionCreateHandler(c *gin.Context) {
 		return
 	}
 
-	// 处理应用UUID：如果为空或"0"，设置为"0"（全局函数）
-	appUUID := strings.TrimSpace(req.AppUUID)
-	if appUUID == "" {
-		appUUID = "0"
-	}
-
-	// 如果指定了应用UUID且不是"0"，验证应用是否存在
-	if appUUID != "0" {
-		var appCount int64
-		if err := db.Model(&models.App{}).Where("uuid = ?", appUUID).Count(&appCount).Error; err != nil {
-			logrus.WithError(err).Error("Failed to check app existence")
-			functionBaseController.HandleInternalError(c, "验证应用失败", err)
-			return
-		}
-		if appCount == 0 {
-			functionBaseController.HandleValidationError(c, "指定的应用不存在")
-			return
-		}
-	}
-
 	// 创建函数
+	// 创建函数（全站共用，不再归属某个应用）
 	function := models.Function{
-		Alias:   strings.TrimSpace(req.Alias),
-		AppUUID: appUUID,
-		Code:    req.Code,
-		Remark:  strings.TrimSpace(req.Remark),
+		Alias:  strings.TrimSpace(req.Alias),
+		Code:   req.Code,
+		Remark: strings.TrimSpace(req.Remark),
 	}
 
 	if err := db.Create(&function).Error; err != nil {
@@ -193,7 +164,6 @@ func FunctionCreateHandler(c *gin.Context) {
 func FunctionUpdateHandler(c *gin.Context) {
 	var req struct {
 		UUID    string `json:"uuid"`
-		AppUUID string `json:"app_uuid"`
 		Code    string `json:"code"`
 		Remark  string `json:"remark"`
 	}
@@ -214,26 +184,6 @@ func FunctionUpdateHandler(c *gin.Context) {
 		return
 	}
 
-	// 处理应用UUID：如果为空或"0"，设置为"0"（全局函数）
-	updateAppUUID := strings.TrimSpace(req.AppUUID)
-	if updateAppUUID == "" {
-		updateAppUUID = "0"
-	}
-
-	// 如果指定了应用UUID且不是"0"，验证应用是否存在
-	if updateAppUUID != "0" {
-		var appCount int64
-		if err := db.Model(&models.App{}).Where("uuid = ?", updateAppUUID).Count(&appCount).Error; err != nil {
-			logrus.WithError(err).Error("Failed to check app existence")
-			functionBaseController.HandleInternalError(c, "验证应用失败", err)
-			return
-		}
-		if appCount == 0 {
-			functionBaseController.HandleValidationError(c, "指定的应用不存在")
-			return
-		}
-	}
-
 	// 通过uuid字段查找函数
 	var function models.Function
 	if err := db.Where("uuid = ?", strings.TrimSpace(req.UUID)).First(&function).Error; err != nil {
@@ -242,7 +192,6 @@ func FunctionUpdateHandler(c *gin.Context) {
 	}
 
 	// 更新函数信息（不允许修改别名）
-	function.AppUUID = updateAppUUID
 	function.Code = req.Code
 	function.Remark = strings.TrimSpace(req.Remark)
 

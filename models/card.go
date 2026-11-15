@@ -29,11 +29,13 @@ const CardDurationPermanent = -1
 // 结构体定义
 // ============================================================================
 
-// Card 卡密表模型
-// 卡密是独立的“时长凭证”，制卡时不锁定用途：
-//   - 卡密登录：首次使用时长出一个绑定该卡的账号（见 [Member].CardUUID）
-//   - 用户充值：把面值时长加到目标账号的到期时间上
+// Card 卡密表模型（一号通：全站卡池）
 //
+// 卡密是全站通用的「时长/点数凭证」，制卡时不锁定应用，任一应用均可核销。
+//   - 卡密登录：首次使用时长出一个绑定该卡的账号（见 [Member].CardUUID）
+//   - 用户充值：把面值加到目标账号的到期时间/点数上
+//
+
 // 卡密不因被使用而删除，只是状态变为已使用并记录用途，便于后台追溯。
 // CreatedAt/UpdatedAt 由 GORM 自动维护
 type Card struct {
@@ -43,11 +45,9 @@ type Card struct {
 	// UUID：卡密唯一标识符，自动生成
 	UUID string `gorm:"uniqueIndex;size:36;not null;comment:卡密UUID，唯一标识符" json:"uuid"`
 
-	// CardNo：卡号，与 AppUUID 联合唯一（不同应用允许相同卡号）
-	CardNo string `gorm:"size:64;not null;uniqueIndex:idx_card_app_no;comment:卡号" json:"card_no"`
+	// CardNo：卡号，全站唯一
+	CardNo string `gorm:"size:64;not null;uniqueIndex:idx_card_no;comment:卡号，全站唯一" json:"card_no"`
 
-	// AppUUID：归属应用UUID
-	AppUUID string `gorm:"size:36;not null;index;uniqueIndex:idx_card_app_no;comment:归属应用UUID" json:"app_uuid"`
 
 	// BatchNo：制卡批次号，用于批量导出/删除/统计
 	BatchNo string `gorm:"size:32;index;comment:制卡批次号" json:"batch_no"`
@@ -62,7 +62,7 @@ type Card struct {
 	Duration int `gorm:"not null;default:0;comment:面值时长，单位分钟，-1为永久" json:"duration"`
 
 	// Points：面值点数（点数模式）
-	Points int `gorm:"not null;default:0;comment:面值点数，点数模式使用" json:"points"`
+	Points float64 `gorm:"not null;default:0;comment:面值点数（支持小数）" json:"points"`
 
 	// Status：卡密状态（0=未使用，1=已使用，2=已冻结）
 	Status int `gorm:"default:0;not null;comment:卡密状态，0=未使用，1=已使用，2=已冻结" json:"status"`
@@ -132,7 +132,7 @@ func GenerateCardNo(prefix string, randomLen int) string {
 }
 
 // GenerateCardNos 批量生成卡号并做内存级去重，供制卡接口使用。
-// 去重仅保证本批内不重复；落库时仍依赖 (app_uuid, card_no) 唯一索引兜底。
+// 去重仅保证本批内不重复；落库时仍依赖 card_no 唯一索引兜底。
 func GenerateCardNos(prefix string, randomLen, count int) ([]string, error) {
 	if count <= 0 {
 		return nil, fmt.Errorf("生成数量必须大于0")

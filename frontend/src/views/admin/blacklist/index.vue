@@ -10,7 +10,6 @@ import {
   addBlacklist,
   deleteBlacklist
 } from "@/api/admin/member";
-import { getAppsSimple } from "@/api/admin/app";
 import addForm from "./addForm.vue";
 
 defineOptions({
@@ -27,13 +26,11 @@ const formRef = ref();
 const tableRef = ref();
 const loading = ref(true);
 const dataList = ref<any[]>([]);
-const apps = ref<any[]>([]);
 const selectedRows = ref<any[]>([]);
 const selectedNum = computed(() => selectedRows.value.length);
 
 const form = reactive({
   search: "",
-  app_uuid: "",
   type: ""
 });
 
@@ -63,15 +60,7 @@ const columns: TableColumnList = [
     cellRenderer: ({ row }) =>
       [row.province, row.city].filter(Boolean).join(" ") || "—"
   },
-  {
-    label: "所属应用",
-    prop: "app_uuid",
-    minWidth: 120,
-    cellRenderer: ({ row }) => {
-      const app = apps.value.find(a => a.uuid === row.app_uuid);
-      return app ? app.name : "未知应用";
-    }
-  },
+
   {
     label: "来源账号",
     prop: "username",
@@ -83,14 +72,6 @@ const columns: TableColumnList = [
   { label: "操作", fixed: "right", width: 90, slot: "operation" }
 ];
 
-async function fetchApps() {
-  try {
-    const { code, data } = await getAppsSimple();
-    if (code === 0 && Array.isArray(data)) apps.value = data;
-  } catch (e) {
-    console.error(e);
-  }
-}
 
 async function onSearch() {
   loading.value = true;
@@ -99,7 +80,6 @@ async function onSearch() {
       page: pagination.currentPage,
       limit: pagination.pageSize,
       search: form.search,
-      app_uuid: form.app_uuid,
       type: form.type
     });
     if (code === 0) {
@@ -140,7 +120,6 @@ function openAddDialog() {
     closeOnClickModal: false,
     props: {
       formInline: {
-        app_uuid: form.app_uuid || "",
         type: 0,
         value: "",
         province: "",
@@ -148,7 +127,7 @@ function openAddDialog() {
         remark: ""
       }
     },
-    contentRenderer: () => h(addForm, { apps: apps.value } as any),
+    contentRenderer: () => h(addForm),
     footerButtons: [
       {
         label: "取消",
@@ -163,10 +142,6 @@ function openAddDialog() {
         bg: true,
         btnClick: async ({ dialog: { options } }) => {
           const f = (options.props as any).formInline;
-          if (!f.app_uuid) {
-            ElMessage.warning("请选择应用");
-            return;
-          }
           const { code, msg } = await addBlacklist(f);
           if (code === 0) {
             ElMessage.success("已加入黑名单");
@@ -223,7 +198,6 @@ async function onBatchRemove() {
 }
 
 onMounted(() => {
-  fetchApps();
   onSearch();
 });
 </script>
@@ -261,23 +235,7 @@ onMounted(() => {
         </el-select>
       </el-form-item>
 
-      <el-form-item label="所属应用" prop="app_uuid">
-        <el-select
-          v-model="form.app_uuid"
-          placeholder="请选择应用"
-          clearable
-          class="w-[160px]!"
-          @change="onSearch"
-        >
-          <el-option label="全部" value="" />
-          <el-option
-            v-for="app in apps"
-            :key="app.uuid"
-            :label="app.name"
-            :value="app.uuid"
-          />
-        </el-select>
-      </el-form-item>
+
 
       <el-form-item>
         <el-button

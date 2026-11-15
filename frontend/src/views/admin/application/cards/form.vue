@@ -1,50 +1,36 @@
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { formRules } from "./rule";
 import { getCardPackages } from "@/api/admin/cardPackage";
 
 export interface FormProps {
   formInline: {
-    app_uuid: string;
     prefix: string;
     length: number;
     count: number;
     package_uuid: string;
     remark: string;
-  };
-  apps: Array<{
-    id: number;
-    uuid: string;
-    name: string;
-    operation_mode?: number;
-  }>;
+}
 }
 
 const props = withDefaults(defineProps<FormProps>(), {
   formInline: () => ({
-    app_uuid: "",
     prefix: "",
     length: 16,
     count: 10,
     package_uuid: "",
     remark: ""
-  }),
-  apps: () => []
+  })
 });
 
 const ruleFormRef = ref();
 const newFormInline = ref(props.formInline);
 const packages = ref<any[]>([]);
 
-// 面值与售价由套餐决定，制卡时快照进卡
-async function loadPackages(appUUID: string) {
-  packages.value = [];
-  if (!appUUID) return;
+// 面值与售价由套餐决定，制卡时快照进卡。
+async function loadPackages() {
   try {
-    const { code, data } = await getCardPackages({
-      app_uuid: appUUID,
-      enabled: 1
-    });
+    const { code, data } = await getCardPackages({ enabled: 1 });
     if (code === 0 && Array.isArray(data)) {
       packages.value = data;
     }
@@ -53,14 +39,8 @@ async function loadPackages(appUUID: string) {
   }
 }
 
-watch(
-  () => newFormInline.value.app_uuid,
-  (uuid, old) => {
-    if (old !== undefined) newFormInline.value.package_uuid = "";
-    loadPackages(uuid);
-  },
-  { immediate: true }
-);
+// 进页面就加载全部启用套餐（不再随渠道变化）
+onMounted(loadPackages);
 
 function packageLabel(pkg: any) {
   const value =
@@ -72,9 +52,7 @@ function packageLabel(pkg: any) {
   return `${pkg.name}（${value} / ${(pkg.price / 100).toFixed(2)} 元）`;
 }
 
-const noPackage = computed(
-  () => !!newFormInline.value.app_uuid && packages.value.length === 0
-);
+const noPackage = computed(() => packages.value.length === 0);
 
 function getRef() {
   return ruleFormRef.value;
@@ -90,26 +68,11 @@ defineExpose({ getRef });
     :rules="formRules"
     label-width="100px"
   >
-    <el-form-item label="所属应用" prop="app_uuid">
-      <el-select
-        v-model="newFormInline.app_uuid"
-        placeholder="请选择所属应用"
-        class="w-full"
-        clearable
-      >
-        <el-option
-          v-for="app in apps"
-          :key="app.uuid"
-          :label="`${app.name} (ID: ${app.id})`"
-          :value="app.uuid"
-        />
-      </el-select>
-    </el-form-item>
 
     <el-form-item label="卡密套餐" prop="package_uuid">
       <el-select
         v-model="newFormInline.package_uuid"
-        :placeholder="noPackage ? '该应用暂无可用套餐' : '请选择卡密套餐'"
+        :placeholder="noPackage ? '暂无可用套餐，请先到「卡密套餐」创建' : '请选择卡密套餐'"
         :disabled="noPackage"
         class="w-full"
         clearable

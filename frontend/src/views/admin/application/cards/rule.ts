@@ -2,7 +2,6 @@ import { reactive } from "vue";
 import type { FormRules } from "element-plus";
 
 export const formRules = reactive(<FormRules>{
-  app_uuid: [{ required: true, message: "请选择所属应用", trigger: "change" }],
   count: [
     { required: true, message: "请输入生成数量", trigger: "blur" },
     {

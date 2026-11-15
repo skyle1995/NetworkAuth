@@ -1,6 +1,7 @@
 # 编译后的二进制文件
 NetworkAuth
 NetworkAuth.exe
+networkauth.exe*
 
 # 数据库文件
 *.db

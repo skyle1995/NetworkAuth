@@ -5,41 +5,38 @@ import type { FormRules } from "element-plus";
 export interface FormProps {
   formInline: {
     uuid: string;
-    app_uuid: string;
     name: string;
     level: number;
     color: string;
     threshold_yuan: number;
     rebate_rate: number;
-    extra_multi_open: number;
+    extra_devices: number;
+  extra_concurrent: number;
     extra_rebind_count: number;
     sort: number;
     status: number;
     remark: string;
   };
-  apps: Array<{ id: number; uuid: string; name: string }>;
 }
 
 const props = withDefaults(defineProps<FormProps>(), {
   formInline: () => ({
     uuid: "",
-    app_uuid: "",
     name: "",
     level: 1,
     color: "#909399",
     threshold_yuan: 0,
     rebate_rate: 0,
-    extra_multi_open: 0,
+    extra_devices: 0,
+  extra_concurrent: 0,
     extra_rebind_count: 0,
     sort: 0,
     status: 1,
     remark: ""
   }),
-  apps: () => []
 });
 
 const rules: FormRules = {
-  app_uuid: [{ required: true, message: "请选择所属应用", trigger: "change" }],
   name: [{ required: true, message: "请输入等级名称", trigger: "blur" }]
 };
 
@@ -60,22 +57,6 @@ defineExpose({ getRef, newFormInline });
     :rules="rules"
     label-width="100px"
   >
-    <el-form-item label="所属应用" prop="app_uuid">
-      <el-select
-        v-model="newFormInline.app_uuid"
-        placeholder="请选择所属应用"
-        class="w-full"
-        :disabled="!!newFormInline.uuid"
-      >
-        <el-option
-          v-for="app in apps"
-          :key="app.uuid"
-          :label="`${app.name} (ID: ${app.id})`"
-          :value="app.uuid"
-        />
-      </el-select>
-    </el-form-item>
-
     <el-form-item label="等级名称" prop="name">
       <el-input v-model="newFormInline.name" placeholder="如 白银 / 黄金" />
     </el-form-item>
@@ -106,15 +87,28 @@ defineExpose({ getRef, newFormInline });
       />
       <span class="ml-2">%</span>
     </el-form-item>
-
-    <el-form-item label="额外多开" prop="extra_multi_open">
-      <el-input-number v-model="newFormInline.extra_multi_open" :min="0" />
+    <el-form-item label="额外设备" prop="extra_devices">
+      <el-input-number v-model="newFormInline.extra_devices" :min="0" />
       <span class="ml-2">台</span>
+      <div class="w-full text-xs text-gray-400 mt-1">
+        在账号策略「可绑定设备」之上多给几台
+      </div>
+    </el-form-item>
+
+    <el-form-item label="额外并发" prop="extra_concurrent">
+      <el-input-number v-model="newFormInline.extra_concurrent" :min="0" />
+      <span class="ml-2">个</span>
+      <div class="w-full text-xs text-gray-400 mt-1">
+        在账号策略「同时在线」之上多给几个实例
+      </div>
     </el-form-item>
 
     <el-form-item label="赠送换绑" prop="extra_rebind_count">
       <el-input-number v-model="newFormInline.extra_rebind_count" :min="0" />
       <span class="ml-2">次</span>
+      <div class="w-full text-xs text-gray-400 mt-1">
+        在账号策略「免费转绑」之上多给几次
+      </div>
     </el-form-item>
 
     <el-form-item label="排序" prop="sort">

@@ -5,8 +5,7 @@ import type { FormRules } from "element-plus";
 export interface FormProps {
   formInline: {
     uuid: string;
-    app_uuid: string;
-    name: string;
+      name: string;
     type: number;
     duration: number;
     points: number;
@@ -15,13 +14,11 @@ export interface FormProps {
     status: number;
     remark: string;
   };
-  apps: Array<{ id: number; uuid: string; name: string }>;
 }
 
 const props = withDefaults(defineProps<FormProps>(), {
   formInline: () => ({
     uuid: "",
-    app_uuid: "",
     name: "",
     type: 0,
     duration: 43200,
@@ -30,12 +27,10 @@ const props = withDefaults(defineProps<FormProps>(), {
     sort: 0,
     status: 1,
     remark: ""
-  }),
-  apps: () => []
+  })
 });
 
 const rules: FormRules = {
-  app_uuid: [{ required: true, message: "请选择所属应用", trigger: "change" }],
   name: [{ required: true, message: "请输入套餐名称", trigger: "blur" }]
 };
 
@@ -63,21 +58,6 @@ defineExpose({ getRef, newFormInline });
     :rules="rules"
     label-width="100px"
   >
-    <el-form-item label="所属应用" prop="app_uuid">
-      <el-select
-        v-model="newFormInline.app_uuid"
-        placeholder="请选择所属应用"
-        class="w-full"
-        :disabled="!!newFormInline.uuid"
-      >
-        <el-option
-          v-for="app in apps"
-          :key="app.uuid"
-          :label="`${app.name} (ID: ${app.id})`"
-          :value="app.uuid"
-        />
-      </el-select>
-    </el-form-item>
 
     <el-form-item label="套餐名称" prop="name">
       <el-input v-model="newFormInline.name" placeholder="如 月卡 / 1000点" />
@@ -91,7 +71,7 @@ defineExpose({ getRef, newFormInline });
     </el-form-item>
 
     <el-form-item v-if="isPoints" label="面值点数" prop="points">
-      <el-input-number v-model="newFormInline.points" :min="1" />
+      <el-input-number v-model="newFormInline.points" :step="0.1" :precision="3" :min="0" />
       <span class="ml-2">点</span>
     </el-form-item>
 

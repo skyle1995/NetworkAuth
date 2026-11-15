@@ -3,6 +3,8 @@
 面向客户端（软件端）对接 NetworkAuth 服务端的公开 API。所有业务接口都走**同一个端点** `POST /api/open`，靠请求体里的 `api_type` 区分。
 
 > 后台「应用设置」每一项开关的作用与生效逻辑，见 [app-settings.md](./app-settings.md)。
+>
+> 🔑 **所有客户端都必须读** [应用激活与两级授权](#应用激活与两级授权所有接入方必读)：登录只拿授权码，用授权码换取某个应用的访问权，计费发生在换取的那一刻。
 
 ---
 
@@ -17,11 +19,11 @@ Content-Type: application/json
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `app_uuid` | string | 应用 UUID（明文，用于路由与定位接口配置） |
+| `app_uuid` | string | 应用 UUID（明文）。**仅作应用身份标识与计费策略上下文**——接口配置已全站统一，不再由它定位 |
 | `api_type` | int | 接口类型编号（明文，见第六节） |
 | `data` | string | 业务参数密文（按该接口「提交算法」加密；不加密时为参数 JSON 原文） |
 | `timestamp` | int64 | Unix 秒级时间戳（明文，防重放，与服务器时间偏差需 ≤ 300 秒） |
-| `sign` | string | 请求签名（明文，大写十六进制，见第三节） |
+| `sign` | string | 请求签名（明文，大写十六进制，见第三节）。**这是应用身份的唯一凭据** |
 
 **响应**：
 
@@ -29,7 +31,8 @@ Content-Type: application/json
 - 失败：`{ "code": 1, "msg": "错误信息（明文，可直接展示给用户）" }`
 - 强制更新拦截（仅登录接口 `10`/`20`）：`{ "code": 2, "msg": "...", "update": { download_type, need_update, latest_version, download_url } }`——客户端须据此弹更新引导，升级后再登录（`update` 为明文，便于未解密即可展示）。
 
-> 每个应用创建时会自动生成全部接口记录，但**默认禁用且不加密**。对接前需在后台「接口设置」里逐个**启用**并按需配置算法与密钥（可用「批量设置算法」一次性设置并生成密钥，用「导出密钥」导出对接所需的全部密钥与服务器地址）。
+> **接口条目全站唯一**：安装时自动写入 27 条 `api_type` 记录，**默认全部启用且不加密**，装完即可联调；需要加固时在后台「接口设置」里统一配置算法与密钥（27 条共用一套，可用「批量设置算法」一次性生成，用「导出密钥」按应用导出对接信息）。
+> **应用身份由 `sign` 区分**：服务端先按 `app_uuid` 取出该应用的 `secret` 重算签名，签名不符直接拒绝。因此「同一套接口配置」不会让 A 应用能冒充 B 应用。
 
 ---
 
@@ -83,11 +86,23 @@ sign      = HEX_UPPER( SHA256(raw) )
 
 ## 五、通用约定
 
-- **登录态**：需要登录的接口都要在 `data` 里带登录返回的 `token`。
-- **运营模式（app 级）**：`mode=0` 时长模式（看 `expired_at`），`mode=1` 点数模式（看 `points`），`mode=2` 免费模式。多数返回体同时给出 `mode`，客户端据此显示到期或余额。
-  - **免费模式（`mode=2`）**：不计费。账号即便**已到期 / 无点数也可正常登录使用**；心跳（`41`）照常做令牌与账号状态校验，但**不扣任何费用、不因到期拒绝**；转绑不扣费；`53 功能扣点`返回「当前应用非点数模式」。客户端应忽略 `expired_at` / `points`，视为始终可用。已充值的时长/点数仍保留，只是不再消耗。
+- **登录态**：需要鉴权的接口都要在 `data` 里带 `token`。令牌分两级（详见[应用激活与两级授权](#应用激活与两级授权所有接入方必读)）：`10`/`20` 登录拿**账号令牌**（证明你是谁），`70` 激活拿**激活令牌**（证明你被授权用这个应用）。账号令牌全站通用——在 A 应用登录拿到的账号令牌，可直接用于换取 B 应用的访问权。
+- **钱包是全站共享的**：账号只有一份 `expired_at`（到期时间）、一份 `points`（点数）、一份 `level`（会员等级）。在任一应用消费，其它应用立刻可见。这是「一号通」的定义。
+- **计费策略（app 级，三模式）**：`config.billing_mode` 决定门禁——
+
+  | `billing_mode` | 含义 | 客户端判断 |
+  |---|---|---|
+  | `0` | 计时模式 | 看 `expired_at`（`permanent=true` 为永久）+ `level ≥ config.required_level` |
+  | `1` | 点数模式 | 看 `points`；`points_charge_mode` 决定按次/按时 |
+  | `2` | 高级模式 | **同时**看 `level ≥ config.required_level` 和 `points` |
+
+  - **计费豁免 `config.free=1`**：该应用不计费。账号即便**已到期 / 无点数 / 等级不足也可正常登录使用**；心跳（`41`）照常做令牌与账号状态校验，但**不扣任何费用**；转绑不扣费；`53 功能扣点`返回「当前非点数计费模式」。客户端应忽略 `expired_at` / `points` / `level`，视为始终可用。
+    - ⚠️ **计时模式才校验到期时间**。点数/高级模式只看等级与点数，所以时长到期的账号仍能在点数应用里继续消费点数额度。
 - **心跳与离线**：登录成功返回 `heartbeat_interval`（分钟）。客户端应按该间隔周期性调用 `41 检测账号状态`（或 `40 获取到期`）以刷新在线；超过应用配置的「自动离线时长」未心跳，会话会被后台清理（掉线）。
-- **多开与顶号**：登录并发数受**有效多开** = 应用 `multi_open_count` + **会员等级额外多开** 控制；「一个开」的计数单位由 `multi_open_scope` 决定（0 单设备/1 单IP/2 每次登录）。同一个「开」重登先清掉自己的旧会话（不占新名额）；不同「开」未达上限则各自在线（非顶号）；**达到上限后**才按登录方式处理——顶号（`login_type=0`）踢掉最早的「开」，非顶号（`=1`）拒绝并返回「已达最大同时在线数」，手动顶号（`=2`）返回 `code=3` + 在线会话列表 `sessions`，客户端弹窗让用户选择踢出哪台（用 `31` 接口）再重试。即会员额外多开只抬高上限，不绕过登录方式规则。
+- **同时在线与顶号**：在线名额是**账号级**资源，按**设备**计数——同一台电脑开多个插件只占 1 个名额（详见[应用激活与两级授权](#应用激活与两级授权所有接入方必读)）。上限 = 账号策略的「同时在线」+ 会员等级额外并发；超限时按 `login_type`（0 顶掉最早设备 / 1 拒绝 / 2 让用户手选）处理。
+  - **按应用独立计数**：同一账号在 A 应用开 1 台、在 B 应用开 1 台都算正常，互不挤占名额；满员提示与手动顶号的 `sessions` 列表**只含本应用**的会话。
+  - 同一个「开」重登先清掉自己的旧会话（不占新名额）；不同「开」未达上限则各自在线；**达到上限后**才按登录方式处理——顶号（`login_type=0`）踢掉最早的「开」，非顶号（`=1`）拒绝并返回「已达最大同时在线数」，手动顶号（`=2`）返回 `code=3` + 在线会话列表 `sessions`，客户端弹窗让用户选择踢出哪台（用 `31` 接口）再重试。
+- **设备绑定是全账号级的**：账号在所有应用共用同一批绑定记录，上限按「当前登录应用」的有效多开数校验。转绑计次同样全站累计。
 - **设备名**：登录 `device_name` 由客户端采集提交（`macOS 15.1`/`Windows 11`/`Android 14`/`iOS 18.1`），写入会话与设备绑定，供后台在线列表、换绑设备列表（`51`）展示。
 - **时间字段**：`expired_at` 为 RFC3339 时间；永久有效对应 `permanent=true`（时间为 2099 年）。
 
@@ -95,40 +110,76 @@ sign      = HEX_UPPER( SHA256(raw) )
 
 ## 六、接口清单
 
-> 下表「登录」列表示是否需要 `token`。请求参数指 `data` 解密后的 JSON 字段；返回字段指结果密文解密后的 JSON。
+> 请求参数指 `data` 解密后的 JSON 字段；返回字段指结果密文解密后的 JSON。
+> 「鉴权」列说明该接口需要哪种令牌：**免** = 不需要；**账号** = 登录拿的账号令牌；**激活** = `70` 换的激活令牌；**凭据** = 用户名密码/卡号（用于设备对不上时自救）。
+
+| 类型 | 名称 | 鉴权 | 章节 |
+|---|---|---|---|
+| `1` | 获取程序公告 | 免 | [跳转](#1-获取程序公告客户端启动初始化入口) |
+| `2` | 获取更新地址 | 免 | [跳转](#2-获取更新地址) |
+| `3` | 检测最新版本 | 免 | [跳转](#3-检测最新版本) |
+| `4` | 获取卡密信息 | 免 | [跳转](#4-获取卡密信息) |
+| `10` | 卡密登录 | 卡号 | [跳转](#10-卡密登录) |
+| `20` | 账号登录 | 账号密码 | [跳转](#20-账号登录) |
+| `21` | 账号注册 | 免 | [跳转](#21-账号注册邮箱即账号) |
+| `22` | 账号充值 | 凭据 | [跳转](#22-账号充值用卡为账号充值) |
+| `23` | 发送注册验证码 | 免 | [跳转](#23-发送注册验证码) |
+| `24` | 领取试用 | 凭据 | [跳转](#24-领取试用) |
+| `25` | 发送找回密码验证码 | 免 | [跳转](#25-发送找回密码验证码) |
+| `26` | 找回密码 | 免 | [跳转](#26-找回密码忘记密码无需登录) |
+| `30` | 退出登录 | 账号 | [跳转](#30-退出登录) |
+| `31` | 踢下线（手动顶号） | 凭据 | [跳转](#31-踢下线手动顶号) |
+| `40` | 获取到期时间 | 账号 | [跳转](#40-获取到期时间) |
+| `41` | 心跳 / 检测状态 | 激活 | [跳转](#41-检测账号状态心跳) |
+| `42` | 获取程序数据 | 激活 | [跳转](#42-获取程序数据) |
+| `43` | 获取变量数据 | 激活 | [跳转](#43-获取变量数据) |
+| `44` | 执行远程函数 | 激活 | [跳转](#44-执行远程函数服务端沙箱) |
+| `45` | 获取账号数据 | 激活 | [跳转](#45-获取账号数据) |
+| `50` | 修改账号密码 | 账号 | [跳转](#50-修改账号密码) |
+| `51` | 转绑 | 凭据 | [跳转](#51-转绑机器码ip) |
+| `53` | 功能扣点 | 激活 | [跳转](#53-功能扣点) |
+| `54` | 设置账号数据 | 激活 | [跳转](#54-设置账号数据) |
+| `60` | 封停用户 | 仅签名 | [跳转](#60-封停用户) |
+| `61` | 添加黑名单 | 仅签名 | [跳转](#61-添加黑名单) |
+| `62` | 扣除时间 | 仅签名 | [跳转](#62-扣除时间) |
+| **`70`** | **应用激活** | **账号** | [跳转](#70-应用激活) |
+| **`71`** | **应用释放** | **激活** | [跳转](#71-应用释放) |
+| **`72`** | **权益清单** | **账号** | [跳转](#72-权益清单) |
 
 ### 基础信息（免登录）
 
 #### `1` 获取程序公告（客户端启动初始化入口）
 - 请求：无
-- 返回：公告 + 应用能力开关 + 运营模式 + 更新策略,客户端**开机调一次即可拿全初始化信息**,据此渲染登录/注册界面（是否显示验证码框、是否有卡密登录、按模式显示到期或点数等）。
+- 返回：公告 + 应用能力开关 + 计费模式 + 更新策略,客户端**开机调一次即可拿全初始化信息**,据此渲染登录/注册界面（是否显示验证码框、是否有卡密登录、按模式显示到期或点数等）。
 ```json
 {
   "title": "应用名",
   "version": "1.0.0",
   "content": "公告内容",
   "config": {
-    "operation_mode": 1,          // 0时长/1点数/2免费
+    "free": 0,                    // 计费豁免：1=本应用免费（忽略等级/到期/点数）
+    "billing_mode": 1,            // 0会员/1点数/2混合
+    "required_level": 1,          // 要求的最低会员权限等级（1=不限；仅会员/高级模式生效）
     "points_charge_mode": 1,      // 0按次/1按时
     "points_heartbeat_charge": 0, // 按时:0登录预扣/1心跳触发
-    "card_login_enabled": 1,      // 是否开放卡密登录
-    "register_enabled": 1,        // 是否开放账号注册
+    "card_login_enabled": 1,      // 是否开放卡密登录（全局策略）
+    "register_enabled": 1,        // 是否开放账号注册（全局策略）
     "email_verify_enabled": 1,    // 注册是否需要邮箱验证码（=1 则需先调 23 取码）
-    "card_register_enabled": 0,   // 注册是否必须提交卡密（=1 则注册须带 card，注册即核销并发放卡面值）
+    "card_register_enabled": 0,   // 注册是否必须提交卡密（=1 则注册须带 card，注册即核销）
     "register_device_required": 1,// 注册是否必须提交设备码（=1 则注册须带 machine_code）
-    "recharge_enabled": 1,        // 是否开放卡密充值
-    "trial_enabled": 1,           // 是否开放领取试用
-    "machine_verify": 1,          // 机器码验证 0关/1开
-    "ip_verify": 0,               // IP验证 0关/1开/2市/3省
-    "multi_open_scope": 2,        // 多开范围 0单机/1单IP/2全部
-    "multi_open_count": 1         // 多开数量
+    "recharge_enabled": 1,        // 是否开放卡密充值（全局策略）
+    "trial_enabled": 1,           // 是否开放领取试用（全局策略）
+    "machine_verify": 0,          // 设备校验 0关/1开（账号策略）
+    "ip_verify": 0,               // IP校验 0关/1精确/2市/3省（账号策略）
+    "login_type": 0               // 账号在线名额满时的策略 0顶号/1拒绝/2手动选择
   },
-  "rebind": {                     // 换绑能力（machine=机器码，ip=IP）
-    "machine": { "enabled": 1, "limit": 0, "count": 3, "deduct": 60 },
-    "ip":      { "enabled": 0, "limit": 0, "count": 0, "deduct": 0 }
-    // enabled 0关/1开；limit 0每天/1永久；count 次数；deduct 每次换绑扣除分钟
+  "rebind": {                     // 换绑能力：设备与 IP 各一套独立额度（账号策略）
+    "machine": { "enabled": 1, "limit": 1, "free_count": 1, "max_devices": 3, "count": 0, "deduct_minutes": 0, "deduct_points": 0 },
+    "ip":      { "enabled": 1, "limit": 1, "free_count": 2, "count": 0, "deduct_minutes": 0, "deduct_points": 0 }
+    // enabled 0关/1开；limit 0每天/1永久；free_count 每窗口免费次数；
+    // count 每窗口次数上限（0=不限）；deduct 超免费后每次扣除量
   },
-  "interfaces": {                 // 各接口启用状态 api_type -> 1启用/0禁用
+  "interfaces": {                 // 各接口启用状态 api_type -> 1启用/0禁用（全站统一）
     "1": 1, "10": 1, "20": 1, "21": 1, "23": 1, "30": 1, "40": 1, "41": 1
   },
   "update": { "download_type": 0, "download_url": "" }
@@ -136,10 +187,12 @@ sign      = HEX_UPPER( SHA256(raw) )
 }
 ```
 > 客户端**开机调一次 type 1** 即可拿到：能力开关(`config`)、换绑能力(`rebind`)、以及**每个接口的启用状态**(`interfaces`)，据此渲染界面、决定哪些功能可用，无需再逐个探测。
+> **`config` 混了两类开关**：`billing_mode` / `required_level` / `free` / `points_*` / `login_type` 是**本应用**的；`machine_verify` / `ip_verify` 与下列账号策略共 14 项是**全站统一**的（所有应用返回相同值）。`card_login_enabled` / `register_enabled` / `email_verify_enabled` / `card_register_enabled` / `register_device_required` / `recharge_enabled` / `trial_enabled` 是**全站账号策略**（所有应用返回相同值）。
 > **注册要不要验证码**：看 `config.email_verify_enabled`——为 `1` 时注册前需先调 `23` 发验证码、注册时带上 `code`。
 > **注册要不要设备码**：看 `config.register_device_required`——为 `1` 时注册须带 `machine_code`，否则被拒。
-> **注册要不要卡密**：看 `config.card_register_enabled`——为 `1` 时注册须带有效 `card`，注册成功即核销该卡并按面值发放时长/点数。
+> **注册要不要卡密**：看 `config.card_register_enabled`——为 `1` 时注册须带有效 `card`，注册成功即核销该卡并按面值发放（点数与时长可同时发放）。
 > **换绑是否开放**：看 `rebind.machine.enabled` / `rebind.ip.enabled`。
+> **显示到期还是点数**：`free=1` 两者都不显示；否则 `billing_mode=0` 显示到期、`=1` 显示点数、`=2` 两者都显示（等级 + 点数）。
 
 #### `2` 获取更新地址
 - 请求：无
@@ -154,7 +207,8 @@ sign      = HEX_UPPER( SHA256(raw) )
 #### `4` 获取卡密信息
 - 请求：`{ card: "卡号" }`
 - 返回：`{ card_no, status(0未用/1已用/2冻结), status_text, mode, duration, points, used_at }`
-  （时长模式看 `duration` 分钟，点数模式看 `points`）
+  - `duration` 与 `points` **可能同时非 0**（一张卡可同时含时长与点数），客户端按非 0 项各自展示。
+  - `mode` 为本应用的 `billing_mode`，仅供展示参考。
 
 ### 卡密登录
 
@@ -163,7 +217,8 @@ sign      = HEX_UPPER( SHA256(raw) )
 - 请求：`{ card: "卡号", machine_code: "机器码", version: "客户端版本", device_name: "设备名" }`
   - `version`：**必传**，客户端当前版本。缺失直接拒绝登录（「请提供客户端版本号」）。用于更新判断，并记入在线会话供后台在线列表查看。
   - `device_name`：设备名称,客户端采集拼好提交（`macOS 15.1`/`Windows 11`/`Android 14`/`iOS 18.1`）。写入会话与设备绑定,供在线列表、换绑设备列表展示。
-- 成功返回（`LoginResult`）：`{ token, username, type, mode, permanent, expired_at, points, heartbeat_interval, update? }`
+- 成功返回（`LoginResult`）：`{ token, username, type, permanent, expired_at, points, total_recharge, level, level_name, level_color, rebate_rate, heartbeat_interval, max_devices, bound_devices, bound_ips, machine_rebind_*, ip_rebind_*, update? }`
+  - 返回体里**不含** `mode`/`free`：计费模式与计费豁免是**应用级**属性，账号跨应用，已从账号结果中移除。要判断「本应用怎么计费」请用 `1` 配置的 `billing_mode`/`free`，要判断「某个插件的计费」请用 `72` 权益清单里每一项的 `mode`/`billing`。`level*` 为全站会员等级，高级模式的门槛判定依据。
 - **强制更新（`download_type=1`）且版本过旧 → 直接拒绝登录**：不发 token、不核销卡、不建号、不开会话；返回 **`code=2`** 的失败响应：
   ```json
   { "code": 2, "msg": "客户端版本过低，请更新至 X 后再登录",
@@ -177,12 +232,12 @@ sign      = HEX_UPPER( SHA256(raw) )
 ### 账号体系
 
 #### `21` 账号注册（邮箱即账号）
-- 触发条件：应用「账号注册」开启；开启邮箱验证时需先调 `23` 拿验证码。
+- 触发条件：**全站账号策略**的「账号注册」开启；开启邮箱验证时需先调 `23` 拿验证码。
 - 请求：`{ email, password, code, card, machine_code }`（未开邮箱验证时 `code` 可空；未开卡密注册时 `card` 可空）
 - 返回（`StatusResult`）：`{ username, status, mode, permanent, expired_at, points }`
 - 说明：注册成功**不下发 token**（无试用/卡密时账号初始即过期），需再登录/充值/领试用。
-- **卡密注册**：开启**卡密注册**（`config.card_register_enabled=1`）时，`card` **必传**且须为本应用**未使用**的有效卡，否则返回「请提供注册卡密」「卡号不存在」「该卡已被使用」等。注册成功即核销该卡，并按运营模式把卡面值发放给新账号（时长模式发到期时长、点数模式发点数）。
-- **注册限制**：可按 IP 和/或设备限流（后台「注册设置」分别开关，共用限制时间/次数）。开启**设备注册限制**时，`machine_code` **必传**，否则返回「注册需提供设备码」；换 IP 不能绕过设备限制。
+- **卡密注册**：开启**卡密注册**（`config.card_register_enabled=1`）时，`card` **必传**且须为**全站未使用**的有效卡，否则返回「请提供注册卡密」「卡号不存在」「该卡已被使用」等。注册成功即核销该卡，并按卡面值发放：`points>0` 加点数、`duration≠0` 加时长（两者都有则都发）。
+- **注册限制**：可按 IP 和/或设备限流（全站账号策略，共用限制窗口/次数）。⚠️ **计数是全站的**：同一 IP/设备全站最多注册 `account_register_count` 个（默认 3），换应用不能重置。
 
 #### `23` 发送注册验证码
 - 触发条件：应用「账号注册」且「邮箱验证」均开启，且已配置 SMTP 与 Redis。
@@ -190,10 +245,10 @@ sign      = HEX_UPPER( SHA256(raw) )
 - 返回：`{ ... }`（发送结果；失败以明文 `msg` 返回，如「发送过于频繁」）
 
 #### `24` 领取试用
-- 触发条件：应用「领取试用」开启。**两种模式都支持**：时长模式发放试用时长（分钟），点数模式发放试用点数；受「每天/永久」领取次数限制。
-- **领取方案**（应用「试用领取设置」的 `trial_claim_mode`）：
+- 触发条件：**全站账号策略**的「领取试用」开启，且试用点数/时长至少配置一项。额度可同时含两种资源，按配置各自发放。
+- **领取方案**（全站策略 `account_trial_claim_mode`）：
   - `0` 无限制：满足次数限制即可领取。
-  - `1` 到期可领（默认）：仅账号资源已耗尽才可领——时长模式须**已到期**（永久账号不可领）、点数模式须**点数为 0**、免费模式恒可用故不可领；否则返回「账号仍可用，无需领取试用」。防止有效期内反复叠加。
+  - `1` 资源耗尽可领（默认）：仅当**到期已过且点数为 0** 才可领（两个钱包都空才算「已耗尽」）；否则返回「账号仍可用，无需领取试用」。防止有效期内反复叠加。
 - 请求：`{ username, password }`
 - 返回（`StatusResult`）：`{ username, status, mode, permanent, expired_at, points }`
 
@@ -207,7 +262,7 @@ sign      = HEX_UPPER( SHA256(raw) )
 - 说明：先调 `25` 取码,再带 `code` + 新密码重置。**不需要 token/旧密码**,专供忘记密码的用户;重置成功后该账号全部会话被清空。
 
 #### `22` 账号充值（用卡为账号充值）
-- 触发条件：应用「卡密充值」开启。按运营模式给账号加时长或加点数。
+- 触发条件：**全站账号策略**的「卡密充值」开启。按卡面值给账号加时长和/或加点数（`points>0` 加点、`duration≠0` 加时长，可同时）。
 - 请求：`{ username, card }`
 - 返回（`StatusResult`）
 
@@ -227,17 +282,272 @@ sign      = HEX_UPPER( SHA256(raw) )
 - 请求：`{ username, password?, session_id }`（`session_id` 为 `code=3` 返回列表中的 `id`）
 - 返回：`{ session_id, message: "已下线" }`
 
-### 状态查询与数据（需登录）
+### 应用激活与两级授权（所有接入方必读）
+
+> **类比 OAuth 2.0**：`20`/`10` 登录相当于拿**授权码**；`70` 激活相当于用授权码去换**某个资源的 access token**。
+> 授权码只证明「你是谁」，access token 才证明「你被授权使用这个应用」。
+
+#### 为什么要分两级
+
+不管客户端是「一个独立程序」还是「一个管理器装多个插件」，用户的行为都是两步：
+
+1. 先登录 —— 证明他是哪个账号
+2. 再决定用哪个应用 —— 这时才知道该按**哪个应用的规则**收费
+
+如果把计费绑在登录上，就会出现「一登录就得按某个应用收钱，而用户还没决定要开什么」的问题。
+
+所以：
+
+- **登录（`10`/`20`）**：只发账号令牌，不扣费、不占并发、不绑设备
+- **激活（`70`）**：用账号令牌换该应用的访问权，**这一步才计费、才绑设备、才占名额**
+- **心跳（`41`）**：续期，按时计费模式在此扣下一个周期
+- **释放（`71`）**：归还名额
+
+#### 令牌两级
+
+| 令牌 | 从哪来 | 证明什么 | 有效期 | 能调什么 |
+|---|---|---|---|---|
+| **账号令牌** `account_token` | `10`/`20` 登录 | 你是哪个账号 | 30 天，可刷新可吊销 | 账号级：`22` `24` `30` `40` `50` `72` |
+| **激活令牌** `activation_token` | `70` 应用激活 | 你被授权使用**这个应用** | 授权期限（默认 30 分钟，心跳自动续） | 应用级：`41` `42` `43` `44` `45` `53` `54` `71` |
+
+两个令牌**不能互换用途**：拿激活令牌调账号级接口会被放行（等价于账号令牌），但拿账号令牌调应用级接口会返回 `ACTIVATION_REQUIRED`——必须先调 `70` 换激活令牌。
+
+#### `70` 应用激活
+
+- 鉴权：**账号令牌**（放在 `data.token`）
+- 信封 `app_uuid` = **要进入的那个应用**的 UUID
+- 请求：
+
+```json
+{ "token": "账号令牌", "fingerprint": "设备码", "version": "2.1.0", "device_name": "Windows 11" }
+```
+
+  - `fingerprint`：设备码，推荐直接用平台设备标识。应用开了「机器码验证」时**必填**。
+  - `version`：客户端版本，缺省取应用当前版本。
+  - `device_name`：仅用于后台展示。
+
+- 返回：
+
+```json
+{
+  "token": "激活令牌",
+  "expires_at": "2026-11-15T00:35:00+08:00",
+  "lease_ttl": 1800,
+  "renew_after": 600,
+  "reused": false,
+  "app_uuid": "...",
+  "app_name": "透视",
+  "username": "a@b.com",
+  "type": 0,
+  "mode": 2,
+  "free": 0,
+  "required_level": 2,
+  "permanent": false,
+  "expired_at": "2026-12-01T00:00:00+08:00",
+  "points": 480,
+  "heartbeat_interval": 10,
+  "total_recharge": 1000,
+  "max_devices": 3,
+  "bound_devices": [
+    { "machine_code": "MC-A1B2C3", "device_name": "台式机", "bound_at": "2026-11-15 10:00:00" }
+  ],
+  "bound_ips": ["1.2.3.4"],
+  "machine_rebind_free_left": 1,
+  "machine_rebind_used": 0,
+  "machine_rebind_max_count": 0,
+  "machine_rebind_limit_time": 1,
+  "ip_rebind_free_left": 2,
+  "ip_rebind_used": 0,
+  "ip_rebind_max_count": 0,
+  "ip_rebind_limit_time": 1,
+  "level": 3,
+  "level_name": "黄金",
+  "level_color": "#E6A23C",
+  "rebate_rate": 10
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `token` | **激活令牌**，后续应用级接口都用它 |
+| `expires_at` / `lease_ttl` / `renew_after` | 授权到期时间 / 有效秒数 / 建议续期时刻（秒） |
+| `reused` | `true` = 复用了已有激活，**本次没有扣费** |
+| `mode` / `free` / `required_level` | 该应用的计费模式 / 是否免费 / 要求等级 |
+| `points` / `expired_at` / `permanent` | 账号当前钱包状态（激活扣费后的最新值） |
+| `level*` / `rebate_rate` / `total_recharge` | 会员等级信息（高级模式下影响扣点数量） |
+| `max_devices` / `bound_devices` / `bound_ips` | 账号的绑定白名单：可绑设备数、已绑设备、已绑 IP |
+| `machine_rebind_*` / `ip_rebind_*` | 设备与 IP 各自的转绑额度：`_free_left` 剩余免费次数、`_used` 本窗口已用、`_max_count` 上限（0=不限）、`_limit_time` 0每天重置/1永久 |
+
+- **幂等**：同一 `(应用, 账号, fingerprint)` 重复调用会复用已有激活，返回 `reused: true` 且**不重复扣费**。
+  客户端崩溃重启、用户反复开关同一插件，只要设备码不变就不用担心重复消费。
+
+#### `71` 应用释放
+
+- 鉴权：**激活令牌**
+- 请求：`{ token }` → 返回 `{ released: true }`
+- 幂等；已扣点数不退（按次已消费；按时模式的当前周期仍算已用）。
+- **建议在应用退出时必调**。不调也能靠授权到期自动回收，但要等满一个授权期限（默认 30 分钟）才腾出并发名额。
+
+#### `72` 权益清单
+- 鉴权：**账号令牌**
+- 请求：`{ token, fingerprint }`
+- 返回：
+
+```json
+{
+  "plugins": [
+    {
+      "uuid": "...",
+      "secret": "...",                // 仅 usable=1 时下发
+      "name": "透视",
+      "version": "2.1.0",
+      "mode": 2,                      // 0 计时 / 1 点数 / 2 高级
+      "free": false,
+
+      "required_level": 2,            // 本应用要求的最低权限等级（1=不限）
+      "required_level_name": "黄金",
+      "my_level": 2,
+      "my_level_name": "黄金",
+      "level_ok": true,
+
+      "permanent": false,
+      "expired_at": "2026-12-01T00:00:00+08:00",
+      "period_ok": true,
+
+      "charge_mode": 1,               // 0 按次 / 1 按时
+      "points_needed": 0.5,           // 启动一次 / 一个周期需要多少点
+      "points_balance": 480,
+      "points_enough": true,
+      "blocked_by_points": false,
+
+      "usable": 1,                    // 1=可用 / 0=不可用
+      "reason": "",
+      "deny_code": "",
+      "billing": { "mode": 2, "mode_name": "高级模式", "scope": 1, "scope_name": "账号合并",
+                   "charge_mode": 1, "charge_mode_name": "按时扣点",
+                   "per_login": 1, "period_minutes": 60, "per_period": 1, "heartbeat_charge": 0 }
+    },
+    {
+      "uuid": "...",
+      "name": "自瞄",
+      "required_level": 3,
+      "required_level_name": "铂金",
+      "my_level": 2,
+      "my_level_name": "黄金",
+      "level_ok": false,
+      "usable": 0,
+      "deny_code": "ENTITLEMENT_REQUIRED",
+      "reason": "会员等级不足，需要 铂金 及以上"
+    },
+    {
+      "uuid": "...",
+      "name": "穿墙",
+      "mode": 1,
+      "charge_mode": 0,
+      "points_needed": 2,
+      "points_balance": 0.5,
+      "points_enough": false,
+      "blocked_by_points": true,
+      "usable": 0,
+      "deny_code": "INSUFFICIENT_CREDITS",
+      "reason": "点数不足：本次需 2.000 点，当前 0.500 点"
+    }
+  ],
+  "account": {
+    "username": "a@b.com",
+    "level": 2,
+    "level_name": "黄金",
+    "level_color": "#E6A23C",
+    "points": 480,
+    "total_recharge": 10000,
+    "rebate_rate": 10,
+    "permanent": false,
+    "expired_at": "2026-12-01T00:00:00+08:00",
+    "max_devices": 3,
+    "bound_devices": [
+      { "machine_code": "MC-A1B2C3", "device_name": "台式机", "bound_at": "2026-11-15 10:00:00" }
+    ],
+    "bound_ips": ["1.2.3.4"],
+    "machine_rebind_free_left": 1,
+    "machine_rebind_used": 0,
+    "machine_rebind_max_count": 0,
+    "machine_rebind_limit_time": 1,
+    "ip_rebind_free_left": 2,
+    "ip_rebind_used": 0,
+    "ip_rebind_max_count": 0,
+    "ip_rebind_limit_time": 1
+  }
+}
+```
+
+> **`deny_code` 与激活错误码同源**，客户端可直接按码分支处理，不必解析中文：
+> `ENTITLEMENT_REQUIRED`（等级不足）/ `INSUFFICIENT_CREDITS`（点数不足）/
+> `LICENSE_EXPIRED`（已过期）/ `LICENSE_SUSPENDED`（已封禁/黑名单）。
+>
+> **`points_needed` 与实扣同源**：按时模式取 `PointsPerPeriodForLevel`（该等级在本应用的点数，
+> 未配置则回退应用默认周期扣点），按次模式取 `PointsCostForLevel`，与 `70` 激活扣的是同一个值。
+>
+> **`blocked_by_points` 是独立标记**：余额不足时 `usable=0` 且该字段为 `true`，
+> 客户端据此提示「充值即可用」，而不是笼统的「不可用」。
+>
+> **`secret` 只在 `usable=1` 时下发**：逆向客户端也拿不到无权限应用的签发密钥。
+
+- `uuid` **就是**你要传给 `70` 信封 `app_uuid` 的那个值，客户端直接用它对应到自己的插件，不需要额外映射字段。
+- `secret` **只对 `usable=1` 的应用下发**；不可用的应用返回空 —— 避免客户端被逆向时泄露全部应用的签名密钥。
+- 客户端可用 `usable` / `reason` 直接把不可用项置灰，省掉一次注定失败的 `70` 调用。
+
+#### 令牌用途隔离
+
+应用级接口（`41`-`45`、`53`、`54`）**只接受激活令牌**。用账号令牌直接调用会返回
+`ACTIVATION_REQUIRED`，且不会产生任何扣费——服务端不会替客户端"顺手"激活。
+
+账号级接口（`40`、`72`、`30`、`50`）接受账号令牌；激活令牌也放行（等价于所属账号）。
+
+#### 计费规则速查
+
+| 应用模式 | 激活时检查 | 扣费时机 |
+|---|---|---|
+| 计时模式 `0` | 等级 ≥ `required_level` **且** 未到期 | 不扣费 |
+| 点数·按次 `1` | 无 | 每次激活扣一次 |
+| 点数·按时 `1` | 无 | 激活扣一个周期（`FROM_FIRST_PING` 则首次心跳才扣），之后每次心跳续期时扣 |
+| 高级模式 `2` | 等级 ≥ `required_level` | 同点数模式，但单价由**该等级**在**该应用**的配置决定 |
+| 免费 `free_mode=1` | 全跳过 | 不扣费 |
+
+> **点数支持小数**：所有点数配置（登录扣点 / 周期扣点 / 等级点数 / 卡密面值）都可以填 `0.5`、`1.5` 这类小数，
+> 余额与扣费按 6 位精度存取，累减不会因为浮点误差扣不动。客户端展示时建议按 3 位小数格式化。
+
+**高级模式的等级单价**（后台「应用程序 → 更多 → 等级点数」）：
+
+| 配置 | 含义 |
+|---|---|
+| 设为 `0` | 该等级**完全免费**（不扣点） |
+| 设为 `N > 0` | 该等级每次（或每周期）扣 N 点 |
+| 不配置 | 跟随应用默认点数（按次取「登录扣点」，按时取「周期扣点」） |
+
+#### 完整时序
+
+```
+① 登录        20 { username, password, machine_code }   → account_token     不计费、不占名额
+② 拉清单      72 { token: account_token, fingerprint }   → 可用应用 + secret
+③ 进入应用    70 { token: account_token, fingerprint }   → activation_token  ★计费、绑设备、占名额
+             信封 app_uuid = 该应用的 uuid
+④ 运行中      41 { token: activation_token }             → 续期（按时模式扣下个周期）
+              42/44/45 { token: activation_token }       → 应用数据与功能
+⑤ 退出应用    71 { token: activation_token }             → 立即归还名额
+⑥ 退出程序    30 { token: account_token }                → 连带失效该账号所有激活
+```
+
+> 如果客户端只是「一个程序 = 一个应用」，可以跳过 ②，登录后直接 ③。
+
+### 状态查询与数据（需激活令牌）
 
 #### `40` 获取到期时间
 - 请求：`{ token }`
 - 返回（`StatusResult`）：`{ username, status, mode, permanent, expired_at, points }`
 
 #### `41` 检测账号状态（心跳）
-- 请求：`{ token, no_charge?: bool }`
+- 请求：`{ token }`
 - 返回（`StatusResult`，含 `heartbeat_interval`）：既是心跳也是状态查询，返回用户基本信息 + 心跳间隔 + **会员权限信息**（`level`/`level_name`/`rebate_rate`/`total_recharge`）。客户端可据 `heartbeat_interval` **动态调整**下次心跳，并用 `level` **实时同步权限**——管理员中途改了等级，下次心跳即生效，不会继续用旧权限。点数「按时」模式会在此结算并顺延周期。账号被封停/拉黑/到期/点数耗尽时返回异常，客户端据此登出。
-- **`no_charge` 参数**（仅点数-按时模式有效）：点数-按时模式下心跳**默认按周期扣费**；对免费功能传 `no_charge:true` 可**跳过本次扣费**（点数不变、仍可用）。免费模式/时长模式/按次模式忽略该参数。可实现「功能A免费 / 功能B计费」：功能A的心跳传 `no_charge:true`，功能B的心跳照常（默认扣）。
-  - ⚠️ 语义相较旧版**已反转**：旧字段 `charge`（默认不扣、传 `true` 才扣）已废弃为 `no_charge`（默认扣、传 `true` 才不扣）。升级需同步调整客户端心跳参数。
 
 #### `42` 获取程序数据
 - 请求：`{ token }`
@@ -245,19 +555,21 @@ sign      = HEX_UPPER( SHA256(raw) )
 
 #### `43` 获取变量数据
 - 请求：`{ token, alias: "变量别名" }`
-- 返回：`{ alias, data }`（别名限本应用或全局）
+- 说明：变量是**全站共用**资源，不按应用隔离 —— `alias` 全局唯一，所有插件读到同一份。
+  这样包密钥、接口地址这类配置只需维护一处，改一次全站生效。
+- 返回：`{ alias, data }`
 
 #### `44` 执行远程函数（服务端沙箱）
 - 请求：`{ token, alias: "函数别名", params: <任意JSON> }`
 - 返回：`{ result: <函数 return 值> }`
-- 说明：函数代码存于服务端、在 goja 沙箱执行（客户端看不到逻辑）。沙箱内提供只读 `getUser()`/`getApp()`；无网络/文件；单次执行 3 秒超时。
+- 说明：函数代码存于服务端、在 goja 沙箱执行（客户端看不到逻辑）。沙箱内提供只读 `getUser()`/`getApp()`；无网络/文件；单次执行 3 秒超时。函数同样是**全站共用**资源，`alias` 全局唯一。
 
 #### `45` 获取账号数据
 - 请求：`{ token }`
 - 返回：`{ user_data: "当前用户的独有数据" }`
 - 说明：读取当前登录用户的专属数据块（存档/配置等）。`42` 也会顺带返回 `user_data`，本接口只返回它、语义更清晰。
 
-### 用户操作（需登录）
+### 用户操作（需激活令牌）
 
 #### `50` 修改账号密码
 - 请求：`{ token, old_password, new_password }`
@@ -272,16 +584,16 @@ sign      = HEX_UPPER( SHA256(raw) )
 - **凭凭据鉴权，不需登录令牌** —— 这样设备/IP 对不上、登不进的用户也能转绑（避免死循环）。
 - **机器码转绑（多设备感知）**：
   - **未提交 `machine_code`** → 返回绑定设备列表:`{ devices: [{ machine_code, device_name, bound_at }] }`，供用户挑选要替换的设备。
-  - 提交 `machine_code`：目标已绑定 → 幂等放行；**未达有效多开上限** → 直接新增该设备；**已满** → 须带 `replace_machine` 精确替换那一台（有效多开=1 且仅 1 个绑定时自动替换，兼容单设备旧客户端）。
+  - 提交 `machine_code`：目标已绑定 → 幂等放行；**未达有效多开上限** → 直接新增该设备；**已满** → 须带 `replace_machine` 精确替换那一台（设备配额=1 且仅 1 个绑定时自动替换）。
   - **有效多开 = 应用多开数 + 会员等级额外多开**；免费换绑次数 = 应用免费次数 + 会员等级赠送。
 - IP 转绑：以服务端识别的**当前请求 IP** 为准（单值替换，客户端须**从新 IP 调用**）。两维度都开则依次处理、各自独立计次/扣费。
-- 返回：设备列表（未带 `machine_code` 时）或 `StatusResult`。受「转绑开关/免费次数/次数上限/扣费」约束。**免费模式下转绑一律不扣费**（仍照常计次）。
+- 返回：设备列表（未带 `machine_code` 时）或 `StatusResult`。受「转绑开关/免费次数/次数上限/扣费」约束。**`free=1` 的应用下转绑一律不扣费**（仍照常计次）。⚠️ 转绑计数**全站累计**，在 A 应用用掉的次数在 B 应用同样算已用。
 - 后台「接口设置」里只需启用**一个「转绑」**接口。**统一用类型号 `51`**；原「IP转绑(52)」已彻底移除（历史记录会在服务启动时自动清理），客户端不要再调 `52`。
 
 #### `53` 功能扣点（点数模式）
 - 请求：`{ token, points: 扣除点数 }`
 - 返回（`StatusResult`）；原子扣减，余额不足则失败。
-- 仅**点数模式**可用；时长模式/免费模式调用返回「当前应用非点数模式」。
+- 仅**点数模式或高级模式**可用；计时模式/`free=1` 调用返回「当前非点数计费模式」。
 
 #### `54` 设置账号数据
 - 请求：`{ token, data: "要保存的数据字符串" }`
@@ -311,15 +623,16 @@ sign      = HEX_UPPER( SHA256(raw) )
 
 | 字段 | 说明 |
 |---|---|
-| `token` | 会话令牌，后续需登录接口都要带 |
+| `token` | 登录返回的是**账号令牌**（30 天，可刷新）；`70` 返回的是**激活令牌**（授权期限，心跳续） |
 | `username` | 用户名（卡密账号为卡号） |
 | `type` | 来源类型：0 注册账号 / 1 卡密账号 |
-| `mode` | 运营模式：0 时长 / 1 点数 / 2 免费 |
-| `permanent` | 是否永久有效 |
-| `expired_at` | 到期时间（时长模式） |
-| `points` | 点数余额（点数模式） |
+| `mode` | 本应用计费模式：0 计时 / 1 点数 / 2 高级 |
+| `permanent` | 是否永久有效（`expired_at` 为 2099 年） |
+| `expired_at` | 账号到期时间（全站共享；计时模式据此判定） |
+| `points` | 点数余额（全站共享；点数/高级模式据此判定） |
 | `heartbeat_interval` | 心跳间隔（分钟） |
 | `total_recharge` | 累计充值金额（单位：**分**，展示时 ÷100 为元） |
+| `free` | 本应用是否计费豁免（1=免费）。为 1 时客户端应忽略 `expired_at` / `points` / `level`，视为始终可用 |
 | `level` | 权限等级数值，**由后台自定义**（每个等级填一个整数），**数值越大权限越高**。**默认档 = 1**（账号未升到任何等级时）。客户端据此做**权限门槛**：如「`level >= 3` 才能用某功能」「不同 `level` 解锁不同菜单/资源」等，具体阈值与用途由你的业务约定 |
 | `level_name` | 会员等级名。默认档为该应用 `level=1` 等级的名称，未配置则「默认会员」（不会为空） |
 | `level_color` | 等级显示颜色（hex，如 `#E6A23C`）。默认档为灰 `#909399`；后台创建/编辑等级可自定义。客户端可用它渲染等级标识 |
@@ -332,7 +645,7 @@ sign      = HEX_UPPER( SHA256(raw) )
 |---|---|
 | `username` / `type` | 用户名 / 来源类型：0 注册 / 1 卡密 |
 | `status` | 状态：0 封停 / 1 正常 / 2 黑名单 |
-| `mode` / `permanent` / `expired_at` / `points` | 同 LoginResult |
+| `mode` / `free` / `permanent` / `expired_at` / `points` | 同 LoginResult |
 | `heartbeat_interval` | 心跳间隔（分钟）——每次心跳都会返回，客户端可据此**动态调整**心跳频率 |
 | `level` / `level_name` / `level_color` / `rebate_rate` / `total_recharge` | 会员信息，同 LoginResult。**心跳（`41`）等状态返回也实时下发**，管理员中途改等级后客户端下次心跳即同步，避免继续用旧权限 |
 
@@ -382,7 +695,7 @@ curl -X POST https://your-domain.com/api/open \
 ```json
 { "code": 0, "data": "{\"token\":\"9f2c...\",\"username\":\"KM-8QWE-2RTY-6UIO\",\"type\":1,\"mode\":0,\"permanent\":false,\"expired_at\":\"2025-08-01T12:00:00+08:00\",\"points\":0,\"heartbeat_interval\":10}" }
 ```
-拿到 `token` 与 `heartbeat_interval`，后续用 `token` 调需登录接口，并按 `heartbeat_interval` 分钟周期调 `41` 心跳。
+登录返回的 `token` 是**账号令牌**（不计费）。要用应用级接口，需先调 `70` 用它换**激活令牌**；之后按 `heartbeat_interval` 分钟周期调 `41` 心跳（同时自动续期）。
 
 ### 8.2 加密接口的差别
 
@@ -499,31 +812,86 @@ await call(41, { token: login.token });
 
 ### 8.4 典型流程（伪代码）
 
+#### 形态 A：一个程序 = 一个应用
+
 ```text
 # 1) 启动：检测更新 / 公告（免登录）
-call(3, {version: localVersion})        -> 若 need_update 则提示/更新
-call(1, {})                             -> 展示公告
+call(3, {version: localVersion})   -> 若 need_update 则提示/更新
+call(1, {})                        -> 展示公告
 
-# 2) 登录（卡密 或 账号）
-resp = call(10, {card, machine_code})   # 或 call(20, {username, password, machine_code})
-token = resp.token
-heartbeat = resp.heartbeat_interval
+# 2) 登录：只拿授权码，不计费、不占名额
+resp = call(10, {card, machine_code})    # 或 call(20, {username, password, machine_code})
+accountToken = resp.token
+heartbeat    = resp.heartbeat_interval
 
-# 3) 使用中：按 heartbeat 周期心跳；按需取数据/扣点
-every(heartbeat minutes): call(41, {token})   # 掉线/封停/到期 -> 登出
-call(42, {token}); call(43, {token, alias})
-call(44, {token, alias, params})
-call(53, {token, points})               # 点数模式功能扣点
+# 3) 换取本应用的访问权 ★计费发生在这里★
+act = call(70, {token: accountToken, fingerprint: machine_code})
+appToken = act.token            # 激活令牌，后续应用级接口都用它
+leaseSec = act.lease_ttl        # 授权期限（秒）
 
-# 4) 退出
-call(30, {token})
+# 4) 使用中：按 heartbeat 周期心跳（同时自动续期）
+every(heartbeat minutes): call(41, {token: appToken})
+call(42, {token: appToken})
+call(43, {token: appToken, alias})
+call(44, {token: appToken, alias, params})
+call(53, {token: appToken, points})     # 显式功能扣点
+
+# 5) 退出
+call(71, {token: appToken})     # 立即归还并发名额
+call(30, {token: accountToken}) # 登出账号（连带失效所有激活）
 ```
+
+> 老客户端可以跳过第 3 步，直接用 `accountToken` 调 `41`/`42`——服务端会自动补一次激活（幂等，不重复扣费）。
+> 但**第 5 步的 `71` 建议加上**，否则名额要等授权期限到期才释放。
+
+#### 形态 B：一个管理器 + 多个插件
+
+```text
+# 1) 启动、2) 登录 —— 同形态 A
+
+# 3) 拉权益清单，决定界面上哪些插件可用
+list = call(72, {token: accountToken, fingerprint: machine_code})
+for p in list.plugins:
+    if p.usable == 0: 置灰该插件，悬浮显示 p.reason
+
+# 4) 用户点开某个插件 → 用「该插件的 uuid」激活
+act = call(70, {token: accountToken, fingerprint: machine_code},
+           信封 app_uuid = p.uuid)
+appToken = act.token
+
+# 5) 插件运行中 —— 同形态 A 的第 4 步
+
+# 6) 插件关闭 → 立刻释放，让别的设备能进
+call(71, {token: appToken})
+```
+
+> 清单里的 `uuid` 就是激活时要传的 `app_uuid`，客户端不需要自己维护映射表。
 
 ---
 
 ## 九、错误处理
 
-- 传输层出错统一 `{ code:1, msg }`，`msg` 为可直接展示的中文（如「应用已停用」「接口已停用」「签名校验失败」「请求已过期，请校准时间」「请求解密失败」「会话无效或已被顶号」「账号状态异常」「点数不足」等）。
+- 传输层出错统一 `{ code:1, msg, err? }`：`msg` 为可直接展示的中文；`err` 是机器可读的标准错误码（可能缺省）。
+
+- **请按 `err` 分支，不要解析 `msg`**（中文会改，多语言也不适用）：
+
+  | `err` | 含义 | 客户端应对 |
+  |---|---|---|
+  | `SIGNATURE_INVALID` | 签名校验失败 | 检查拼接顺序/大小写/secret，重试无意义 |
+  | `ACCOUNT_TOKEN_INVALID` | 账号令牌无效或过期 | 重新登录（`20`/`10`） |
+  | `ACTIVATION_REQUIRED` | 用账号令牌直接调了应用级接口 | 先调 `70` 应用激活 |
+  | `ACTIVATION_TOKEN_INVALID` | 激活令牌无效/已被释放 | 重新 `70` 激活 |
+  | `LEASE_EXPIRED` | 租约已过期 | 重新 `70` 激活（会重新计费） |
+  | `LICENSE_EXPIRED` | 账号已到期 | 提示续费 |
+  | `LICENSE_SUSPENDED` | 账号被封停/拉黑 | 提示联系客服 |
+  | `ENTITLEMENT_REQUIRED` | 会员等级不足 | 提示升级等级 |
+  | `INSUFFICIENT_CREDITS` | 点数不足 | 提示充值 |
+  | `MACHINES_LIMIT_EXCEEDED` | 账号在线设备数已达上限 | 提示在其他设备退出，或升级等级 |
+  | `FINGERPRINT_MISMATCH` | 设备未在绑定范围 | 引导走 `51` 转绑 |
+  | `FINGERPRINT_REQUIRED` | 该应用要求设备码但未提供 | 补上 `fingerprint` |
+  | `APP_NOT_FOUND` / `APP_DISABLED` | 应用不存在/已停用 | 检查 `app_uuid` 或联系作者 |
+  | `INVALID_REQUEST` | 参数缺失/格式错误 | 修请求体 |
+  | `ACCOUNT_POLICY_DENIED` | 被全站策略关闭（注册/试用等） | 提示对应功能未开放 |
 - 专用拦截码（非失败，客户端据此走特殊流程）：
   - `code:2` 强制更新拦截：登录被拒并附 `update` 对象（`download_type`/`latest_version`/`download_url`）。
   - `code:3` 手动顶号满员：在线数已满并附 `sessions` 数组（每项含 `id`/`device_name`/`machine_code`/`ip`/`province`/`city`/`version`/`last_active_at`/`created_at`），客户端弹窗让用户选一台后用 `31 踢下线` 再重试登录。

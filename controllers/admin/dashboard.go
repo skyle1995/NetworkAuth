@@ -1,4 +1,4 @@
-package admin
+﻿package admin
 
 import (
 	"NetworkAuth/constants"
@@ -108,8 +108,9 @@ func DashboardStatsHandler(c *gin.Context) {
 		"total_apis":      count(&models.API{}, nil),
 		"total_functions": count(&models.Function{}, nil),
 		"total_variables": count(&models.Variable{}, nil),
-		// 在线会话（当前有效登录数）
-		"online_sessions": count(&models.MemberSession{}, nil),
+		// 在线数（当前仍活跃的应用激活；二级令牌下登录不再建会话）
+		"online_sessions": count(&models.AppActivation{},
+			"deactivated_at IS NULL AND lease_expires_at > ?", time.Now()),
 	}
 
 	handlersBaseController.HandleSuccess(c, "ok", data)

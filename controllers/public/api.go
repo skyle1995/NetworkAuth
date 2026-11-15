@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -27,9 +28,33 @@ import (
 // 将结果按接口返回算法加密后返回 { code:0, data:"<密文>" }。
 // 出错时返回明文 { code:1, msg:"..." }，便于客户端直接展示。
 
+// boolInt 把布尔开关转成 0/1，保持响应字段与旧版一致（客户端按整数判断）。
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // fail 返回明文错误
+//
+// 响应体：{ code:1, msg:"中文提示" }
+// 若错误携带标准错误码，另带 err 字段（如 "INSUFFICIENT_CREDITS"），
+// 客户端应优先按 err 分支，msg 只用于展示。
 func fail(c *gin.Context, msg string) {
 	c.JSON(http.StatusOK, gin.H{"code": 1, "msg": msg})
+}
+
+// failErr 返回明文错误，并带上机器可读的错误码。
+//
+// 二级令牌改造后，客户端需要区分「令牌过期 → 重新登录」「租约过期 → 重新激活」
+// 「等级不足 → 提示升级」等情形，靠解析中文既不可靠也不利于多语言。
+func failErr(c *gin.Context, err error) {
+	resp := gin.H{"code": 1, "msg": err.Error()}
+	if code := services.ErrorCodeOf(err); code != "" {
+		resp["err"] = code
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // failForceUpdate 强制更新拦截响应：code=2 表示「须强制更新，登录被拒」，
@@ -96,13 +121,14 @@ func OpenAPIHandler(c *gin.Context) {
 
 	// 校验请求签名（防重放 + 完整性 + 应用鉴权）
 	if err := services.VerifyOpenSign(envelope.AppUUID, envelope.APIType, envelope.Data, envelope.Timestamp, envelope.Sign, app.Secret); err != nil {
-		fail(c, err.Error())
+		failErr(c, services.NewCodedError(models.ErrSignatureInvalid, err.Error()))
 		return
 	}
 
-	// 定位接口配置（决定加解密算法与密钥），并校验接口已启用
+	// 定位接口配置（决定加解密算法与密钥），并校验接口已启用。
+	// 一号通：接口条目全站唯一，按 api_type 取即可；应用身份已由上一步的签名验证确认。
 	var api models.API
-	if err := db.Where("app_uuid = ? AND api_type = ?", envelope.AppUUID, envelope.APIType).First(&api).Error; err != nil {
+	if err := db.Where("api_type = ?", envelope.APIType).First(&api).Error; err != nil {
 		fail(c, "接口未配置")
 		return
 	}
@@ -135,7 +161,7 @@ func OpenAPIHandler(c *gin.Context) {
 			failSessionsFull(c, sfe)
 			return
 		}
-		fail(c, bizErr.Error())
+		failErr(c, bizErr)
 		return
 	}
 
@@ -201,6 +227,12 @@ func dispatch(c *gin.Context, app *models.App, apiType int, plainParams string) 
 		return handleLogout(app, plainParams)
 	case models.APITypeKickSession:
 		return handleKickSession(c, app, plainParams)
+	case models.APITypeAppActivate:
+		return handleAppActivate(c, app, plainParams)
+	case models.APITypeAppDeactivate:
+		return handleAppDeactivate(app, plainParams)
+	case models.APITypeEntitlements:
+		return handleEntitlements(app, plainParams)
 	default:
 		return nil, errUnsupported
 	}
@@ -244,16 +276,20 @@ func handleBulletin(app *models.App) (any, error) {
 		content = string(decoded)
 	}
 	// 各接口启用状态：api_type -> 1启用/0禁用，客户端据此判断某功能是否可调
+	// 一号通：接口定义全站唯一，与来源应用无关
 	interfaces := map[string]int{}
 	if db, err := database.GetDB(); err == nil {
 		var apis []models.API
-		if err := db.Model(&models.API{}).Select("api_type, status").
-			Where("app_uuid = ?", app.UUID).Find(&apis).Error; err == nil {
+		if err := db.Model(&models.API{}).Select("api_type, status").Find(&apis).Error; err == nil {
 			for _, a := range apis {
 				interfaces[strconv.Itoa(a.APIType)] = a.Status
 			}
 		}
 	}
+
+	// 计费为应用级、账号策略为全局级，此处合并为客户端可直接消费的开关集合
+	billing := services.EffectiveBilling(app)
+	policy := services.GetAccountPolicy()
 
 	return gin.H{
 		"title":   app.Name,
@@ -261,37 +297,45 @@ func handleBulletin(app *models.App) (any, error) {
 		"content": content,
 		// 能力/模式开关：客户端据此决定界面（如注册是否需验证码、是否显示卡密登录）
 		"config": gin.H{
-			"operation_mode":          app.OperationMode,
-			"points_charge_mode":      app.PointsChargeMode,
-			"points_heartbeat_charge": app.PointsHeartbeatCharge,
-			"card_login_enabled":      app.CardLoginEnabled,
-			"register_enabled":        app.RegisterEnabled,
-			"email_verify_enabled":    app.EmailVerifyEnabled,
+			"free":                    app.FreeMode,
+			"billing_mode":            billing.Mode,
+			"required_level":          billing.RequiredLevel,
+			"operation_mode":          billing.Mode, // 兼容旧字段名
+			"points_charge_mode":      billing.ChargeMode,
+			"points_heartbeat_charge": billing.HeartbeatCharge,
+			"card_login_enabled":      boolInt(policy.CardLoginEnabled),
+			"register_enabled":        boolInt(policy.RegisterEnabled),
+			"email_verify_enabled":    boolInt(policy.EmailVerifyEnabled),
 			// 卡密注册：=1 时客户端注册须收集并提交 card（有效卡号），否则会被拒
-			"card_register_enabled": app.CardRegisterEnabled,
+			"card_register_enabled": boolInt(policy.CardRegisterEnabled),
 			// 设备注册限制：=1 时客户端注册须收集并提交 machine_code，否则会被拒
-			"register_device_required": app.RegisterDeviceLimitEnabled,
-			"recharge_enabled":         app.RechargeEnabled,
-			"trial_enabled":            app.TrialEnabled,
+			"register_device_required": boolInt(policy.RegisterDeviceLimitEnabled),
+			"recharge_enabled":         boolInt(policy.RechargeEnabled),
+			"trial_enabled":            boolInt(policy.TrialEnabled),
 			// 验证与多开
-			"machine_verify":   app.MachineVerify,
-			"ip_verify":        app.IPVerify,
-			"multi_open_scope": app.MultiOpenScope,
-			"multi_open_count": app.MultiOpenCount,
+			"machine_verify":   policy.MachineVerify,
+			// 设备白名单与在线名额都是账号级，不在这里下发
 		},
 		// 换绑能力：客户端据此显示换绑入口及提示扣费/次数
 		"rebind": gin.H{
+			// 设备与 IP 各有一套额度；本接口免登录、拿不到具体账号，
+			// 故只下发策略基础值，等级加量的实际次数以 51 接口的返回为准。
 			"machine": gin.H{
-				"enabled": app.MachineRebindEnabled,
-				"limit":   app.MachineRebindLimit, // 0每天 1永久
-				"count":   app.MachineRebindCount,
-				"deduct":  app.MachineRebindDeduct, // 每次换绑扣除分钟
+				"enabled":     policy.MachineRebindEnabled,
+				"limit":       policy.MachineRebindLimitTime,
+				"free_count":  policy.MachineRebindFreeCount,
+				"max_devices": policy.MaxDevices,
+				"count":       policy.MachineRebindMaxCount,
+				"deduct_minutes": policy.MachineRebindDeductMinutes,
+				"deduct_points":  policy.MachineRebindDeductPoints,
 			},
 			"ip": gin.H{
-				"enabled": app.IPRebindEnabled,
-				"limit":   app.IPRebindLimit,
-				"count":   app.IPRebindCount,
-				"deduct":  app.IPRebindDeduct,
+				"enabled":    policy.IPRebindEnabled,
+				"limit":      policy.IPRebindLimitTime,
+				"free_count": policy.IPRebindFreeCount,
+				"count":      policy.IPRebindMaxCount,
+				"deduct_minutes": policy.IPRebindDeductMinutes,
+				"deduct_points":  policy.IPRebindDeductPoints,
 			},
 		},
 		// 各接口启用状态映射：{ "20": 1, "21": 0, ... }
@@ -406,19 +450,17 @@ func handleRecharge(app *models.App, plainParams string) (any, error) {
 	}
 	return services.RechargeByCard(app.UUID, params.Username, params.Card)
 }
-
-// handleCheckStatus 检测账号状态/心跳（type 41）
-// no_charge：点数-按时模式下本次心跳是否跳过扣费。心跳**默认扣费**，免费功能传 no_charge=true 跳过；
-// 免费/时长/按次模式忽略该参数。
+// handleCheckStatus 心跳（type 41）：续租 + 按应用计费配置结算。
+//
+// 客户端不需要也不应该决定「这次心跳扣不扣费」——那是应用配置的事。
 func handleCheckStatus(app *models.App, plainParams string) (any, error) {
 	var params struct {
-		Token    string `json:"token"`
-		NoCharge bool   `json:"no_charge"`
+		Token string `json:"token"`
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	return services.CheckMemberStatus(app.UUID, params.Token, params.NoCharge)
+	return services.CheckMemberStatus(app.UUID, params.Token)
 }
 
 // handleGetExpired 获取到期时间（type 40）
@@ -551,7 +593,7 @@ func handleRebind(c *gin.Context, app *models.App, plainParams string) (any, err
 func handleDeductPoints(app *models.App, plainParams string) (any, error) {
 	var params struct {
 		Token  string `json:"token"`
-		Points int    `json:"points"`
+		Points float64    `json:"points"`
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
@@ -599,6 +641,71 @@ func handleLogout(app *models.App, plainParams string) (any, error) {
 	return gin.H{"message": "已退出登录"}, nil
 }
 
+// ============================================================================
+// 二级令牌：应用激活 / 释放 / 权益清单（70 / 71 / 72）
+// ============================================================================
+
+// handleAppActivate 应用激活（type 70）
+//
+// 请求 data: { token(账号令牌), fingerprint, version, device_name, machine_code }
+// 信封 app_uuid = 要激活的应用（插件）
+//
+// 这是**唯一计费入口**：激活成功才会扣点/校验等级/绑定设备/占用并发名额。
+// 幂等：同 (app, member, fingerprint) 重复调用复用已有激活，返回 reused=true 且不扣费。
+func handleAppActivate(c *gin.Context, app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Token       string `json:"token"`
+		Fingerprint string `json:"fingerprint"`
+		Version     string `json:"version"`
+		DeviceName  string `json:"device_name"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	fp := strings.TrimSpace(params.Fingerprint)
+	ip := c.ClientIP()
+	if strings.TrimSpace(params.Version) == "" {
+		params.Version = app.Version
+	}
+	return services.ActivateByToken(app.UUID, params.Token, fp, ip, params.Version, params.DeviceName)
+}
+
+// handleAppDeactivate 应用释放（type 71）
+//
+// 请求 data: { token(激活令牌) }
+// 幂等；已扣点数不退（按次已消费、按时的当前周期仍算已用）。
+func handleAppDeactivate(app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Token string `json:"token"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	if err := services.DeactivateByToken(params.Token); err != nil {
+		return nil, err
+	}
+	return gin.H{"released": true}, nil
+}
+
+// handleEntitlements 权益清单（type 72）
+//
+// 请求 data: { token(账号令牌), fingerprint }
+// 返回本账号可用应用列表（uuid + secret），secret 仅对可用应用下发。
+func handleEntitlements(app *models.App, plainParams string) (any, error) {
+	var params struct {
+		Token       string `json:"token"`
+		Fingerprint string `json:"fingerprint"`
+		MachineCode string `json:"machine_code"`
+	}
+	if err := parseParams(plainParams, &params); err != nil {
+		return nil, errBadParams
+	}
+	fp := strings.TrimSpace(params.Fingerprint)
+	if fp == "" {
+		fp = strings.TrimSpace(params.MachineCode)
+	}
+	return services.EntitlementsByToken(params.Token, fp)
+}
 // handleKickSession 手动顶号：踢掉本人账号的指定会话（type 31）。
 // 满员时客户端无令牌可用，故用凭据验证身份后踢出本人会话，再重试登录。
 func handleKickSession(c *gin.Context, app *models.App, plainParams string) (any, error) {
@@ -614,4 +721,15 @@ func handleKickSession(c *gin.Context, app *models.App, plainParams string) (any
 		return nil, err
 	}
 	return gin.H{"session_id": params.SessionID, "message": "已下线"}, nil
+}
+
+// firstNonEmpty 返回第一个非空（去空格后）值。
+// 设备码在协议里有 machine_code / fingerprint 两种叫法，统一走这里取值。
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if s := strings.TrimSpace(v); s != "" {
+			return s
+		}
+	}
+	return ""
 }

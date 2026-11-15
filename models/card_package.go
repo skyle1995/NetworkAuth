@@ -22,7 +22,7 @@ const (
 // 结构体定义
 // ============================================================================
 
-// CardPackage 卡密套餐：制卡的售卖单元，决定卡密面值与售价。
+// CardPackage 卡密套餐：制卡的售卖单元，决定卡密面值与售价（全站通用）。
 // 制卡时把 Duration/Points/Price 快照进 Card，套餐后续改动不影响已售出的卡。
 type CardPackage struct {
 	// ID：主键，自增
@@ -30,9 +30,6 @@ type CardPackage struct {
 
 	// UUID：套餐唯一标识符，自动生成
 	UUID string `gorm:"uniqueIndex;size:36;not null;comment:套餐UUID" json:"uuid"`
-
-	// AppUUID：归属应用UUID
-	AppUUID string `gorm:"size:36;not null;index;comment:归属应用UUID" json:"app_uuid"`
 
 	// Name：套餐名称（如「月卡」「1000点」）
 	Name string `gorm:"size:100;not null;comment:套餐名称" json:"name"`
@@ -44,7 +41,7 @@ type CardPackage struct {
 	Duration int `gorm:"default:0;not null;comment:面值时长，单位分钟，-1为永久" json:"duration"`
 
 	// Points：面值点数。Type=1 时使用
-	Points int `gorm:"default:0;not null;comment:面值点数" json:"points"`
+	Points float64 `gorm:"default:0;not null;comment:面值点数（支持小数）" json:"points"`
 
 	// Price：售价（单位：分）。累充升级按此计量，用整数分避免浮点误差
 	Price int `gorm:"default:0;not null;comment:售价，单位分" json:"price"`

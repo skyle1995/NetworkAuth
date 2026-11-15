@@ -1,3 +1,4 @@
+import { fmtPoints } from "@/utils/points";
 import { reactive, ref, onMounted, h } from "vue";
 import { message } from "@/utils/message";
 import { addDialog } from "@/components/ReDialog";
@@ -10,7 +11,6 @@ import {
   freezeCards,
   unfreezeCards
 } from "@/api/admin/card";
-import { getAppsSimple } from "@/api/admin/app";
 
 // 卡密状态：0未使用 1已使用 2已冻结
 const STATUS_META: Record<number, { text: string; type: any }> = {
@@ -22,15 +22,13 @@ const STATUS_META: Record<number, { text: string; type: any }> = {
 export function useCard() {
   const form = reactive({
     search: "",
-    app_uuid: "",
-    status: "",
+      status: "",
     batch_no: ""
   });
 
   const dataList = ref([]);
   const loading = ref(true);
-  const apps = ref([]);
-
+  
   const pagination = reactive<PaginationProps>({
     total: 0,
     pageSize: 30,
@@ -54,16 +52,7 @@ export function useCard() {
       prop: "card_no",
       minWidth: 200
     },
-    {
-      label: "所属应用",
-      prop: "app_uuid",
-      minWidth: 140,
-      cellRenderer: ({ row }) => {
-        const app = apps.value.find(a => a.uuid === row.app_uuid);
-        return app ? app.name : "未知应用";
-      }
-    },
-    {
+        {
       label: "套餐",
       prop: "package_name",
       minWidth: 120,
@@ -74,7 +63,7 @@ export function useCard() {
       prop: "duration_text",
       minWidth: 100,
       cellRenderer: ({ row }) =>
-        row.points > 0 ? `${row.points} 点` : row.duration_text
+        row.points > 0 ? `${fmtPoints(row.points)} 点` : row.duration_text
     },
     {
       label: "售价",
@@ -127,17 +116,6 @@ export function useCard() {
     }
   ];
 
-  async function fetchApps() {
-    try {
-      const { code, data } = await getAppsSimple();
-      if (code === 0 && Array.isArray(data)) {
-        apps.value = data;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
   async function onSearch() {
     loading.value = true;
     try {
@@ -145,8 +123,7 @@ export function useCard() {
         page: pagination.currentPage,
         limit: pagination.pageSize,
         search: form.search,
-        app_uuid: form.app_uuid,
-        status: form.status,
+              status: form.status,
         batch_no: form.batch_no
       });
       if (code === 0) {
@@ -172,15 +149,13 @@ export function useCard() {
       title: "批量制卡",
       props: {
         formInline: {
-          app_uuid: form.app_uuid || "",
-          prefix: "",
+              prefix: "",
           length: 16,
           count: 10,
           package_uuid: "",
           remark: ""
         },
-        apps: apps.value
-      },
+        },
       width: "520px",
       draggable: true,
       fullscreenIcon: true,
@@ -266,7 +241,6 @@ export function useCard() {
   }
 
   onMounted(() => {
-    fetchApps();
     onSearch();
   });
 
@@ -276,8 +250,7 @@ export function useCard() {
     columns,
     dataList,
     pagination,
-    apps,
-    onSearch,
+      onSearch,
     resetFormSearch,
     openCreateDialog,
     handleFreeze,

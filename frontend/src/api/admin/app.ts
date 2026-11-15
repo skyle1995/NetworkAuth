@@ -1,5 +1,6 @@
 import { http } from "@/utils/http";
 
+
 export const getAppsList = (params?: object) => {
   return http.request<any>("get", "/api/admin/apps/list", { params });
 };
@@ -70,17 +71,6 @@ export const updateAppMultiConfig = (data?: object) => {
   });
 };
 
-export const getAppBindConfig = (params?: object) => {
-  return http.request<any>("get", "/api/admin/apps/get_bind_config", {
-    params
-  });
-};
-
-export const updateAppBindConfig = (data?: object) => {
-  return http.request<any>("post", "/api/admin/apps/update_bind_config", {
-    data
-  });
-};
 
 export const getAppRegisterConfig = (params?: object) => {
   return http.request<any>("get", "/api/admin/apps/get_register_config", {
@@ -90,6 +80,20 @@ export const getAppRegisterConfig = (params?: object) => {
 
 export const updateAppRegisterConfig = (data?: object) => {
   return http.request<any>("post", "/api/admin/apps/update_register_config", {
+    data
+  });
+};
+
+/** 高级模式：读取某应用的各会员等级点数消耗 */
+export const getAppLevelPoints = (params?: object) => {
+  return http.request<any>("get", "/api/admin/apps/get_level_points", {
+    params
+  });
+};
+
+/** 高级模式：覆盖保存某应用的各会员等级点数消耗 */
+export const saveAppLevelPoints = (data?: object) => {
+  return http.request<any>("post", "/api/admin/apps/save_level_points", {
     data
   });
 };

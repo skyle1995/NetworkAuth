@@ -25,19 +25,18 @@ func setupOpenAPITest(t *testing.T) *gin.Engine {
 		t.Fatalf("open db: %v", err)
 	}
 	if err := db.AutoMigrate(&models.App{}, &models.Card{}, &models.Member{},
-		&models.Binding{}, &models.MemberSession{}, &models.API{}, &models.MemberLog{}); err != nil {
+		&models.Binding{}, &models.AppActivation{}, &models.API{}, &models.MemberLog{}, &models.MemberAccountToken{}, &models.AppActivation{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
 	db.Create(&models.App{
 		UUID: "APP-1", Name: "测试", Secret: "SECRET", Status: 1,
-		CardLoginEnabled: 1, MultiOpenCount: 1,
 	})
-	// 启用卡密登录接口(type 10)，提交/返回均不加密
+	// 启用卡密登录接口(type 10)，提交/返回均不加密（一号通：接口条目全站唯一）
 	db.Create(&models.API{
-		AppUUID: "APP-1", APIType: models.APITypeSingleLogin, Status: 1,
+		APIType: models.APITypeSingleLogin, Status: 1,
 		SubmitAlgorithm: models.AlgorithmNone, ReturnAlgorithm: models.AlgorithmNone,
 	})
-	db.Create(&models.Card{CardNo: "KM-1", AppUUID: "APP-1", Duration: 60, Status: models.CardStatusUnused})
+	db.Create(&models.Card{CardNo: "KM-1", Duration: 60, Status: models.CardStatusUnused})
 	database.SetDB(db)
 
 	r := gin.New()
@@ -70,7 +69,7 @@ func TestOpenAPIEnvelopeCardLogin(t *testing.T) {
 		"data": data, "timestamp": ts, "sign": sign,
 	})
 	if status != http.StatusOK {
-		t.Fatalf("http status = %d", status)
+		t.Fatalf("http status = %v", status)
 	}
 	if resp["code"].(float64) != 0 {
 		t.Fatalf("expected code 0, got %v (msg=%v)", resp["code"], resp["msg"])

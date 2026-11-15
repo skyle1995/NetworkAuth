@@ -102,12 +102,13 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			appsGroup.POST("/update_app_data", adminctl.AppUpdateAppDataHandler)
 			appsGroup.GET("/get_announcement", adminctl.AppGetAnnouncementHandler)
 			appsGroup.POST("/update_announcement", adminctl.AppUpdateAnnouncementHandler)
-			appsGroup.GET("/get_multi_config", adminctl.AppGetMultiConfigHandler)
 			appsGroup.POST("/update_multi_config", adminctl.AppUpdateMultiConfigHandler)
-			appsGroup.GET("/get_bind_config", adminctl.AppGetBindConfigHandler)
-			appsGroup.POST("/update_bind_config", adminctl.AppUpdateBindConfigHandler)
+			appsGroup.GET("/get_multi_config", adminctl.AppGetMultiConfigHandler)
 			appsGroup.GET("/get_register_config", adminctl.AppGetRegisterConfigHandler)
 			appsGroup.POST("/update_register_config", adminctl.AppUpdateRegisterConfigHandler)
+			// 混合模式的等级点数配置（每个会员等级在该应用的点数消耗）
+			appsGroup.GET("/get_level_points", adminctl.AppGetLevelPointsHandler)
+			appsGroup.POST("/save_level_points", adminctl.AppSaveLevelPointsHandler)
 		}
 
 		// API接口管理API

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"math"
 	"NetworkAuth/database"
 	"NetworkAuth/models"
 	"errors"
@@ -50,10 +51,10 @@ func levelColorOr(c string) string {
 }
 
 // defaultLevelDisplay 默认档（无等级账号）的展示名与颜色：
-// 该应用若配置了 level=1 的启用等级则用其名称/颜色，否则「默认会员」+灰。
-func defaultLevelDisplay(db *gorm.DB, appUUID string) (name, color string) {
+// 若配置了 level=1 的启用等级则用其名称/颜色，否则「默认会员」+灰。等级表全站一份。
+func defaultLevelDisplay(db *gorm.DB) (name, color string) {
 	var lv models.MemberLevel
-	if err := db.Where("app_uuid = ? AND level = 1 AND status = 1", appUUID).
+	if err := db.Where("level = 1 AND status = 1").
 		Order("sort ASC, id ASC").First(&lv).Error; err == nil {
 		return lv.Name, levelColorOr(lv.Color)
 	}
@@ -61,7 +62,7 @@ func defaultLevelDisplay(db *gorm.DB, appUUID string) (name, color string) {
 }
 
 // memberLevelInfo 取账号当前等级名、权限等级值、返利比例、显示颜色。
-// 无等级即**默认档**：权限等级为 1、返利 0、名称取该应用 level=1 等级或「默认会员」、颜色默认灰。
+// 无等级即**默认档**：权限等级为 1、返利 0、名称取 level=1 等级或「默认会员」、颜色默认灰。
 func memberLevelInfo(db *gorm.DB, m *models.Member) (name string, level, rebateRate int, color string) {
 	if strings.TrimSpace(m.LevelUUID) != "" {
 		var lv models.MemberLevel
@@ -69,32 +70,72 @@ func memberLevelInfo(db *gorm.DB, m *models.Member) (name string, level, rebateR
 			return lv.Name, lv.Level, lv.RebateRate, levelColorOr(lv.Color)
 		}
 	}
-	name, color = defaultLevelDisplay(db, m.AppUUID)
+	name, color = defaultLevelDisplay(db)
 	return name, 1, 0, color
 }
 
 // ResolveMemberLevelName 供后台列表展示：返回账号等级名（含默认档逻辑）、权限等级值、颜色。
-func ResolveMemberLevelName(db *gorm.DB, appUUID, levelUUID string) (name string, level int, color string) {
+func ResolveMemberLevelName(db *gorm.DB, levelUUID string) (name string, level int, color string) {
 	if strings.TrimSpace(levelUUID) != "" {
 		var lv models.MemberLevel
 		if err := db.Where("uuid = ?", levelUUID).First(&lv).Error; err == nil {
 			return lv.Name, lv.Level, levelColorOr(lv.Color)
 		}
 	}
-	name, color = defaultLevelDisplay(db, appUUID)
+	name, color = defaultLevelDisplay(db)
 	return name, 1, color
 }
 
-// memberLevelExtras 取账号当前等级的额外福利（额外多开数、赠送免费换绑次数）；无等级返回 (0,0)。
-func memberLevelExtras(db *gorm.DB, m *models.Member) (extraMultiOpen, extraRebind int) {
+// memberLevelExtras 取账号当前等级的额外福利；无等级返回全 0。
+//
+// 三项都是**账号级资源**的加量：
+//   extraDevices    —— 多绑几台设备
+//   extraConcurrent —— 多开几个实例
+//   extraRebind     —— 多几次免费转绑
+func memberLevelExtras(db *gorm.DB, m *models.Member) (extraDevices, extraConcurrent, extraRebind int) {
 	if strings.TrimSpace(m.LevelUUID) == "" {
-		return 0, 0
+		return 0, 0, 0
 	}
 	var lv models.MemberLevel
 	if err := db.Where("uuid = ?", m.LevelUUID).First(&lv).Error; err != nil {
-		return 0, 0
+		return 0, 0, 0
 	}
-	return lv.ExtraMultiOpen, lv.ExtraRebindCount
+	return lv.ExtraDevices, lv.ExtraConcurrent, lv.ExtraRebindCount
+}
+
+// AccountQuota 账号级资源配额（已叠加会员等级权益）。
+//
+// 设备数、并发数、免费转绑次数都算在**账号**头上，不按应用重复计：
+// 用户有 10 个插件，也只共用同一份设备白名单与同一份并发额度。
+type AccountQuota struct {
+	MaxDevices      int // 可绑定设备数
+	MaxConcurrent   int // 同时活跃实例数（跨所有应用合计）
+	RebindFreeCount int // 每窗口免费转绑次数
+	RebindLimitTime int // 0 每天 / 1 永久
+}
+
+// ResolveAccountQuota 计算某账号的实际配额（策略基础值 + 等级加量，下限 1）。
+func ResolveAccountQuota(db *gorm.DB, m *models.Member) AccountQuota {
+	p := GetAccountPolicy()
+	extraDev, extraConc, extraRebind := memberLevelExtras(db, m)
+
+	q := AccountQuota{
+		MaxDevices:      p.MaxDevices + extraDev,
+		MaxConcurrent:   p.MaxConcurrent + extraConc,
+		RebindFreeCount: p.RebindFreeCount + extraRebind,
+		RebindLimitTime: p.RebindLimitTime,
+	}
+	// 设备数/并发数下限 1：配成 0 会导致账号永远进不去
+	if q.MaxDevices < 1 {
+		q.MaxDevices = 1
+	}
+	if q.MaxConcurrent < 1 {
+		q.MaxConcurrent = 1
+	}
+	if q.RebindFreeCount < 0 {
+		q.RebindFreeCount = 0
+	}
+	return q
 }
 
 // rebateValue 按比例返利后的面值（向下取整）。非正数原样返回。
@@ -107,7 +148,7 @@ func rebateValue(value, rate int) int {
 
 // rebatedCardValue 按账号「当前等级」返利后的卡密面值，返回 (时长分钟, 点数)。
 // 永久卡（-1）不返利：已永久，返利无意义。
-func rebatedCardValue(db *gorm.DB, m *models.Member, card *models.Card) (int, int) {
+func rebatedCardValue(db *gorm.DB, m *models.Member, card *models.Card) (int, float64) {
 	rate := memberRebateRate(db, m)
 	if rate <= 0 {
 		return card.Duration, card.Points
@@ -116,13 +157,26 @@ func rebatedCardValue(db *gorm.DB, m *models.Member, card *models.Card) (int, in
 	if duration != models.CardDurationPermanent {
 		duration = rebateValue(duration, rate)
 	}
-	return duration, rebateValue(card.Points, rate)
+	return duration, rebatePoints(card.Points, rate)
+}
+
+// rebatePoints 点数返利。保留 3 位小数，避免浮点误差累积。
+func rebatePoints(points float64, rate int) float64 {
+	if points <= 0 || rate <= 0 {
+		return points
+	}
+	v := points * (1 + float64(rate)/100)
+	return math.Round(v*1000) / 1000
 }
 
 // resolveLevelUUID 按累充金额定位应处等级的 UUID；无匹配返回空（即默认的「免费账号」）。
-func resolveLevelUUID(db *gorm.DB, appUUID string, total int) (string, error) {
+func resolveLevelUUID(db *gorm.DB, total int) (string, error) {
+	// 老库/精简部署可能没有等级表：此时按「无匹配」处理，不阻断建号与发卡
+	if !db.Migrator().HasTable(&models.MemberLevel{}) {
+		return "", nil
+	}
 	var lv models.MemberLevel
-	err := db.Where("app_uuid = ? AND status = 1 AND threshold <= ?", appUUID, total).
+	err := db.Where("status = 1 AND threshold <= ?", total).
 		Order("threshold DESC").First(&lv).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", nil
@@ -133,16 +187,21 @@ func resolveLevelUUID(db *gorm.DB, appUUID string, total int) (string, error) {
 	return lv.UUID, nil
 }
 
-// settleMemberLevel 累加累充金额并结算等级升级（事务内调用）。
-// price 为本次卡密售价快照（分）；<=0（旧卡/无价套餐）不累充、不升级。
-func settleMemberLevel(tx *gorm.DB, appUUID string, m *models.Member, price int) error {
-	if price <= 0 {
+// settleMemberLevel 累加累充金额并结算等级（事务内调用）。
+// price 为本次卡密售价快照（分）：
+//   - >0：累充并升级
+//   - =0：不累充，但仍解析一次现有累充对应的等级 ——
+//     门槛为 0 的默认档必须落到 level_uuid 上，否则新账号 level_uuid 为空，
+//     显示层会兜底成「普通会员」，与实际数据不一致（筛选「未分配」时会对不上）
+//   - <0：视为异常，不做任何处理
+func settleMemberLevel(tx *gorm.DB, m *models.Member, price int) error {
+	if price < 0 {
 		return nil
 	}
 	total := m.TotalRecharge + price
 	updates := map[string]interface{}{"total_recharge": total}
 
-	levelUUID, err := resolveLevelUUID(tx, appUUID, total)
+	levelUUID, err := resolveLevelUUID(tx, total)
 	if err != nil {
 		return err
 	}
@@ -167,18 +226,15 @@ func settleMemberLevel(tx *gorm.DB, appUUID string, m *models.Member, price int)
 // 等级管理（后台）
 // ============================================================================
 
-// ListMemberLevels 列出应用的会员等级（按门槛升序）。
-func ListMemberLevels(appUUID string) ([]models.MemberLevel, error) {
+// ListMemberLevels 列出会员等级（全站一份，按门槛升序）。
+func ListMemberLevels() ([]models.MemberLevel, error) {
 	db, err := database.GetDB()
 	if err != nil {
 		return nil, err
 	}
 	var levels []models.MemberLevel
-	q := db.Model(&models.MemberLevel{})
-	if appUUID = strings.TrimSpace(appUUID); appUUID != "" {
-		q = q.Where("app_uuid = ?", appUUID)
-	}
-	if err := q.Order("sort ASC, threshold ASC").Find(&levels).Error; err != nil {
+	if err := db.Model(&models.MemberLevel{}).
+		Order("sort ASC, threshold ASC").Find(&levels).Error; err != nil {
 		return nil, err
 	}
 	return levels, nil
@@ -191,9 +247,8 @@ func SaveMemberLevel(level *models.MemberLevel) error {
 		return err
 	}
 	level.Name = strings.TrimSpace(level.Name)
-	level.AppUUID = strings.TrimSpace(level.AppUUID)
-	if level.AppUUID == "" || level.Name == "" {
-		return errors.New("应用与等级名称不能为空")
+	if level.Name == "" {
+		return errors.New("等级名称不能为空")
 	}
 	if level.Threshold < 0 {
 		return errors.New("累充门槛不能为负")
@@ -201,7 +256,7 @@ func SaveMemberLevel(level *models.MemberLevel) error {
 	if level.RebateRate < 0 {
 		return errors.New("返利比例不能为负")
 	}
-	if level.ExtraMultiOpen < 0 || level.ExtraRebindCount < 0 {
+	if level.ExtraConcurrent < 0 || level.ExtraRebindCount < 0 {
 		return errors.New("额外多开与赠送换绑次数不能为负")
 	}
 	if level.Level < 1 {
@@ -221,7 +276,7 @@ func SaveMemberLevel(level *models.MemberLevel) error {
 		"threshold":          level.Threshold,
 		"rebate_rate":        level.RebateRate,
 		"color":              level.Color,
-		"extra_multi_open":   level.ExtraMultiOpen,
+		"extra_concurrent":   level.ExtraConcurrent,
 		"extra_rebind_count": level.ExtraRebindCount,
 		"sort":               level.Sort,
 		"status":             level.Status,
@@ -246,4 +301,19 @@ func DeleteMemberLevel(uuid string) error {
 		}
 		return tx.Where("uuid = ?", uuid).Delete(&models.MemberLevel{}).Error
 	})
+}
+
+// memberPermissionLevel 账号当前的权限等级数值（无等级时返回默认档）。
+func memberPermissionLevel(db *gorm.DB, m *models.Member) int {
+	_, level, _, _ := memberLevelInfo(db, m)
+	return level
+}
+
+// levelNameByValue 按权限等级数值反查等级名；找不到返回空串。
+func levelNameByValue(db *gorm.DB, level int) string {
+	var lv models.MemberLevel
+	if err := db.Where("level = ? AND status = 1", level).First(&lv).Error; err != nil {
+		return ""
+	}
+	return lv.Name
 }

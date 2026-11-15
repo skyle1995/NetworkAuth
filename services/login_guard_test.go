@@ -12,7 +12,7 @@ func TestLoginGuardLocksAccountAcrossIPs(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		ip := "10.0.0." + string(rune('1'+i))
 		if allowed, _ := g.Allow(ip, "admin"); !allowed {
-			t.Fatalf("第 %d 次尝试应被放行（阈值内）", i+1)
+			t.Fatalf("第 %v 次尝试应被放行（阈值内）", i+1)
 		}
 		g.OnCredentialFailure(ip, "admin")
 	}
@@ -70,7 +70,7 @@ func TestLoginGuardLockEscalatesWithCap(t *testing.T) {
 
 	g.OnCredentialFailure("2.2.2.2", "admin")
 	if entry.lockLevel != 2 {
-		t.Fatalf("第二次锁定等级应为 2，实际 %d", entry.lockLevel)
+		t.Fatalf("第二次锁定等级应为 2，实际 %v", entry.lockLevel)
 	}
 	if !entry.lockedUntil.After(firstLock) {
 		t.Fatal("重复触发的锁定时长应递增")

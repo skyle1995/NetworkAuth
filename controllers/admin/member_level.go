@@ -19,7 +19,7 @@ var levelBaseController = controllers.NewBaseController()
 
 // MemberLevelListHandler 列出会员等级（按 app_uuid 筛选）
 func MemberLevelListHandler(c *gin.Context) {
-	levels, err := services.ListMemberLevels(strings.TrimSpace(c.Query("app_uuid")))
+	levels, err := services.ListMemberLevels()
 	if err != nil {
 		logrus.WithError(err).Error("Failed to list member levels")
 		levelBaseController.HandleInternalError(c, "查询会员等级失败", err)
@@ -35,7 +35,6 @@ func MemberLevelSaveHandler(c *gin.Context) {
 		return
 	}
 	if !levelBaseController.ValidateRequired(c, map[string]interface{}{
-		"应用UUID": req.AppUUID,
 		"等级名称":   req.Name,
 	}) {
 		return
@@ -51,7 +50,7 @@ func MemberLevelSaveHandler(c *gin.Context) {
 	if isNew {
 		action = "新增会员等级"
 	}
-	recordMemberLog(c, action, fmt.Sprintf("%s：%s（应用 %s）", action, req.Name, req.AppUUID))
+	recordMemberLog(c, action, fmt.Sprintf("%s：%s", action, req.Name))
 	levelBaseController.HandleSuccess(c, "保存成功", req)
 }
 

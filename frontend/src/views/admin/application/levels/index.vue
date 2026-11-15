@@ -8,56 +8,18 @@ defineOptions({
   name: "LevelsIndex"
 });
 
-const formRef = ref();
 
 const {
-  form,
   loading,
   columns,
   dataList,
-  apps,
   onSearch,
   openDialog,
   handleDelete
 } = useMemberLevel();
 </script>
-
 <template>
   <div class="main">
-    <el-form
-      ref="formRef"
-      :inline="true"
-      :model="form"
-      class="search-form bg-bg_color w-full pl-8 pt-3 overflow-auto"
-    >
-      <el-form-item label="所属应用" prop="app_uuid">
-        <el-select
-          v-model="form.app_uuid"
-          placeholder="请选择应用"
-          clearable
-          class="w-[180px]!"
-          @change="onSearch"
-        >
-          <el-option label="全部" value="" />
-          <el-option
-            v-for="app in apps"
-            :key="app.uuid"
-            :label="app.name"
-            :value="app.uuid"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item>
-        <el-button
-          type="primary"
-          :icon="useRenderIcon('ri:search-line')"
-          :loading="loading"
-          @click="onSearch"
-        >
-          搜索
-        </el-button>
-      </el-form-item>
-    </el-form>
 
     <PureTableBar title="会员等级" :columns="columns" @refresh="onSearch">
       <template #buttons>
@@ -115,10 +77,4 @@ const {
   </div>
 </template>
 
-<style scoped lang="scss">
-.search-form {
-  :deep(.el-form-item) {
-    margin-bottom: 12px;
-  }
-}
-</style>
+

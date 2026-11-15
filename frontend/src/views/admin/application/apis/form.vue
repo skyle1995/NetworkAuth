@@ -5,11 +5,9 @@ import { formRules } from "./rule";
 export interface FormProps {
   formInline: {
     id: number;
-    app_uuid: string;
-    api_type: number;
+      api_type: number;
     api_type_name: string;
-    app_name: string;
-    submit_algorithm: number;
+      submit_algorithm: number;
     submit_public_key: string;
     submit_private_key: string;
     return_algorithm: number;
@@ -22,11 +20,9 @@ export interface FormProps {
 const props = withDefaults(defineProps<FormProps>(), {
   formInline: () => ({
     id: 0,
-    app_uuid: "",
-    api_type: 0,
+      api_type: 0,
     api_type_name: "",
-    app_name: "",
-    submit_algorithm: 0,
+      submit_algorithm: 0,
     submit_public_key: "",
     submit_private_key: "",
     return_algorithm: 0,
@@ -78,11 +74,6 @@ defineExpose({ getRef });
     </el-row>
 
     <el-row>
-      <el-col :span="24">
-        <el-form-item label="所属应用" prop="app_name">
-          <el-input v-model="newFormInline.app_name" disabled />
-        </el-form-item>
-      </el-col>
       <el-col :span="24">
         <el-form-item label="接口类型" prop="api_type_name">
           <el-input v-model="newFormInline.api_type_name" disabled />

@@ -33,9 +33,6 @@ func APIListHandler(c *gin.Context) {
 	// 获取分页参数
 	page, limit := apiBaseController.GetPaginationParams(c)
 
-	// 获取应用UUID参数（用于按应用筛选接口）
-	appUUID := strings.TrimSpace(c.Query("app_uuid"))
-
 	// 获取接口类型参数（用于按接口类型筛选）
 	apiTypeStr := strings.TrimSpace(c.Query("api_type"))
 	var apiType int
@@ -52,11 +49,6 @@ func APIListHandler(c *gin.Context) {
 	// 构建基础查询
 	query := db.Model(&models.API{})
 
-	// 如果指定了应用UUID，则按应用筛选
-	if appUUID != "" {
-		query = query.Where("app_uuid = ?", appUUID)
-	}
-
 	// 如果指定了接口类型，则按接口类型筛选
 	if apiType > 0 {
 		query = query.Where("api_type = ?", apiType)
@@ -70,29 +62,10 @@ func APIListHandler(c *gin.Context) {
 		return
 	}
 
-	// 获取关联的应用信息
-	var appUUIDs []string
-	for _, api := range apis {
-		appUUIDs = append(appUUIDs, api.AppUUID)
-	}
-
-	var apps []models.App
-	if len(appUUIDs) > 0 {
-		if err := db.Where("uuid IN ?", appUUIDs).Find(&apps).Error; err != nil {
-			logrus.WithError(err).Error("Failed to fetch related apps")
-		}
-	}
-
-	// 创建应用UUID到应用名称的映射
-	appMap := make(map[string]string)
-	for _, app := range apps {
-		appMap[app.UUID] = app.Name + "(ID:" + strconv.Itoa(int(app.ID)) + ")"
-	}
-
+	// 一号通：接口条目全站唯一，无应用维度
 	// 构建响应数据
 	type APIResponse struct {
 		models.API
-		AppName        string `json:"app_name"`
 		APITypeName    string `json:"api_type_name"`
 		StatusName     string `json:"status_name"`
 		AlgorithmNames struct {
@@ -105,7 +78,6 @@ func APIListHandler(c *gin.Context) {
 	for _, api := range apis {
 		responseAPI := APIResponse{
 			API:         api,
-			AppName:     appMap[api.AppUUID],
 			APITypeName: models.GetAPITypeName(api.APIType),
 			StatusName:  getAPIStatusName(api.Status),
 		}
@@ -211,30 +183,41 @@ func APIUpdateHandler(c *gin.Context) {
 	apiBaseController.HandleSuccess(c, "接口更新成功", api)
 }
 
-// APIExportKeysHandler 导出指定应用的对接密钥（应用密钥 + 各接口算法与密钥）
-// 供开发者一次性拿到全部加密配置，避免逐个复制
+// APIExportKeysHandler 导出对接密钥。
+//
+// 两种用法：
+//   · 不传 app_uuid → 导出**全部应用**的 uuid/secret（接口配置全站统一，只导一份）
+//   · 传 app_uuid   → 只导出该应用（保留给脚本按需调用）
+//
+// 前端「接口设置」页的导出按钮已改为导出全部，因为接口条目在全站是同一套，
+// 逐个应用导出既费事又容易漏。
 func APIExportKeysHandler(c *gin.Context) {
 	appUUID := strings.TrimSpace(c.Query("app_uuid"))
-	if appUUID == "" {
-		apiBaseController.HandleValidationError(c, "请先选择要导出的应用")
-		return
-	}
 
 	db, ok := apiBaseController.GetDB(c)
 	if !ok {
 		return
 	}
 
-	// 查询应用
-	var app models.App
-	if err := db.Where("uuid = ?", appUUID).First(&app).Error; err != nil {
-		apiBaseController.HandleValidationError(c, "应用不存在")
-		return
+	// 查询应用：指定 uuid 时校验存在，否则取全部
+	var apps []models.App
+	if appUUID != "" {
+		var app models.App
+		if err := db.Where("uuid = ?", appUUID).First(&app).Error; err != nil {
+			apiBaseController.HandleValidationError(c, "应用不存在")
+			return
+		}
+		apps = []models.App{app}
+	} else {
+		if err := db.Order("name ASC").Find(&apps).Error; err != nil {
+			apiBaseController.HandleInternalError(c, "查询应用失败", err)
+			return
+		}
 	}
 
-	// 查询该应用的全部接口，按接口类型升序
+	// 一号通：接口条目全站唯一，导出该应用的对接信息时复用同一套全局接口配置
 	var apis []models.API
-	if err := db.Where("app_uuid = ?", appUUID).Order("api_type ASC").Find(&apis).Error; err != nil {
+	if err := db.Order("api_type ASC").Find(&apis).Error; err != nil {
 		logrus.WithError(err).Error("Failed to fetch APIs for export")
 		apiBaseController.HandleInternalError(c, "查询接口失败", err)
 		return
@@ -287,21 +270,30 @@ func APIExportKeysHandler(c *gin.Context) {
 	}
 	baseURL := scheme + "://" + host
 
+	// 应用清单：客户端按 name 找到自己要用的那个，取 uuid + secret
+	appItems := make([]gin.H, 0, len(apps))
+	for _, a := range apps {
+		appItems = append(appItems, gin.H{
+			"name":    a.Name,
+			"uuid":    a.UUID,
+			"secret":  a.Secret,
+			"version": a.Version,
+		})
+	}
+
 	payload := gin.H{
 		"server": gin.H{
 			"base_url":     baseURL,
 			"api_endpoint": baseURL + "/api/open",
 			"method":       "POST",
 		},
-		"app": gin.H{
-			"name":    app.Name,
-			"uuid":    app.UUID,
-			"secret":  app.Secret,
-			"version": app.Version,
-		},
+		"apps":        appItems,
+		"app_count":   len(appItems),
 		"sign_rule":   "sign = SHA256(app_uuid|api_type|data|timestamp|app_secret) 转大写HEX",
 		"exported_at": time.Now().Format("2006-01-02 15:04:05"),
-		"interfaces":  interfaces,
+		// shared=true 表示下面的 interfaces 是全站统一的一套，所有应用共用
+		"shared":     true,
+		"interfaces": interfaces,
 	}
 
 	// 导出含应用密钥与私钥，属敏感操作，记入操作日志
@@ -310,7 +302,7 @@ func APIExportKeysHandler(c *gin.Context) {
 		operator = "unknown"
 	}
 	services.RecordOperationLog("导出对接密钥", operator, c.GetString("admin_uuid"),
-		fmt.Sprintf("导出应用 %s(%s) 的对接密钥", app.Name, app.UUID))
+		fmt.Sprintf("导出对接密钥：%d 个应用、%d 条接口配置", len(apps), len(interfaces)))
 
 	apiBaseController.HandleSuccess(c, "导出成功", payload)
 }

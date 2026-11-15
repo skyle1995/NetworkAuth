@@ -9,12 +9,15 @@ import "time"
 // MemberLog 账号调用审计日志
 // 记录客户端公开 API 的关键动作（登录/充值/扣点/转绑/风控/登出等），
 // 便于运营对账、追溯某卡某账号的历史。
+//
+// 一号通语义：账号全站唯一，日志按「事件来源应用」记录——
+// AppUUID 表示该动作发生在哪个应用，用于按应用追溯，不代表账号归属。
 type MemberLog struct {
 	// ID：主键，自增
 	ID uint `gorm:"primaryKey;comment:日志ID，自增主键" json:"id"`
 
-	// AppUUID：归属应用UUID
-	AppUUID string `gorm:"size:36;not null;index;comment:归属应用UUID" json:"app_uuid"`
+	// AppUUID：事件来源应用UUID（该动作发生在哪个应用）
+	AppUUID string `gorm:"size:36;not null;index;comment:事件来源应用UUID" json:"app_uuid"`
 
 	// MemberUUID：账号UUID（部分动作可能为空，如注册前）
 	MemberUUID string `gorm:"size:36;index;comment:账号UUID" json:"member_uuid"`
