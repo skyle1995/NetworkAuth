@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const pluginManifestPrefix = "KTRWPLUGINPKG1|"
@@ -49,8 +50,14 @@ type PluginUpdateManifest struct {
 	Nonce     string                 `json:"nonce"`
 	Channel   string                 `json:"channel"`
 	ExpiresAt int64                  `json:"expires_at"`
-	Updates   []models.PluginRelease `json:"updates"`
+	Updates   []PluginUpdateRelease  `json:"updates"`
 	Revoked   []models.PluginRelease `json:"revoked"`
+}
+
+// PluginUpdateRelease 将发布信息与后台应用更新公告组合下发，不重复存储公告。
+type PluginUpdateRelease struct {
+	models.PluginRelease
+	UpdateAnnouncement string `json:"update_announcement"`
 }
 
 // SignPluginManifest 用现有租约密钥签署完整更新清单，密钥不可用时拒绝返回。
@@ -115,7 +122,7 @@ func pluginUpdatesFromDB(db *gorm.DB, req PluginUpdateRequest, requested map[str
 	sort.Strings(ids)
 	manifest := PluginUpdateManifest{
 		Nonce: req.Nonce, Channel: req.Channel, ExpiresAt: now.Add(15 * time.Minute).Unix(),
-		Updates: []models.PluginRelease{}, Revoked: []models.PluginRelease{},
+		Updates: []PluginUpdateRelease{}, Revoked: []models.PluginRelease{},
 	}
 	if len(ids) == 0 {
 		return SignPluginManifest(manifest)
@@ -144,10 +151,29 @@ func pluginUpdatesFromDB(db *gorm.DB, req PluginUpdateRequest, requested map[str
 			latest[release.PluginID] = release
 		}
 	}
+	// 公告由已有应用后台维护；按发布校验使用的应用主键顺序选择绑定应用。
+	var apps []models.App
+	if err := db.Select("plugin_id", "update_announcement").
+		Where("plugin_id IN ? AND status = 1", ids).
+		Order(clause.OrderByColumn{Column: clause.Column{Name: clause.PrimaryKey}}).
+		Find(&apps).Error; err != nil {
+		return nil, err
+	}
+	announcements := make(map[string]string, len(apps))
+	for _, app := range apps {
+		if app.PluginID == nil {
+			continue
+		}
+		if _, exists := announcements[*app.PluginID]; !exists {
+			announcements[*app.PluginID] = app.UpdateAnnouncement
+		}
+	}
 	for _, id := range ids {
 		release, exists := latest[id]
 		if exists && (requested[id] == "" || compareVersion(requested[id], release.Version) < 0) {
-			manifest.Updates = append(manifest.Updates, release)
+			manifest.Updates = append(manifest.Updates, PluginUpdateRelease{
+				PluginRelease: release, UpdateAnnouncement: announcements[id],
+			})
 		}
 	}
 	return SignPluginManifest(manifest)
@@ -178,18 +204,31 @@ func ValidatePluginRelease(release *models.PluginRelease) error {
 	if release.MinModuleVersion != "" && !pluginVersionPattern.MatchString(release.MinModuleVersion) {
 		return errors.New("最低模块版本格式无效")
 	}
-	if !targetPackagePattern.MatchString(release.Target) ||
-		(release.MinTargetVersion != "" && !targetVersionPattern.MatchString(release.MinTargetVersion)) {
-		return errors.New("目标包或最低目标版本无效")
+	// 目标包与最低目标版本都是可选项：留空表示不限制。
+	if release.Target != "" && !targetPackagePattern.MatchString(release.Target) {
+		return errors.New("目标包名无效")
 	}
-	if release.LoaderProto != 1 || release.ABI != "arm64-v8a" || release.DriverCaps > 0xffff {
-		return errors.New("发布要求的协议、ABI 或能力位不支持")
+	if release.MinTargetVersion != "" && !targetVersionPattern.MatchString(release.MinTargetVersion) {
+		return errors.New("最低目标版本格式无效")
 	}
-	if release.Level != "optional" && release.Level != "required" && release.Level != "security" {
-		return errors.New("level 须为 optional、required 或 security")
+	// 协议、ABI、能力位同属可选项：留空（0）表示不限制，填写时才校验取值。
+	if release.LoaderProto > 1 || release.DriverCaps > 0xffff {
+		return errors.New("发布要求的协议或能力位不支持")
 	}
-	if len(release.Changelog) > 4096 || len(release.RevokedReason) > 500 {
-		return errors.New("更新说明或撤回原因过长")
+	if release.ABI != "" && release.ABI != "arm64-v8a" {
+		return errors.New("发布要求的 ABI 不支持")
+	}
+	// level 留空按 optional 处理，兼容只填版本号的最小发布。
+	if release.Level == "" {
+		release.Level = "optional"
+	}
+	switch release.Level {
+	case "optional", "recommended", "required", "security":
+	default:
+		return errors.New("level 须为 optional、recommended、required 或 security")
+	}
+	if len(release.RevokedReason) > 500 {
+		return errors.New("撤回原因过长")
 	}
 	return nil
 }
