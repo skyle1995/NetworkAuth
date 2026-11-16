@@ -1,4 +1,4 @@
-﻿package services
+package services
 
 import (
 	"NetworkAuth/database"
@@ -6,13 +6,42 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+
+	"gorm.io/gorm"
 )
 
 // ============================================================================
 // 应用信息类接口（更新地址 / 版本检测 / 卡密信息）
 // ============================================================================
 
-// GetUpdateInfo 获取更新地址（type 2）：返回更新方式与下载地址。
+// latestVersion 取应用的当前发布版本：优先版本列表里已启用的最高版本，
+// 列表为空时回退到 apps.version / download_url（兼容旧配置）。
+func latestVersion(db *gorm.DB, app *models.App) models.AppVersion {
+	fallback := models.AppVersion{
+		AppUUID: app.UUID, Version: app.Version, DownloadType: app.DownloadType,
+		DownloadURL: app.DownloadURL, Changelog: app.UpdateAnnouncement, Enabled: true,
+	}
+	var rows []models.AppVersion
+	if err := db.Where("app_uuid = ? AND enabled = ?", app.UUID, true).
+		Order("published_at DESC, id DESC").Limit(50).Find(&rows).Error; err != nil || len(rows) == 0 {
+		return fallback
+	}
+	best := rows[0]
+	for _, row := range rows[1:] {
+		if compareVersion(best.Version, row.Version) < 0 {
+			best = row
+		}
+	}
+	if strings.TrimSpace(best.DownloadURL) == "" {
+		best.DownloadURL = app.DownloadURL
+	}
+	if strings.TrimSpace(best.Changelog) == "" {
+		best.Changelog = app.UpdateAnnouncement
+	}
+	return best
+}
+
+// GetUpdateInfo 获取更新地址（type 2）：返回当前版本的更新方式与下载地址。
 func GetUpdateInfo(appUUID string) (any, error) {
 	db, err := database.GetDB()
 	if err != nil {
@@ -22,13 +51,16 @@ func GetUpdateInfo(appUUID string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	ver := latestVersion(db, app)
 	return map[string]any{
-		"download_type": app.DownloadType,
-		"download_url":  app.DownloadURL,
+		"latest_version":      ver.Version,
+		"download_type":       ver.DownloadType,
+		"download_url":        ver.DownloadURL,
+		"update_announcement": ver.Changelog,
 	}, nil
 }
 
-// CheckVersion 检测最新版本（type 3）：比对客户端版本与应用版本。
+// CheckVersion 检测最新版本（type 3）：比对客户端版本与版本列表里的最高版本。
 func CheckVersion(appUUID, clientVersion string) (any, error) {
 	db, err := database.GetDB()
 	if err != nil {
@@ -38,12 +70,14 @@ func CheckVersion(appUUID, clientVersion string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	needUpdate := compareVersion(clientVersion, app.Version) < 0
+	ver := latestVersion(db, app)
+	needUpdate := compareVersion(clientVersion, ver.Version) < 0 && ver.DownloadType != models.DownloadTypeDisabled
 	return map[string]any{
-		"latest_version": app.Version,
-		"need_update":    needUpdate,
-		"download_type":  app.DownloadType,
-		"download_url":   app.DownloadURL,
+		"latest_version":      ver.Version,
+		"need_update":         needUpdate,
+		"download_type":       ver.DownloadType,
+		"download_url":        ver.DownloadURL,
+		"update_announcement": ver.Changelog,
 	}, nil
 }
 

@@ -122,6 +122,7 @@ func AllModels() []any {
 		&models.LoginLog{},
 		&models.User{},
 		&models.App{},
+		&models.AppVersion{},
 		&models.API{},
 		&models.Variable{},
 		&models.Function{},

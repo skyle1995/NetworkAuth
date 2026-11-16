@@ -119,7 +119,7 @@ func OpenAPIHandler(c *gin.Context) {
 		return
 	}
 
-	// 校验请求签名（防重放 + 完整性 + 应用鉴权）
+	// 校验时间窗口、请求完整性与应用身份；窗口内请求尚不去重。
 	if err := services.VerifyOpenSign(envelope.AppUUID, envelope.APIType, envelope.Data, envelope.Timestamp, envelope.Sign, app.Secret); err != nil {
 		failErr(c, services.NewCodedError(models.ErrSignatureInvalid, err.Error()))
 		return
@@ -217,12 +217,10 @@ func dispatch(c *gin.Context, app *models.App, apiType int, plainParams string) 
 		return handleRebind(c, app, plainParams)
 	case models.APITypeDeductPoints:
 		return handleDeductPoints(app, plainParams)
-	case models.APITypeDisableUser:
-		return handleRiskAction(app, plainParams, models.APITypeDisableUser)
-	case models.APITypeBlackUser:
-		return handleRiskAction(app, plainParams, models.APITypeBlackUser)
-	case models.APITypeUserDeductedTime:
-		return handleRiskDeduct(app, plainParams)
+	case models.APITypeDisableUser, models.APITypeBlackUser, models.APITypeUserDeductedTime:
+		// 应用密钥属于客户端身份，不能授予全站账号管理权限。
+		// 封停、拉黑和资源扣减只允许从现有管理员鉴权路由执行。
+		return nil, errors.New("管理操作不允许通过客户端接口执行")
 	case models.APITypeLogOut:
 		return handleLogout(app, plainParams)
 	case models.APITypeKickSession:
@@ -681,7 +679,7 @@ func handleAppDeactivate(app *models.App, plainParams string) (any, error) {
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
 	}
-	if err := services.DeactivateByToken(params.Token); err != nil {
+	if err := services.DeactivateForApp(app.UUID, params.Token); err != nil {
 		return nil, err
 	}
 	return gin.H{"released": true}, nil

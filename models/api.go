@@ -73,6 +73,7 @@ const (
 	APITypeAppDeactivate = 71
 	// APITypeEntitlements 权益清单（entitlements，含 secret 下发）
 	APITypeEntitlements = 72
+	// APITypePluginUpdates 批量查询插件签名更新清单（不计费）。
 )
 
 // 已移除的历史接口类型：仅用于启动时清理数据库中的遗留记录，不再作为有效接口。
@@ -87,6 +88,7 @@ const (
 	AlgorithmRSA        = 2 // RSA
 	AlgorithmRSADynamic = 3 // RSA（动态）
 	AlgorithmEasy       = 4 // 易加密
+	AlgorithmBox        = 5 // Curve25519 Box (端到端加密)
 )
 
 // ============================================================================
@@ -176,6 +178,8 @@ func GetAlgorithmName(algorithm int) string {
 		return "RSA（动态）"
 	case AlgorithmEasy:
 		return "易加密"
+	case AlgorithmBox:
+		return "Curve25519"
 	default:
 		return "未知算法"
 	}
@@ -318,7 +322,7 @@ func GetAPITypeName(apiType int) string {
 
 // IsValidAlgorithm 验证算法类型是否有效
 func IsValidAlgorithm(algorithm int) bool {
-	return algorithm >= AlgorithmNone && algorithm <= AlgorithmEasy
+	return algorithm >= AlgorithmNone && algorithm <= AlgorithmBox
 }
 
 // IsValidAPIType 验证API类型是否有效

@@ -91,6 +91,8 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 		{
 			appsGroup.GET("/list", adminctl.AppsListHandler)
 			appsGroup.GET("/simple", adminctl.AppsSimpleListHandler)
+	appsGroup.GET("/list_billing", adminctl.AppBillingListHandler)
+	appsGroup.POST("/update_billing", adminctl.AppUpdateBillingHandler)
 			appsGroup.POST("/create", adminctl.AppCreateHandler)
 			appsGroup.POST("/update", adminctl.AppUpdateHandler)
 			appsGroup.POST("/delete", adminctl.AppDeleteHandler)
@@ -99,6 +101,9 @@ func RegisterAdminRoutes(rg *gin.RouterGroup) {
 			appsGroup.POST("/update_status", adminctl.AppUpdateStatusHandler)
 			appsGroup.POST("/reset_secret", adminctl.AppResetSecretHandler)
 			appsGroup.GET("/get_app_data", adminctl.AppGetAppDataHandler)
+	appsGroup.GET("/versions", adminctl.AppVersionsListHandler)
+	appsGroup.POST("/version_save", adminctl.AppVersionSaveHandler)
+	appsGroup.POST("/version_delete", adminctl.AppVersionDeleteHandler)
 			appsGroup.POST("/update_app_data", adminctl.AppUpdateAppDataHandler)
 			appsGroup.GET("/get_announcement", adminctl.AppGetAnnouncementHandler)
 			appsGroup.POST("/update_announcement", adminctl.AppUpdateAnnouncementHandler)
