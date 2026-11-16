@@ -291,7 +291,7 @@ func handleBulletin(app *models.App) (any, error) {
 
 	return gin.H{
 		"title":   app.Name,
-		"version": app.Version,
+		"version": services.LatestAppVersionField(app),
 		"content": content,
 		// 能力/模式开关：客户端据此决定界面（如注册是否需验证码、是否显示卡密登录）
 		"config": gin.H{

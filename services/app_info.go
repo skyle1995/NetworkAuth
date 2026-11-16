@@ -17,26 +17,18 @@ import (
 // latestVersion 取应用的当前发布版本：优先版本列表里已启用的最高版本，
 // 列表为空时回退到 apps.version / download_url（兼容旧配置）。
 func latestVersion(db *gorm.DB, app *models.App) models.AppVersion {
-	fallback := models.AppVersion{
-		AppUUID: app.UUID, Version: app.Version, DownloadType: app.DownloadType,
-		DownloadURL: app.DownloadURL, Changelog: app.UpdateAnnouncement, Enabled: true,
-	}
+	/* 版本号、下载地址、更新公告一律以版本列表为准；
+	 * 列表没有已启用记录时视为「没有可更新版本」，不再回退 apps 表字段。 */
 	var rows []models.AppVersion
 	if err := db.Where("app_uuid = ? AND enabled = ?", app.UUID, true).
-		Order("published_at DESC, id DESC").Limit(50).Find(&rows).Error; err != nil || len(rows) == 0 {
-		return fallback
+		Order("published_at DESC, id DESC").Limit(100).Find(&rows).Error; err != nil || len(rows) == 0 {
+		return models.AppVersion{AppUUID: app.UUID, DownloadType: models.DownloadTypeDisabled}
 	}
 	best := rows[0]
 	for _, row := range rows[1:] {
 		if compareVersion(best.Version, row.Version) < 0 {
 			best = row
 		}
-	}
-	if strings.TrimSpace(best.DownloadURL) == "" {
-		best.DownloadURL = app.DownloadURL
-	}
-	if strings.TrimSpace(best.Changelog) == "" {
-		best.Changelog = app.UpdateAnnouncement
 	}
 	return best
 }
@@ -71,7 +63,8 @@ func CheckVersion(appUUID, clientVersion string) (any, error) {
 		return nil, err
 	}
 	ver := latestVersion(db, app)
-	needUpdate := compareVersion(clientVersion, ver.Version) < 0 && ver.DownloadType != models.DownloadTypeDisabled
+	needUpdate := strings.TrimSpace(ver.Version) != "" &&
+		compareVersion(clientVersion, ver.Version) < 0 && ver.DownloadType != models.DownloadTypeDisabled
 	return map[string]any{
 		"latest_version":      ver.Version,
 		"need_update":         needUpdate,
@@ -169,4 +162,21 @@ func parseVersion(v string) []int {
 		out = append(out, n)
 	}
 	return out
+}
+
+// LatestAppVersionField 返回版本列表里的最新版本号，供登录/公告接口展示；
+// 列表为空时返回应用自身版本号，保证旧数据仍有值可显示。
+func LatestAppVersionField(app *models.App) string {
+	db, err := database.GetDB()
+	if err != nil || app == nil {
+		if app != nil {
+			return app.Version
+		}
+		return ""
+	}
+	ver := latestVersion(db, app)
+	if strings.TrimSpace(ver.Version) == "" {
+		return app.Version
+	}
+	return ver.Version
 }
