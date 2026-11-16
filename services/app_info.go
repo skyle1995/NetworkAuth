@@ -167,16 +167,29 @@ func parseVersion(v string) []int {
 // LatestAppVersionField 返回版本列表里的最新版本号，供登录/公告接口展示；
 // 列表为空时返回应用自身版本号，保证旧数据仍有值可显示。
 func LatestAppVersionField(app *models.App) string {
-	db, err := database.GetDB()
-	if err != nil || app == nil {
-		if app != nil {
-			return app.Version
-		}
+	if app == nil {
 		return ""
 	}
-	ver := latestVersion(db, app)
-	if strings.TrimSpace(ver.Version) == "" {
-		return app.Version
+	db, err := database.GetDB()
+	if err != nil {
+		return ""
 	}
-	return ver.Version
+	return latestVersion(db, app).Version
+}
+
+// LatestAppUpdateSnapshot 返回当前版本列表项的更新策略快照，供公告/登录接口下发。
+func LatestAppUpdateSnapshot(app *models.App) map[string]any {
+	if app == nil {
+		return map[string]any{"download_type": 0, "download_url": ""}
+	}
+	db, err := database.GetDB()
+	if err != nil {
+		return map[string]any{"download_type": 0, "download_url": ""}
+	}
+	ver := latestVersion(db, app)
+	return map[string]any{
+		"download_type": ver.DownloadType,
+		"download_url":  ver.DownloadURL,
+		"version":       ver.Version,
+	}
 }

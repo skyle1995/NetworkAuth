@@ -53,11 +53,7 @@ export const getAppAnnouncement = (params?: object) => {
   });
 };
 
-export const updateAppAnnouncement = (data?: object) => {
-  return http.request<any>("post", "/api/admin/apps/update_announcement", {
-    data
-  });
-};
+;
 
 export const getAppMultiConfig = (params?: object) => {
   return http.request<any>("get", "/api/admin/apps/get_multi_config", {
@@ -96,4 +92,14 @@ export const saveAppLevelPoints = (data?: object) => {
   return http.request<any>("post", "/api/admin/apps/save_level_points", {
     data
   });
+};
+
+/** 计费策略：列出所有应用的计费配置 */
+export const getAppBillingList = () => {
+  return http.request<Result>("get", "/api/admin/apps/list_billing");
+};
+
+/** 计费策略：保存单个应用的计费配置 */
+export const updateAppBilling = (data?: object) => {
+  return http.request<Result>("post", "/api/admin/apps/update_billing", { data });
 };

@@ -42,6 +42,14 @@ export default [
         }
       },
       {
+        path: "/admin/apps/billing",
+        name: "AppBillingIndex",
+        component: () => import("@/views/admin/application/billing/index.vue"),
+        meta: {
+          title: "计费策略"
+        }
+      },
+      {
         path: "/admin/online/index",
         name: "OnlineManageIndex",
         component: () => import("@/views/admin/online/index.vue"),

@@ -56,9 +56,16 @@ export function useApp() {
       minWidth: 120
     },
     {
+      label: "插件标识",
+      prop: "plugin_id",
+      minWidth: 140,
+      cellRenderer: ({ row }) => row.plugin_id || "—"
+    },
+    {
       label: "UUID",
       prop: "uuid",
-      width: 320
+      width: 400,
+      cellRenderer: ({ row }) => h("span", { style: "font-family:ui-monospace,monospace;font-size:12px" }, row.uuid)
     },
     {
       label: "密钥",
@@ -86,24 +93,6 @@ export function useApp() {
           onChange={(val: number) => handleStatusChange(row, val)}
         />
       )
-    },
-    {
-      label: "更新方式",
-      prop: "download_type",
-      width: 100,
-      align: "center",
-      cellRenderer: ({ row }) => {
-        let text = "不启用";
-        let type = "info";
-        if (row.download_type === 1) {
-          text = "强制更新";
-          type = "danger";
-        } else if (row.download_type === 2) {
-          text = "自由更新";
-          type = "warning";
-        }
-        return <el-tag type={type}>{text}</el-tag>;
-      }
     },
     {
       label: "创建时间",

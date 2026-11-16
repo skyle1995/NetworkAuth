@@ -47,6 +47,7 @@ type EntitlementBilling struct {
 // 不必自己推导规则；DenyCode 与 70 激活返回的错误码同源，便于统一处理。
 type EntitlementItem struct {
 	UUID        string `json:"uuid"`
+	PluginID    string `json:"plugin_id,omitempty"` // 绑定的本地插件ID
 	Secret      string `json:"secret,omitempty"` // 仅 usable=1 时下发
 	Name        string `json:"name"`
 	Version     string `json:"version"`
@@ -161,12 +162,16 @@ func ListEntitlements(db *gorm.DB, acct *models.MemberAccountToken, fingerprint 
 		item := EntitlementItem{
 			UUID:          app.UUID,
 			Name:          app.Name,
-			Version:       app.Version,
+			Version:       LatestAppVersionField(app),
 			Mode:          billing.Mode,
 			Free:          billing.Free,
 			RequiredLevel: billing.RequiredLevel,
 			Usable:        1,
-			Billing: &EntitlementBilling{
+		}
+		if app.PluginID != nil {
+			item.PluginID = *app.PluginID
+		}
+		item.Billing = &EntitlementBilling{
 				Mode:            billing.Mode,
 				ModeName:        models.BillingModeName(billing.Mode),
 				Free:            billing.Free,
@@ -179,7 +184,6 @@ func ListEntitlements(db *gorm.DB, acct *models.MemberAccountToken, fingerprint 
 				PeriodMinutes:   billing.PeriodMinutes,
 				PerPeriod:       billing.PerPeriod,
 				HeartbeatCharge: billing.HeartbeatCharge,
-			},
 		}
 
 		// 等级与有效期：与 70 激活用同一个门禁函数，保证「清单说能用」= 「激活真能过」

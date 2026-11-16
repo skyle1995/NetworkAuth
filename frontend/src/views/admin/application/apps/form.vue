@@ -13,10 +13,7 @@ export interface FormProps {
     plugin_id?: string;
     version: string;
     status: number;
-    download_type: number;
-    download_url: string;
-    update_announcement?: string;
-    free_mode: number;
+          free_mode: number;
     billing_mode: number;
     required_level: number;
     billing_scope: number;
@@ -36,10 +33,7 @@ const props = withDefaults(defineProps<FormProps>(), {
     plugin_id: "",
     version: "1.0.0",
     status: 1,
-    download_type: 0,
-    download_url: "",
-    update_announcement: "",
-    free_mode: 0,
+          free_mode: 0,
     billing_mode: 0,
     required_level: 1,
     billing_scope: 0,
@@ -89,34 +83,5 @@ defineExpose({ getRef, newFormInline });
         <el-radio :value="1">启用</el-radio>
         <el-radio :value="0">停用</el-radio>
       </el-radio-group>
-    </el-form-item>
-    <el-form-item label="更新方式" prop="download_type">
-      <el-radio-group v-model="newFormInline.download_type">
-        <el-radio :value="0">不启用</el-radio>
-        <el-radio :value="1">强制更新</el-radio>
-        <el-radio :value="2">自由更新</el-radio>
-      </el-radio-group>
-    </el-form-item>
-    <el-form-item
-      v-if="newFormInline.download_type !== 0"
-      label="下载地址"
-      prop="download_url"
-    >
-      <el-input
-        v-model="newFormInline.download_url"
-        clearable
-        placeholder="客户端更新下载地址"
-      />
-    </el-form-item>    <!-- 授权期限：并发控制与崩溃回收的兜底 -->
-    <el-form-item label="授权期限" prop="lease_ttl_minutes">
-      <el-input-number
-        v-model="newFormInline.lease_ttl_minutes"
-        :min="1"
-        :max="1440"
-      />
-      <div class="w-full text-xs text-gray-400 mt-1">
-        访问凭证的有效期（默认 30 分钟）。到期前自动续；客户端崩溃或断网时，靠它回收并发名额。
-      </div>
-    </el-form-item>
-  </el-form>
+    </el-form-item>  </el-form>
 </template>

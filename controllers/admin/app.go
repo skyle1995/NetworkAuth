@@ -267,11 +267,9 @@ func AppResetSecretHandler(c *gin.Context) {
 // AppCreateHandler 创建应用API处理器
 func AppCreateHandler(c *gin.Context) {
 	var req struct {
-		Name                  string `json:"name"`
-		Version               string `json:"version"`
+		Name                  string  `json:"name"`
+		PluginID              *string `json:"plugin_id"`
 		Status                int    `json:"status"`
-		DownloadType          int    `json:"download_type"`
-		DownloadURL           string `json:"download_url"`
 		FreeMode              int    `json:"free_mode"`
 		BillingMode           int    `json:"billing_mode"`
 		RequiredLevel         int    `json:"required_level"`
@@ -300,26 +298,41 @@ func AppCreateHandler(c *gin.Context) {
 		return
 	}
 
-	// 设置默认值
-	if req.Version == "" {
-		req.Version = "1.0.0"
+	// 计费字段兜底：创建时不再填计费策略（前端已移出表单），
+	// 全部走这里的默认值，后续在「应用管理 → 计费策略」里调整。
+	if req.RequiredLevel < 1 {
+		req.RequiredLevel = 1
+	}
+	if req.PointsPerLogin < 0 {
+		req.PointsPerLogin = 0
+	}
+	if req.PointsPerPeriod < 1 {
+		req.PointsPerPeriod = 1
+	}
+	if req.PointsPeriodMinutes < 1 {
+		req.PointsPeriodMinutes = 60
+	}
+	if req.LeaseTTLMinutes < 1 {
+		req.LeaseTTLMinutes = 30
 	}
 
 	logrus.WithFields(logrus.Fields{
 		"name":          req.Name,
-		"version":       req.Version,
 		"status":        req.Status,
-		"download_type": req.DownloadType,
-		"download_url":  req.DownloadURL,
 	}).Debug("Received app create request")
 
 	// 创建应用
+	var pluginID *string
+	if req.PluginID != nil {
+		if trimmed := strings.TrimSpace(*req.PluginID); trimmed != "" {
+			pluginID = &trimmed
+		}
+	}
+
 	app := models.App{
 		Name:                  strings.TrimSpace(req.Name),
-		Version:               req.Version,
+		PluginID:              pluginID,
 		Status:                req.Status,
-		DownloadType:          req.DownloadType,
-		DownloadURL:           strings.TrimSpace(req.DownloadURL),
 		FreeMode:              req.FreeMode,
 		BillingMode:           req.BillingMode,
 		RequiredLevel:         req.RequiredLevel,
@@ -417,12 +430,10 @@ func AppCreateHandler(c *gin.Context) {
 // AppUpdateHandler 更新应用API处理器
 func AppUpdateHandler(c *gin.Context) {
 	var req struct {
-		ID                    uint   `json:"id"`
-		Name                  string `json:"name"`
-		Version               string `json:"version"`
+		ID                    uint    `json:"id"`
+		Name                  string  `json:"name"`
+		PluginID              *string `json:"plugin_id"`
 		Status                int    `json:"status"`
-		DownloadType          int    `json:"download_type"`
-		DownloadURL           string `json:"download_url"`
 		FreeMode              int    `json:"free_mode"`
 		BillingMode           int    `json:"billing_mode"`
 		RequiredLevel         int    `json:"required_level"`
@@ -477,10 +488,14 @@ func AppUpdateHandler(c *gin.Context) {
 
 	// 更新应用信息
 	app.Name = strings.TrimSpace(req.Name)
-	app.Version = req.Version
+	if req.PluginID != nil {
+		if trimmed := strings.TrimSpace(*req.PluginID); trimmed != "" {
+			app.PluginID = &trimmed
+		} else {
+			app.PluginID = nil
+		}
+	}
 	app.Status = req.Status
-	app.DownloadType = req.DownloadType
-	app.DownloadURL = strings.TrimSpace(req.DownloadURL)
 	app.FreeMode = req.FreeMode
 	app.BillingMode = req.BillingMode
 	app.RequiredLevel = req.RequiredLevel
@@ -694,77 +709,6 @@ func AppUpdateAppDataHandler(c *gin.Context) {
 	})
 }
 
-// AppUpdateAnnouncementHandler 更新应用程序公告处理器
-func AppUpdateAnnouncementHandler(c *gin.Context) {
-	// 解析请求体
-	var req struct {
-		UUID         string `json:"uuid"`
-		Announcement string `json:"announcement"`
-	}
-
-	if !appBaseController.BindJSON(c, &req) {
-		return
-	}
-
-	// 验证UUID
-	if req.UUID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 1,
-			"msg":  "应用UUID不能为空",
-		})
-		return
-	}
-
-	// 验证UUID格式
-	if _, err := uuid.Parse(req.UUID); err != nil {
-		logrus.WithError(err).Error("Invalid UUID format")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 1,
-			"msg":  "无效的UUID格式",
-		})
-		return
-	}
-
-	// 获取数据库连接
-	db, ok := appBaseController.GetDB(c)
-	if !ok {
-		return
-	}
-
-	// 查找应用
-	var app models.App
-	if err := db.Where("uuid = ?", req.UUID).First(&app).Error; err != nil {
-		logrus.WithError(err).Error("Failed to find app")
-		c.JSON(http.StatusNotFound, gin.H{
-			"code": 1,
-			"msg":  "应用不存在",
-		})
-		return
-	}
-
-	// 对公告内容进行base64编码
-	encodedAnnouncement := base64.StdEncoding.EncodeToString([]byte(req.Announcement))
-
-	// 更新应用的公告内容
-	if err := db.Model(&app).Update("announcement", encodedAnnouncement).Error; err != nil {
-		logrus.WithError(err).Error("Failed to update app announcement")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 1,
-			"msg":  "更新程序公告失败",
-		})
-		return
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"app_uuid": req.UUID,
-		"app_name": app.Name,
-	}).Debug("App announcement updated successfully")
-
-	c.JSON(http.StatusOK, gin.H{
-		"code": 0,
-		"msg":  "程序公告更新成功",
-	})
-}
 
 // AppGetMultiConfigHandler 获取应用多开配置处理器
 func AppGetMultiConfigHandler(c *gin.Context) {
@@ -1480,5 +1424,123 @@ func AppSaveLevelPointsHandler(c *gin.Context) {
 
 	services.RecordOperationLog("保存等级点数", c.GetString("admin_username"),
 		c.GetString("admin_uuid"), "应用 "+app.Name+" 共 "+strconv.Itoa(len(items))+" 个等级的计费点数")
+	appBaseController.HandleSuccess(c, "保存成功", nil)
+}
+// ============================================================================
+// 计费策略（应用级）
+// ============================================================================
+//
+// 独立成页：创建应用时只填基本信息和内容分发，计费全部走默认值，
+// 之后在「应用管理 → 计费策略」按需调整。这样新建应用不必一次面对
+// 计费模式/等级/周期/单价十来个字段，也便于横向对比所有应用的定价。
+
+// billingConfig 单个应用的计费配置（列表与更新共用同一组字段）
+type billingConfig struct {
+	UUID                  string  `json:"uuid"`
+	Name                  string  `json:"name"`
+	Status                int     `json:"status"`
+	FreeMode              int     `json:"free_mode"`
+	BillingMode           int     `json:"billing_mode"`
+	RequiredLevel         int     `json:"required_level"`
+	BillingScope          int     `json:"billing_scope"`
+	PointsChargeMode      int     `json:"points_charge_mode"`
+	PointsPerLogin        float64 `json:"points_per_login"`
+	PointsPeriodMinutes   int     `json:"points_period_minutes"`
+	PointsPerPeriod       float64 `json:"points_per_period"`
+	PointsHeartbeatCharge int     `json:"points_heartbeat_charge"`
+}
+
+// AppBillingListHandler 列出所有应用的计费配置
+func AppBillingListHandler(c *gin.Context) {
+	db, ok := appBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+
+	var apps []models.App
+	if err := db.Order("name ASC").Find(&apps).Error; err != nil {
+		logrus.WithError(err).Error("Failed to list app billing configs")
+		appBaseController.HandleInternalError(c, "查询计费策略失败", err)
+		return
+	}
+
+	list := make([]billingConfig, 0, len(apps))
+	for i := range apps {
+		a := &apps[i]
+		list = append(list, billingConfig{
+			UUID:                  a.UUID,
+			Name:                  a.Name,
+			Status:                a.Status,
+			FreeMode:              a.FreeMode,
+			BillingMode:           a.BillingMode,
+			RequiredLevel:         a.RequiredLevel,
+			BillingScope:          a.BillingScope,
+			PointsChargeMode:      a.PointsChargeMode,
+			PointsPerLogin:        a.PointsPerLogin,
+			PointsPeriodMinutes:   a.PointsPeriodMinutes,
+			PointsPerPeriod:       a.PointsPerPeriod,
+			PointsHeartbeatCharge: a.PointsHeartbeatCharge,
+		})
+	}
+
+	appBaseController.HandleSuccess(c, "success", list)
+}
+
+// AppUpdateBillingHandler 更新单个应用的计费配置（仅计费字段）
+func AppUpdateBillingHandler(c *gin.Context) {
+	var req billingConfig
+	if !appBaseController.BindJSON(c, &req) {
+		return
+	}
+	if !appBaseController.ValidateRequired(c, map[string]interface{}{
+		"应用UUID": req.UUID,
+	}) {
+		return
+	}
+
+	db, ok := appBaseController.GetDB(c)
+	if !ok {
+		return
+	}
+
+	var app models.App
+	if err := db.Where("uuid = ?", strings.TrimSpace(req.UUID)).First(&app).Error; err != nil {
+		appBaseController.HandleValidationError(c, "应用不存在")
+		return
+	}
+
+	// 与创建/编辑时的校验口径保持一致
+	if req.RequiredLevel < 1 {
+		req.RequiredLevel = 1
+	}
+	if req.PointsPeriodMinutes < 1 {
+		req.PointsPeriodMinutes = 60
+	}
+	if req.PointsPerLogin < 0 {
+		req.PointsPerLogin = 0
+	}
+	if req.PointsPerPeriod < 1 {
+		req.PointsPerPeriod = 1
+	}
+
+	updates := map[string]interface{}{
+		"free_mode":               req.FreeMode,
+		"billing_mode":            req.BillingMode,
+		"required_level":          req.RequiredLevel,
+		"billing_scope":           req.BillingScope,
+		"points_charge_mode":      req.PointsChargeMode,
+		"points_per_login":        req.PointsPerLogin,
+		"points_period_minutes":   req.PointsPeriodMinutes,
+		"points_per_period":       req.PointsPerPeriod,
+		"points_heartbeat_charge": req.PointsHeartbeatCharge,
+	}
+	if err := db.Model(&models.App{}).Where("uuid = ?", app.UUID).Updates(updates).Error; err != nil {
+		logrus.WithError(err).Error("Failed to update app billing config")
+		appBaseController.HandleInternalError(c, "保存计费策略失败", err)
+		return
+	}
+
+	services.RecordOperationLog("更新计费策略", c.GetString("admin_username"),
+		c.GetString("admin_uuid"), "应用 "+app.Name)
 	appBaseController.HandleSuccess(c, "保存成功", nil)
 }

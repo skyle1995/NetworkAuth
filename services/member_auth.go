@@ -91,23 +91,30 @@ func (r *StatusResult) applyBindingInfo(b BindingInfo) {
 // LoginUpdate 登录时的更新判断结果（仅 download_type != 0 时随登录返回）。
 // 客户端据 download_type 决定强制/自由更新；need_update 为本次登录版本是否落后。
 type LoginUpdate struct {
-	DownloadType  int    `json:"download_type"`  // 更新方式：1 强制 / 2 自由
-	NeedUpdate    bool   `json:"need_update"`    // 客户端版本低于应用版本
-	LatestVersion string `json:"latest_version"` // 应用当前版本
-	DownloadURL   string `json:"download_url"`   // 下载/更新地址
+	DownloadType       int    `json:"download_type"`       // 更新方式：1 强制 / 2 自由
+	NeedUpdate         bool   `json:"need_update"`         // 客户端版本低于应用版本
+	LatestVersion      string `json:"latest_version"`      // 应用当前版本
+	DownloadURL        string `json:"download_url"`        // 下载/更新地址
+	UpdateAnnouncement string `json:"update_announcement"` // 本次更新说明（明文，可空）
 }
 
 // buildLoginUpdate 依据应用更新方式与客户端提交的版本号，构造登录返回中的更新结果。
 // 更新方式为「不启用」(download_type=0) 时返回 nil —— 登录不带更新信息。
 func buildLoginUpdate(app *models.App, clientVersion string) *LoginUpdate {
-	if app.DownloadType == models.DownloadTypeDisabled {
+	db, err := database.GetDB()
+	if err != nil {
+		return nil
+	}
+	ver := latestVersion(db, app)
+	if ver.DownloadType == models.DownloadTypeDisabled || strings.TrimSpace(ver.Version) == "" {
 		return nil
 	}
 	return &LoginUpdate{
-		DownloadType:  app.DownloadType,
-		NeedUpdate:    compareVersion(clientVersion, app.Version) < 0,
-		LatestVersion: app.Version,
-		DownloadURL:   app.DownloadURL,
+		DownloadType:       ver.DownloadType,
+		NeedUpdate:         compareVersion(clientVersion, ver.Version) < 0,
+		LatestVersion:      ver.Version,
+		DownloadURL:        ver.DownloadURL,
+		UpdateAnnouncement: ver.Changelog,
 	}
 }
 

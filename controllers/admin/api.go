@@ -277,7 +277,7 @@ func APIExportKeysHandler(c *gin.Context) {
 			"name":    a.Name,
 			"uuid":    a.UUID,
 			"secret":  a.Secret,
-			"version": a.Version,
+			"version": "",
 		})
 	}
 

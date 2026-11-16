@@ -60,21 +60,17 @@ type App struct {
 	Status int `gorm:"default:0;not null;comment:应用状态，1=启用，0=禁用" json:"status"`
 	// Name：应用名称；json 名称与前端一致
 	Name string `gorm:"size:100;not null;comment:应用名称" json:"name"`
+	// PluginID：绑定的本地插件ID，用于管理端直接映射（允许为空）
+	PluginID *string `gorm:"size:64;uniqueIndex;comment:绑定的本地插件ID" json:"plugin_id"`
 	// Secret：应用密钥，一号通下是**应用身份的唯一凭据**（用于请求签名）
 	Secret string `gorm:"size:255;not null;comment:应用密钥，应用身份唯一凭据，用于请求签名" json:"secret"`
-	// Version：应用版本号
-	Version string `gorm:"size:50;default:'1.0.0';comment:应用版本号" json:"version"`
-	// DownloadType：更新方式（0=不启用，1=强制更新，2=自由更新）。启用（非0）时须配 DownloadURL。
-	// 强制与否由本字段表达（=1 为强制），客户端据此判断，无需单独的 force_update。
-	DownloadType int `gorm:"default:0;not null;comment:更新方式，0=不启用，1=强制更新，2=自由更新" json:"download_type"`
-	// DownloadURL：下载地址
-	DownloadURL string `gorm:"size:500;comment:下载地址" json:"download_url"`
 
 	// AppData：应用数据（base64编码存储）
 	AppData string `gorm:"type:text;comment:应用数据，base64编码存储" json:"app_data"`
 
 	// Announcement：程序公告内容（base64编码存储）
 	Announcement string `gorm:"type:text;comment:程序公告内容，base64编码存储" json:"announcement"`
+
 
 	// LoginType：登陆方式（0=顶号登录（默认），1=非顶号登录，2=手动顶号）
 	LoginType int `gorm:"default:0;not null;comment:登陆方式，0=顶号登录，1=非顶号登录，2=手动顶号" json:"login_type"`

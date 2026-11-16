@@ -7,17 +7,21 @@ export interface FormProps {
     id?: number;
     uuid?: string;
     alias: string;
-      data: string;
+    app_uuid: string;
+    data: string;
     remark: string;
   };
+  apps: Array<{ id: number; uuid: string; name: string }>;
 }
 
 const props = withDefaults(defineProps<FormProps>(), {
   formInline: () => ({
     alias: "",
-      data: "",
+    app_uuid: "",
+    data: "",
     remark: ""
   }),
+  apps: () => []
 });
 
 const ruleFormRef = ref();
@@ -48,6 +52,30 @@ defineExpose({ getRef });
         </el-form-item>
       </el-col>
     </el-row>
+    <el-row>
+      <el-col :span="24">
+        <el-form-item label="所属应用" prop="app_uuid">
+          <el-select
+            v-model="newFormInline.app_uuid"
+            placeholder="全局（所有应用可读）"
+            class="w-full"
+            clearable
+          >
+            <el-option label="全局（所有应用可读）" value="" />
+            <el-option
+              v-for="app in apps"
+              :key="app.uuid"
+              :label="`${app.name} (ID: ${app.id})`"
+              :value="app.uuid"
+            />
+          </el-select>
+          <div class="w-full text-xs text-gray-400 mt-1">
+            绑定到某个应用后，只有该应用的插件能读到；留空则全站共用。
+          </div>
+        </el-form-item>
+      </el-col>
+    </el-row>
+
 
     <el-row>
       <el-col :span="24">

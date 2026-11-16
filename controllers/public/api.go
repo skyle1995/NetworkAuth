@@ -339,10 +339,8 @@ func handleBulletin(app *models.App) (any, error) {
 		// 各接口启用状态映射：{ "20": 1, "21": 0, ... }
 		"interfaces": interfaces,
 		// 更新策略：download_type 0不启用/1强制/2自由，客户端据此决定是否/如何更新
-		"update": gin.H{
-			"download_type": app.DownloadType,
-			"download_url":  app.DownloadURL,
-		},
+		// 更新策略现在由版本列表决定，这里下发当前版本的策略快照
+		"update": services.LatestAppUpdateSnapshot(app),
 	}, nil
 }
 
@@ -663,7 +661,7 @@ func handleAppActivate(c *gin.Context, app *models.App, plainParams string) (any
 	fp := strings.TrimSpace(params.Fingerprint)
 	ip := c.ClientIP()
 	if strings.TrimSpace(params.Version) == "" {
-		params.Version = app.Version
+		params.Version = services.LatestAppVersionField(app)
 	}
 	return services.ActivateByToken(app.UUID, params.Token, fp, ip, params.Version, params.DeviceName)
 }

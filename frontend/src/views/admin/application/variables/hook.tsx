@@ -10,12 +10,16 @@ import {
   deleteVariable,
   batchDeleteVariables
 } from "@/api/admin/variable";
+import { getAppsSimple } from "@/api/admin/app";
 import { ElMessageBox } from "element-plus";
 
 export function useVariable() {
   const form = reactive({
     search: "",
-    });
+    app_uuid: ""
+  });
+
+  const apps = ref<any[]>([]);
 
   const formRef = ref();
   const dataList = ref([]);
@@ -44,6 +48,16 @@ export function useVariable() {
       label: "变量别名",
       prop: "alias",
       minWidth: 120
+    },
+    {
+      label: "所属应用",
+      prop: "app_uuid",
+      minWidth: 140,
+      cellRenderer: ({ row }) => {
+        if (!row.app_uuid) return "全局（所有应用可读）";
+        const app = apps.value.find(a => a.uuid === row.app_uuid);
+        return app ? app.name : "未知应用";
+      }
     },
     {
       label: "变量编号",
@@ -77,7 +91,8 @@ export function useVariable() {
         page: pagination.currentPage,
         limit: pagination.pageSize,
         search: form.search,
-          });
+        app_uuid: form.app_uuid
+      });
 
       if (code === 0) {
         dataList.value = data || [];
@@ -105,9 +120,11 @@ export function useVariable() {
           id: row?.id,
           uuid: row?.uuid ?? "",
           alias: row?.alias ?? "",
+          app_uuid: row?.app_uuid ?? "",
           data: row?.data ?? "",
           remark: row?.remark ?? ""
         },
+        apps: apps.value
       },
       width: "460px",
       draggable: true,
@@ -219,7 +236,19 @@ export function useVariable() {
     // expose to index.vue
   }
 
+  async function fetchApps() {
+    try {
+      const { code, data } = await getAppsSimple();
+      if (code === 0 && Array.isArray(data)) {
+        apps.value = data;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   onMounted(() => {
+    fetchApps();
     onSearch();
   });
 
@@ -229,7 +258,8 @@ export function useVariable() {
     columns,
     dataList,
     pagination,
-      onSearch,
+    apps,
+    onSearch,
     resetFormSearch,
     openDialog,
     handleDelete,

@@ -91,7 +91,7 @@ func appInfoMap(a *models.App) map[string]any {
 	return map[string]any{
 		"uuid":                  a.UUID,
 		"name":                  a.Name,
-		"version":               a.Version,
+		"version":               LatestAppVersionField(a),
 		"status":                a.Status,
 		"free":                  billing.Free,
 		"operation_mode":        billing.Mode,
@@ -102,8 +102,8 @@ func appInfoMap(a *models.App) map[string]any {
 		"card_login_enabled":    boolToInt(policy.CardLoginEnabled),
 		"recharge_enabled":      boolToInt(policy.RechargeEnabled),
 		"register_enabled":      boolToInt(policy.RegisterEnabled),
-		"download_type":         a.DownloadType,
-		"download_url":          a.DownloadURL,
+		"download_type":         latestVersionValue(a, "type"),
+		"download_url":          latestVersionValue(a, "url"),
 	}
 }
 
@@ -161,4 +161,20 @@ func runJSFunction(code string, params any, member *models.Member, app *models.A
 		return nil, errors.New("函数执行失败")
 	}
 	return ret.Export(), nil
+}
+
+// latestVersionValue 从版本列表取当前发布项的类型或地址；列表为空时返回零值。
+func latestVersionValue(app *models.App, field string) any {
+	db, err := database.GetDB()
+	if err != nil || app == nil {
+		if field == "type" {
+			return 0
+		}
+		return ""
+	}
+	ver := latestVersion(db, app)
+	if field == "type" {
+		return ver.DownloadType
+	}
+	return ver.DownloadURL
 }

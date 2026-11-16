@@ -68,10 +68,9 @@ function openDialog(title = "新增", row?: any) {
       formInline: {
         id: row?.id,
         name: row?.name ?? "",
+        plugin_id: row?.plugin_id ?? "",
         version: row?.version ?? "1.0.0",
         status: row?.status ?? 1,
-        download_type: row?.download_type ?? 0,
-        download_url: row?.download_url ?? "",
             free_mode: row?.free_mode ?? 0,
             billing_mode: row?.billing_mode ?? 0,
             required_level: row?.required_level ?? 1,

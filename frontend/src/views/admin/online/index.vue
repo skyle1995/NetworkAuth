@@ -66,7 +66,7 @@ const columns: TableColumnList = [
       [row.province, row.city].filter(Boolean).join(" ") || "—"
   },
   { label: "最近活跃", prop: "last_active_at", width: 170 },
-  { label: "上线时间", prop: "created_at", width: 170 },
+    { label: "上线时间", prop: "online_at", width: 170 },
   { label: "操作", fixed: "right", width: 230, slot: "operation" }
 ];
 
