@@ -11,6 +11,7 @@ import MultiConfig from "./multi-config.vue";
 import RegisterConfig from "./register-config.vue";
 import LevelPoints from "./level-points.vue";
 import TextConfig from "./text-config.vue";
+import VersionList from "./version-list.vue";
 
 import {
   createApp,
@@ -21,8 +22,6 @@ import {
   resetAppSecret,
   getAppData,
   updateAppData,
-  getAppAnnouncement,
-  updateAppAnnouncement,
   getAppMultiConfig,
   updateAppMultiConfig,
   getAppRegisterConfig,
@@ -218,17 +217,11 @@ async function handleCommand(command: string, row: any) {
         "app_data"
       );
       break;
-    case "announcement":
-      openTextConfigDialog(
-        "应用公告",
-        row.uuid,
-        getAppAnnouncement,
-        updateAppAnnouncement,
-        "announcement"
-      );
-      break;
     case "multi_config":
       openMultiConfigDialog(row.uuid);
+      break;
+    case "versions":
+      openVersionDialog(row);
       break;
         case "level_points":
           openLevelPointsDialog(row.uuid, row.name);
@@ -275,6 +268,18 @@ async function openTextConfigDialog(
       });
     }
   } catch (e) {}
+}
+
+async function openVersionDialog(row: any) {
+  addDialog({
+    title: `版本列表 · ${row.name ?? row.uuid}`,
+    width: "900px",
+    hideFooter: true,
+    props: {
+      app: { uuid: row.uuid, name: row.name }
+    },
+    contentRenderer: () => h(VersionList, { app: { uuid: row.uuid, name: row.name } })
+  });
 }
 
 async function openMultiConfigDialog(uuid: string) {
@@ -520,10 +525,10 @@ async function openMultiConfigDialog(uuid: string) {
                       <el-dropdown-item command="app_data"
                         >应用数据</el-dropdown-item
                       >
-                      <el-dropdown-item command="announcement"
-                        >应用公告</el-dropdown-item
+                      <el-dropdown-item divided command="versions"
+                        >版本列表</el-dropdown-item
                       >
-                      <el-dropdown-item divided command="multi_config"
+                      <el-dropdown-item command="multi_config"
                         >登录配置</el-dropdown-item
                       >
                           <el-dropdown-item divided command="level_points"
