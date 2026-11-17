@@ -1,4 +1,4 @@
-﻿package services
+package services
 
 import (
 	"NetworkAuth/database"
@@ -123,10 +123,9 @@ func SendRegisterCode(appUUID, email string) (any, error) {
 		return nil, err
 	}
 	cooldown := emailCooldownSeconds()
-	if err := rdb.Set(ctx, emailCodeKey(email), code, emailCodeTTL).Err(); err != nil {
-		return nil, errors.New("验证码存储失败")
+	if err := storeEmailCode(ctx, rdb, emailCodeKey(email), cdKey, code, cooldown); err != nil {
+		return nil, err
 	}
-	rdb.Set(ctx, cdKey, "1", time.Duration(cooldown)*time.Second)
 
 	subject := fmt.Sprintf("【%s】注册验证码", app.Name)
 	body := fmt.Sprintf(
@@ -138,7 +137,7 @@ func SendRegisterCode(appUUID, email string) (any, error) {
 
 	if err := SendMail(email, subject, body); err != nil {
 		// 发送失败则清掉已存的码，允许立即重试
-		rdb.Del(ctx, emailCodeKey(email), cdKey)
+		clearEmailCode(ctx, rdb, emailCodeKey(email), cdKey, code)
 		return nil, errors.New("邮件发送失败: " + err.Error())
 	}
 
@@ -193,10 +192,9 @@ func SendResetCode(appUUID, email string) (any, error) {
 		return nil, err
 	}
 	cooldown := emailCooldownSeconds()
-	if err := rdb.Set(ctx, emailResetCodeKey(email), code, emailCodeTTL).Err(); err != nil {
-		return nil, errors.New("验证码存储失败")
+	if err := storeEmailCode(ctx, rdb, emailResetCodeKey(email), cdKey, code, cooldown); err != nil {
+		return nil, err
 	}
-	rdb.Set(ctx, cdKey, "1", time.Duration(cooldown)*time.Second)
 
 	subject := fmt.Sprintf("【%s】找回密码验证码", app.Name)
 	body := fmt.Sprintf(
@@ -207,41 +205,55 @@ func SendResetCode(appUUID, email string) (any, error) {
 		app.Name, code)
 
 	if err := SendMail(email, subject, body); err != nil {
-		rdb.Del(ctx, emailResetCodeKey(email), cdKey)
+		clearEmailCode(ctx, rdb, emailResetCodeKey(email), cdKey, code)
 		return nil, errors.New("邮件发送失败: " + err.Error())
 	}
 
 	return map[string]any{"message": "验证码已发送，请查收邮箱", "cooldown": cooldown}, nil
 }
 
-// VerifyResetCode 校验找回密码验证码；成功后删除，防止复用。
-func VerifyResetCode(email, code string) error {
-	code = strings.TrimSpace(code)
-	if code == "" {
-		return errors.New("验证码不能为空")
-	}
-	if !utils.IsRedisAvailable() {
-		return errors.New("验证码服务暂不可用")
-	}
-	ctx := context.Background()
-	rdb := utils.GetRedis()
-	key := emailResetCodeKey(email)
-	stored, err := rdb.Get(ctx, key).Result()
-	if err == redis.Nil {
-		return errors.New("验证码不存在或已过期")
-	}
+// storeEmailCode 原子设置验证码与发送冷却，并重置新验证码的错误次数。
+func storeEmailCode(ctx context.Context, rdb *redis.Client, key, cooldownKey, code string, cooldown int) error {
+	const script = `
+local remain = redis.call('PTTL', KEYS[2])
+if remain > 0 then return math.ceil(remain / 1000) end
+redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+redis.call('DEL', KEYS[3])
+redis.call('SET', KEYS[2], '1', 'EX', ARGV[3])
+return 0`
+	remain, err := rdb.Eval(ctx, script, []string{key, cooldownKey, key + ":attempts"},
+		code, emailCodeTTL.Milliseconds(), cooldown).Int()
 	if err != nil {
-		return errors.New("验证码校验失败")
+		return errors.New("验证码存储失败")
 	}
-	if stored != code {
-		return errors.New("验证码错误")
+	if remain > 0 {
+		return fmt.Errorf("发送过于频繁，请%d秒后再试", remain)
 	}
-	rdb.Del(ctx, key)
 	return nil
 }
 
-// VerifyRegisterCode 校验注册验证码；成功后删除，防止复用。
+// clearEmailCode 发送失败时仅清除本次验证码，避免删除随后重新发送的验证码。
+func clearEmailCode(ctx context.Context, rdb *redis.Client, key, cooldownKey, code string) {
+	const script = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
+end
+return 0`
+	rdb.Eval(ctx, script, []string{key, cooldownKey, key + ":attempts"}, code)
+}
+
+// VerifyResetCode 原子校验并消费找回密码验证码，最多允许五次错误尝试。
+func VerifyResetCode(email, code string) error {
+	return consumeEmailCode(emailResetCodeKey(email), code)
+}
+
+// VerifyRegisterCode 原子校验并消费注册验证码，最多允许五次错误尝试。
 func VerifyRegisterCode(email, code string) error {
+	return consumeEmailCode(emailCodeKey(email), code)
+}
+
+// consumeEmailCode 在同一 Redis 原子操作内限制尝试次数并删除匹配验证码。
+func consumeEmailCode(key, code string) error {
 	code = strings.TrimSpace(code)
 	if code == "" {
 		return errors.New("验证码不能为空")
@@ -251,17 +263,32 @@ func VerifyRegisterCode(email, code string) error {
 	}
 	ctx := context.Background()
 	rdb := utils.GetRedis()
-	key := emailCodeKey(email)
-	stored, err := rdb.Get(ctx, key).Result()
-	if err == redis.Nil {
-		return errors.New("验证码不存在或已过期")
-	}
+	const script = `
+local stored = redis.call('GET', KEYS[1])
+if not stored then return -1 end
+if tonumber(redis.call('GET', KEYS[2]) or '0') >= 5 then return -3 end
+if stored ~= ARGV[1] then
+    local attempts = redis.call('INCR', KEYS[2])
+    local ttl = redis.call('PTTL', KEYS[1])
+    if ttl < 1 then ttl = 600000 end
+    redis.call('PEXPIRE', KEYS[2], ttl)
+    if attempts >= 5 then return -3 end
+    return -2
+end
+redis.call('DEL', KEYS[1], KEYS[2])
+return 1`
+	result, err := rdb.Eval(ctx, script, []string{key, key + ":attempts"}, code).Int()
 	if err != nil {
 		return errors.New("验证码校验失败")
 	}
-	if stored != code {
+	switch result {
+	case 1:
+		return nil
+	case -1:
+		return errors.New("验证码不存在或已过期")
+	case -3:
+		return errors.New("验证码尝试过多，请重新获取")
+	default:
 		return errors.New("验证码错误")
 	}
-	rdb.Del(ctx, key)
-	return nil
 }

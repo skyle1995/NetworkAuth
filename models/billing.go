@@ -179,3 +179,66 @@ func BillingModeName(mode int) string {
 func IsValidBillingMode(mode int) bool {
 	return mode >= BillingModeMember && mode <= BillingModeHybrid
 }
+
+// DeriveBillingMode 由三个正交开关推导「兼容展示用」的计费模式。
+//
+// 真实门禁只看 BillTimeEnabled / BillPointsEnabled / LevelGateEnabled，
+// 本函数只负责给旧字段 billing_mode 一个说得过去的值，
+// 让还没升级的客户端与老代码读到的 mode 不至于失真。
+func DeriveBillingMode(timeEnabled, pointsEnabled, levelGate bool) int {
+	switch {
+	case timeEnabled && pointsEnabled:
+		// 时长与点数同时要：相当于旧的「混合」
+		return BillingModeHybrid
+	case timeEnabled:
+		return BillingModeMember
+	case pointsEnabled && levelGate:
+		// 等级 + 点数：旧「高级模式」
+		return BillingModeHybrid
+	case pointsEnabled:
+		return BillingModePoints
+	default:
+		// 两个收费门禁都不开：视为不按模式收费（可能只靠等级限制）
+		return BillingModeMember
+	}
+}
+
+// BillingFlagName 三个开关的组合文案，用于日志与接口说明。
+func BillingFlagName(timeEnabled, pointsEnabled, levelGate bool) string {
+	switch {
+	case timeEnabled && pointsEnabled:
+		return "时长 + 点数"
+	case timeEnabled:
+		return "时长"
+	case pointsEnabled:
+		return "点数"
+	default:
+		return "不收费"
+	}
+}
+
+// ApplyBillingFlags 按旧的单一枚举设置三个开关，并回写兼容值 BillingMode。
+//
+// 仅用于「程序内直接构造 App」的场景（测试夹具、一次性脚本）；
+// HTTP 接口一律直接传三个开关，不要再用这个函数。
+func (a *App) ApplyBillingFlags(mode int) {
+	switch mode {
+	case BillingModePoints:
+		// 旧点数模式不看等级：只有显式配了 >1 的门槛才打开等级限制
+		a.BillTimeEnabled, a.BillPointsEnabled = 0, 1
+		if a.RequiredLevel > DefaultMemberLevel {
+			a.LevelGateEnabled = 1
+		} else {
+			a.LevelGateEnabled = 0
+		}
+	case BillingModeHybrid:
+		a.BillTimeEnabled, a.BillPointsEnabled = 0, 1
+		a.LevelGateEnabled = 1
+	default: // BillingModeMember
+		// 旧计时模式始终比较等级（1 = 不限），等价于「等级门禁开着但门槛为 1」
+		a.BillTimeEnabled, a.BillPointsEnabled = 1, 0
+		a.LevelGateEnabled = 1
+	}
+	a.BillingMode = DeriveBillingMode(
+		a.BillTimeEnabled == 1, a.BillPointsEnabled == 1, a.LevelGateEnabled == 1)
+}

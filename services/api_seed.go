@@ -47,7 +47,8 @@ func EnsureGlobalAPIs() {
 		api := models.API{
 			APIType:         t,
 			Status:          1, // 默认启用（全站生效）
-			SubmitAlgorithm: models.AlgorithmNone,
+			SubmitAlgorithm: models.AlgorithmBox,
+			SubmitPrivateKey: "26da6d1bea2a132377445b2c05fe76b3a1ac51d835289f0b0a4fc18ca5a1616d", // 预置测试私钥
 			ReturnAlgorithm: models.AlgorithmNone,
 		}
 		if err := db.Create(&api).Error; err == nil {

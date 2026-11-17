@@ -376,7 +376,7 @@ func Rebind(appUUID, username, password, machineCode, replaceMachine, deviceName
 	if err != nil {
 		return nil, err
 	}
-	member, err := authMemberByCredential(db, username, password)
+	member, err := authMemberByCredential(db, username, password, ip)
 	if err != nil {
 		return nil, err
 	}

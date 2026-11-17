@@ -43,8 +43,16 @@ func VariableListHandler(c *gin.Context) {
 		return
 	}
 
-	// 构建基础查询
 	query := db.Model(&models.Variable{})
+
+	// 按应用筛选：具体 uuid 只看该应用；"global" 只看全局变量；空则不过滤
+	if appUUID := strings.TrimSpace(c.Query("app_uuid")); appUUID != "" {
+		if appUUID == "global" || appUUID == "0" {
+			query = query.Where("app_uuid = '' OR app_uuid IS NULL")
+		} else {
+			query = query.Where("app_uuid = ?", appUUID)
+		}
+	}
 
 	// 如果指定了搜索关键词，则在编号、别名、数据、备注中进行精确搜索
 	if search != "" {
@@ -67,6 +75,7 @@ func VariableListHandler(c *gin.Context) {
 		ID        uint   `json:"id"`
 		UUID      string `json:"uuid"`
 		Number    string `json:"number"`
+		AppUUID   string `json:"app_uuid"`
 		Alias     string `json:"alias"`
 		Data      string `json:"data"`
 		Remark    string `json:"remark"`
@@ -80,6 +89,7 @@ func VariableListHandler(c *gin.Context) {
 			ID:        variable.ID,
 			UUID:      variable.UUID,
 			Number:    variable.Number,
+			AppUUID:   variable.AppUUID,
 			Alias:     variable.Alias,
 			Data:      variable.Data,
 			Remark:    variable.Remark,
@@ -102,6 +112,7 @@ func VariableListHandler(c *gin.Context) {
 func VariableCreateHandler(c *gin.Context) {
 	var req struct {
 		Alias   string `json:"alias"`
+		AppUUID string `json:"app_uuid"`
 		Data    string `json:"data"`
 		Remark  string `json:"remark"`
 	}
@@ -129,11 +140,29 @@ func VariableCreateHandler(c *gin.Context) {
 		return
 	}
 
-	// 创建变量（全站共用，不再归属某个应用）
+	// 处理应用归属：空或 "0" 表示全局变量（所有应用可读）
+	appUUID := strings.TrimSpace(req.AppUUID)
+	if appUUID == "0" {
+		appUUID = ""
+	}
+	if appUUID != "" {
+		var appCount int64
+		if err := db.Model(&models.App{}).Where("uuid = ?", appUUID).Count(&appCount).Error; err != nil {
+			variableBaseController.HandleInternalError(c, "验证应用失败", err)
+			return
+		}
+		if appCount == 0 {
+			variableBaseController.HandleValidationError(c, "指定的应用不存在")
+			return
+		}
+	}
+
+	// 创建变量
 	variable := models.Variable{
-		Alias:  strings.TrimSpace(req.Alias),
-		Data:   req.Data,
-		Remark: strings.TrimSpace(req.Remark),
+		Alias:   strings.TrimSpace(req.Alias),
+		AppUUID: appUUID,
+		Data:    req.Data,
+		Remark:  strings.TrimSpace(req.Remark),
 	}
 
 	if err := db.Create(&variable).Error; err != nil {
@@ -163,6 +192,7 @@ func VariableCreateHandler(c *gin.Context) {
 func VariableUpdateHandler(c *gin.Context) {
 	var req struct {
 		UUID    string `json:"uuid"`
+		AppUUID string `json:"app_uuid"`
 		Data    string `json:"data"`
 		Remark  string `json:"remark"`
 	}
@@ -189,6 +219,24 @@ func VariableUpdateHandler(c *gin.Context) {
 		variableBaseController.HandleValidationError(c, "变量不存在")
 		return
 	}
+	// 允许调整应用归属（空或 "0" = 全局变量，所有应用可读）
+	appUUID := strings.TrimSpace(req.AppUUID)
+	if appUUID == "0" {
+		appUUID = ""
+	}
+	if appUUID != "" {
+		var appCount int64
+		if err := db.Model(&models.App{}).Where("uuid = ?", appUUID).Count(&appCount).Error; err != nil {
+			variableBaseController.HandleInternalError(c, "验证应用失败", err)
+			return
+		}
+		if appCount == 0 {
+			variableBaseController.HandleValidationError(c, "指定的应用不存在")
+			return
+		}
+	}
+	variable.AppUUID = appUUID
+
 
 	// 更新字段（不更新alias，保持原有别名不变）
 	variable.Data = req.Data

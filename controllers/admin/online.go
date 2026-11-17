@@ -64,13 +64,14 @@ func OnlineSessionsHandler(c *gin.Context) {
 		LeaseExpiresAt time.Time
 		LastActiveAt   time.Time
 		CreatedAt      time.Time
+		OnlineAt       time.Time
 		Username       string
 	}
 
 	var rows []activationRow
 	if err := applyScope(db).
 		Select("a.id, a.member_uuid, a.app_uuid, a.fingerprint, a.ip, a.version, a.device_name, " +
-			"a.lease_expires_at, a.last_active_at, a.created_at, m.username").
+			"a.lease_expires_at, a.last_active_at, a.created_at, a.online_at, m.username").
 		Order("a.last_active_at DESC").
 		Offset((page - 1) * limit).
 		Limit(limit).
@@ -95,9 +96,12 @@ func OnlineSessionsHandler(c *gin.Context) {
 			"city":             city,
 			"version":          r.Version,
 			"device_name":      r.DeviceName,
-			"lease_expires_at": r.LeaseExpiresAt,
-			"last_active_at":   r.LastActiveAt,
-			"created_at":       r.CreatedAt,
+			// 时间统一成「2006-01-02 15:04:05」：裸 time.Time 会被序列化成
+			// 2026-11-15T21:49:06.0156506+08:00，表格里读不了
+			"lease_expires_at": fmtTime(r.LeaseExpiresAt),
+			"last_active_at":   fmtTime(r.LastActiveAt),
+			"created_at":       fmtTime(r.CreatedAt),
+			"online_at":        fmtTime(r.OnlineAt),
 		})
 	}
 
@@ -141,4 +145,14 @@ func OnlineKickHandler(c *gin.Context) {
 	}
 	services.RecordOperationLog("强制下线", operator, c.GetString("admin_uuid"), "下线实例 #"+strconv.FormatUint(uint64(req.ID), 10))
 	memberBaseController.HandleSuccess(c, "已下线", nil)
+}
+
+// fmtTime 把时间统一成表格可读的「2006-01-02 15:04:05」。
+// 直接返回 time.Time 会被 encoding/json 序列化成 RFC3339（带纳秒和时区），
+// 管理端表格里读不了；零值返回空串，前端才能用 "-" 占位。
+func fmtTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02 15:04:05")
 }

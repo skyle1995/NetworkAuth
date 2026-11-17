@@ -103,6 +103,10 @@ func runServer(cmd *cobra.Command, args []string) {
 			if err := database.NormalizeUpdateStrategy(); err != nil {
 				logrus.WithError(err).Error("更新策略字段规整失败")
 			}
+			// 旧的单一计费模式拆成计时/点数/会员限制三个开关（幂等）
+			if err := database.MigrateBillingFlags(); err != nil {
+				logrus.WithError(err).Error("拆分计费开关失败")
+			}
 			// 给历史账号补默认会员等级（门槛为 0 的等级，幂等）
 			if err := database.MigrateVariablePerApp(); err != nil {
 		logrus.WithError(err).Warn("变量表按应用迁移失败（不影响启动）")

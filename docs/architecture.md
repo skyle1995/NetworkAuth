@@ -54,7 +54,7 @@
 │ 业务层                                                         │
 │  ┌────────────────┐  ┌────────────────┐  ┌─────────────────┐ │
 │  │ 账号令牌 ✅     │  │ 激活/租约 ✅    │  │ 计费引擎 ✅      │ │
-│  │ 全站一次，不计费 │→│ 每应用一条，计费 │  │ 三模式+等级点数  │ │
+│  │ 全站一次，不计费 │→│ 每应用一条，计费 │  │ 三开关+等级点数  │ │
 │  └────────────────┘  └────────────────┘  └─────────────────┘ │
 └──────────────────────────────┬───────────────────────────────┘
                                ▼
@@ -95,12 +95,12 @@
 
 | 类别 | 字段 |
 |---|---|
-| 应用身份 | `uuid` + `secret`（secret 是唯一身份凭据）+ `lease_ttl_minutes` ✅ |
-| 内容分发 | `version` / `download_type` / `download_url` / `announcement` / `app_data` |
+| 应用身份 | `uuid` + `secret`（secret 是唯一身份凭据）+ `lease_ttl_minutes` + `plugin_id` ✅ |
+| 内容分发 | `announcement` / `app_data`；版本与下载地址移到 `app_versions`（见 3.4） |
 | 会话策略 | `check_interval` / `offline_timeout` / `clean_interval` |
 | 满员策略 | `login_type`（在线名额满时进入本应用怎么处理） |
 | 绑定验证 | 账号策略：`account_machine_verify` / `account_ip_verify` + 设备、IP 两套转绑额度 |
-| **计费策略** | `free_mode` / `billing_mode` / `required_level` / `points_*` |
+| **计费策略** | `free_mode` / `bill_time_enabled` / `bill_points_enabled` / `level_gate_enabled` / `required_level` / `points_*` |
 | 等级点数 | `app_level_points`（`(应用, 等级) → 点数`） |
 
 ### 3.3 按会话（运行时）✅
@@ -108,7 +108,24 @@
 | 表 | 说明 | 行业对应 |
 |---|---|---|
 | `member_account_tokens` ✅ | 账号令牌：证明"你是谁"，全站一次，不计费，30 天可刷新 | OAuth Access/Refresh Token |
-| `app_activations` ✅ | 应用激活：证明"你在用哪个应用且已付费"，含 `fingerprint` / `lease_expires_at` / `period_end` / `deactivated_at` | Keygen machine activation |
+| `app_activations` ✅ | 应用激活：证明"你在用哪个应用且已付费"，含 `fingerprint` / `lease_expires_at` / `period_end` / `online_at` / `deactivated_at` | Keygen machine activation |
+
+### 3.4 版本列表（`app_versions`）✅
+
+版本不再是 `apps` 上的三个列，而是**一行一个版本**，支持保留历史、逐版本启用：
+
+| 字段 | 说明 |
+|---|---|
+| `app_uuid` | 所属应用 |
+| `version` | 版本号（如 `3.0.2`） |
+| `download_type` | 该版本的更新方式：0 不启用 / 1 强制 / 2 自由 |
+| `download_url` | 下载地址，留空表示只提示更新、需手动安装 |
+| `changelog` | 本次更新公告，随 `2`/`3`/登录 `update` 下发 |
+| `enabled` | 是否启用 |
+| `published_at` | 发布时间，取「已启用中的最高版本」作为当前版本 |
+
+**更新检查只读版本列表**：先在所有 `enabled=1` 的记录里取版本号最高的那条，
+再用它的 `download_type` 决定强制或自由更新；列表为空即视为「没有可更新版本」。
 
 ---
 
@@ -123,27 +140,55 @@
 
 ---
 
-## 五、计费模型：三模式 + 等级点数 ✅
+## 五、计费模型：三个正交开关 + 等级点数 ✅
 
-每个应用独立选一种：
+每个应用三个**彼此独立、可任意组合**的开关（`free_mode=1` 时全部跳过）：
 
-| 模式 | `billing_mode` | 门禁条件 | 扣费 |
-|---|---|---|---|
-| **计时模式** | 0 | 账号有效（未到期/永久）**且** 等级 ≥ `required_level` | 不扣点 |
-| **点数模式** | 1 | 点数足够 | 每次登录扣 `points_per_login`（或按周期扣） |
-| **高级模式** | 2 | 等级 ≥ `required_level` **且** 点数足够 | 按**该等级在本应用配置的点数**扣 |
+| 开关 | 字段 | 命中时的门禁 |
+|---|---|---|
+| **计时模式** | `bill_time_enabled` | 账号必须有效（未到期或永久） |
+| **点数模式** | `bill_points_enabled` | 按 `points_charge_mode` 扣点（按次 / 按周期） |
+| **会员限制** | `level_gate_enabled` | 会员等级 ≥ `required_level` |
 
-**计费豁免** `free_mode=1`：跳过全部门禁与扣费，凌驾于三模式之上。
+组合语义：
+
+| 计时 | 点数 | 含义 |
+|---|---|---|
+| ✅ | ❌ | 卖时长，到期即不可用 |
+| ❌ | ✅ | 纯点数，账号到期也能靠点数继续用 |
+| ✅ | ✅ | 双重门禁：既不能过期，也要扣点 |
+| ❌ | ❌ | 不按时长/点数收费（仍可叠加会员限制） |
+
+`billing_mode` 字段保留为**兼容展示值**，由 `models.DeriveBillingMode(计时, 点数, 会员限制)` 推导，
+保存时回写；**判定逻辑一律读三个开关**，不要再读它。
 
 ### 5.1 关键细节
 
-- `required_level=1` 等价于「不限等级」；「计时模式 + 等级 1」= 传统免费应用（但仍看是否到期）；
-- **只有计时模式校验到期时间**，点数/高级模式不看到期 —— 让两个钱包都能单独起作用；
-- 点数/混合共用 `points_charge_mode`（按次 / 按时）、`points_period_minutes`、`points_heartbeat_charge`；
-- 高级模式下 `points_per_login` / `points_per_period` 退化为**未配置等级的兜底值**；
-- 等级点数配置在 `app_level_points`（唯一键 `(app_uuid, member_level_uuid)`）：**配置 0 = 该等级不扣点**，未配置才回退默认。
+- 门禁真实入口是 `checkActivationGate` / `checkMemberUsable`，两者都只读三个开关：
+  `RequiresLevel()` / `RequiresValidPeriod()` / `UsesPoints()`；
+- **点数门禁不在预检里**，而在扣费处：幂等复用同一激活不扣费，也就不该被余额拦住；
+  72 权益清单会用同一套单价函数提前给出 `points_needed` / `blocked_by_points`；
+- 点数与计时可同时开：先判到期（`LICENSE_EXPIRED`），再判余额（`INSUFFICIENT_CREDITS`），
+  不会出现「钱扣了但不让用」；
+- 点数计费共用 `points_charge_mode`（按次 / 按周期）、`points_period_minutes`、`points_heartbeat_charge`；
+- `required_level=1` 等价于「不限等级」；
+- **等级点数对任何按点数计费的应用都生效**（不再限定旧「高级模式」）：配置在
+  `app_level_points`（唯一键 `(app_uuid, member_level_uuid)`），未配置的等级回退
+  `points_per_login` / `points_per_period`；**配置 0 = 该等级不扣点**。
 
-### 5.2 卡密与试用：面值有哪个就发哪个
+### 5.2 事务与连接约定（务必遵守）
+
+SQLite 连接池配置为 **单连接**（`database.go: SetMaxOpenConns(1)`）。因此：
+
+> **事务内部禁止调用 `database.GetDB()`** —— 会去抢那条已被当前事务占用的唯一连接，
+> 形成互等死锁：请求挂死、事务永不提交、SQLite 写锁不释放。
+
+落地点：计费单价是**惰性**加载的（`Billing.loadLevelPoints`）。所有在事务内取价的入口
+（`chargeActivationOnce` / `chargePeriod` / `chargePeriodMerged` / `checkMemberUsable`）
+必须先 `billing = billing.WithDB(tx)`，让惰性查询走事务句柄。
+回归用例：`services/single_conn_regression_test.go`。
+
+### 5.3 卡密与试用：面值有哪个就发哪个
 
 | 卡面值 | 发放 |
 |---|---|

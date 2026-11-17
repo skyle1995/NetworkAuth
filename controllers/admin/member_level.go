@@ -25,7 +25,28 @@ func MemberLevelListHandler(c *gin.Context) {
 		levelBaseController.HandleInternalError(c, "查询会员等级失败", err)
 		return
 	}
-	levelBaseController.HandleSuccess(c, "success", levels)
+	// 时间统一成「2006-01-02 15:04:05」：直接返回 model 会被序列化成 RFC3339
+	list := make([]gin.H, 0, len(levels))
+	for _, lv := range levels {
+		list = append(list, gin.H{
+			"id":               lv.ID,
+			"uuid":             lv.UUID,
+			"name":             lv.Name,
+			"level":            lv.Level,
+			"threshold":        lv.Threshold,
+			"rebate_rate":      lv.RebateRate,
+			"extra_devices":    lv.ExtraDevices,
+			"extra_concurrent": lv.ExtraConcurrent,
+			"extra_rebind_count": lv.ExtraRebindCount,
+			"color":            lv.Color,
+			"sort":             lv.Sort,
+			"status":           lv.Status,
+			"remark":           lv.Remark,
+			"created_at":       fmtTime(lv.CreatedAt),
+			"updated_at":       fmtTime(lv.UpdatedAt),
+		})
+	}
+	levelBaseController.HandleSuccess(c, "success", list)
 }
 
 // MemberLevelSaveHandler 新增/更新会员等级（uuid 为空则新增）

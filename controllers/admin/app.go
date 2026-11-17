@@ -271,7 +271,9 @@ func AppCreateHandler(c *gin.Context) {
 		PluginID              *string `json:"plugin_id"`
 		Status                int    `json:"status"`
 		FreeMode              int    `json:"free_mode"`
-		BillingMode           int    `json:"billing_mode"`
+		BillTimeEnabled       int    `json:"bill_time_enabled"`
+		BillPointsEnabled     int    `json:"bill_points_enabled"`
+		LevelGateEnabled      int    `json:"level_gate_enabled"`
 		RequiredLevel         int    `json:"required_level"`
 		BillingScope          int    `json:"billing_scope"`
 		PointsChargeMode      int    `json:"points_charge_mode"`
@@ -300,6 +302,10 @@ func AppCreateHandler(c *gin.Context) {
 
 	// 计费字段兜底：创建时不再填计费策略（前端已移出表单），
 	// 全部走这里的默认值，后续在「应用管理 → 计费策略」里调整。
+	// 三个开关都没传 → 默认「计时模式」（与拆分前的默认一致）
+	if req.BillTimeEnabled == 0 && req.BillPointsEnabled == 0 && req.LevelGateEnabled == 0 {
+		req.BillTimeEnabled = 1
+	}
 	if req.RequiredLevel < 1 {
 		req.RequiredLevel = 1
 	}
@@ -334,7 +340,11 @@ func AppCreateHandler(c *gin.Context) {
 		PluginID:              pluginID,
 		Status:                req.Status,
 		FreeMode:              req.FreeMode,
-		BillingMode:           req.BillingMode,
+		BillTimeEnabled:       req.BillTimeEnabled,
+		BillPointsEnabled:     req.BillPointsEnabled,
+		LevelGateEnabled:      req.LevelGateEnabled,
+		BillingMode: models.DeriveBillingMode(
+			req.BillTimeEnabled == 1, req.BillPointsEnabled == 1, req.LevelGateEnabled == 1),
 		RequiredLevel:         req.RequiredLevel,
 		BillingScope:          req.BillingScope,
 		PointsChargeMode:      req.PointsChargeMode,
@@ -435,7 +445,9 @@ func AppUpdateHandler(c *gin.Context) {
 		PluginID              *string `json:"plugin_id"`
 		Status                int    `json:"status"`
 		FreeMode              int    `json:"free_mode"`
-		BillingMode           int    `json:"billing_mode"`
+		BillTimeEnabled       int    `json:"bill_time_enabled"`
+		BillPointsEnabled     int    `json:"bill_points_enabled"`
+		LevelGateEnabled      int    `json:"level_gate_enabled"`
 		RequiredLevel         int    `json:"required_level"`
 		BillingScope          int    `json:"billing_scope"`
 		PointsChargeMode      int    `json:"points_charge_mode"`
@@ -497,7 +509,12 @@ func AppUpdateHandler(c *gin.Context) {
 	}
 	app.Status = req.Status
 	app.FreeMode = req.FreeMode
-	app.BillingMode = req.BillingMode
+	app.BillTimeEnabled = req.BillTimeEnabled
+	app.BillPointsEnabled = req.BillPointsEnabled
+	app.LevelGateEnabled = req.LevelGateEnabled
+	// billing_mode 只保留兼容展示，真实门禁看上面三个开关
+	app.BillingMode = models.DeriveBillingMode(
+		req.BillTimeEnabled == 1, req.BillPointsEnabled == 1, req.LevelGateEnabled == 1)
 	app.RequiredLevel = req.RequiredLevel
 	app.BillingScope = req.BillingScope
 	app.PointsChargeMode = req.PointsChargeMode
@@ -1273,15 +1290,18 @@ func AppsSimpleListHandler(c *gin.Context) {
 	// 查询所有启用的应用，只获取必要字段
 	// 一号通：账号不再归属应用，此处保留计费模式供前端按需展示/筛选
 	var apps []struct {
-		ID          uint   `json:"id"`
-		UUID        string `json:"uuid"`
-		Name        string `json:"name"`
-		BillingMode int    `json:"billing_mode"`
-		FreeMode    int    `json:"free_mode"`
+		ID                uint   `json:"id"`
+		UUID              string `json:"uuid"`
+		Name              string `json:"name"`
+		BillingMode       int    `json:"billing_mode"`
+		FreeMode          int    `json:"free_mode"`
+		BillTimeEnabled   int    `json:"bill_time_enabled"`
+		BillPointsEnabled int    `json:"bill_points_enabled"`
+		LevelGateEnabled  int    `json:"level_gate_enabled"`
 	}
 
 	if err := db.Model(&models.App{}).
-		Select("id, uuid, name, billing_mode, free_mode").
+		Select("id, uuid, name, billing_mode, free_mode, bill_time_enabled, bill_points_enabled, level_gate_enabled").
 		Where("status = ?", 1). // 只获取启用的应用
 		Order("name ASC").
 		Find(&apps).Error; err != nil {
@@ -1440,7 +1460,10 @@ type billingConfig struct {
 	Name                  string  `json:"name"`
 	Status                int     `json:"status"`
 	FreeMode              int     `json:"free_mode"`
-	BillingMode           int     `json:"billing_mode"`
+	BillTimeEnabled       int     `json:"bill_time_enabled"`
+	BillPointsEnabled     int     `json:"bill_points_enabled"`
+	LevelGateEnabled      int     `json:"level_gate_enabled"`
+	BillingMode           int     `json:"billing_mode"` // 只读：由三个开关推导，便于旧前端展示
 	RequiredLevel         int     `json:"required_level"`
 	BillingScope          int     `json:"billing_scope"`
 	PointsChargeMode      int     `json:"points_charge_mode"`
@@ -1472,7 +1495,11 @@ func AppBillingListHandler(c *gin.Context) {
 			Name:                  a.Name,
 			Status:                a.Status,
 			FreeMode:              a.FreeMode,
-			BillingMode:           a.BillingMode,
+			BillTimeEnabled:       a.BillTimeEnabled,
+			BillPointsEnabled:     a.BillPointsEnabled,
+			LevelGateEnabled:      a.LevelGateEnabled,
+			BillingMode: models.DeriveBillingMode(
+				a.BillTimeEnabled == 1, a.BillPointsEnabled == 1, a.LevelGateEnabled == 1),
 			RequiredLevel:         a.RequiredLevel,
 			BillingScope:          a.BillingScope,
 			PointsChargeMode:      a.PointsChargeMode,
@@ -1525,7 +1552,11 @@ func AppUpdateBillingHandler(c *gin.Context) {
 
 	updates := map[string]interface{}{
 		"free_mode":               req.FreeMode,
-		"billing_mode":            req.BillingMode,
+		"bill_time_enabled":       req.BillTimeEnabled,
+		"bill_points_enabled":     req.BillPointsEnabled,
+		"level_gate_enabled":      req.LevelGateEnabled,
+		"billing_mode": models.DeriveBillingMode(
+			req.BillTimeEnabled == 1, req.BillPointsEnabled == 1, req.LevelGateEnabled == 1),
 		"required_level":          req.RequiredLevel,
 		"billing_scope":           req.BillingScope,
 		"points_charge_mode":      req.PointsChargeMode,

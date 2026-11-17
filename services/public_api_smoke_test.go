@@ -152,13 +152,17 @@ func setupPublicTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("automigrate: %v", err)
 	}
 	seedTestQuota(db)
-	// 一号通：默认「会员模式 + 不限等级 + 不扣点」，等价于旧版免费/时长可用。
-	// 需要计费的用例自行改 App.BillingMode 或写全局账号策略。
+	// 一号通：默认「计时门禁 + 不限等级 + 不扣点」，等价于旧版会员模式。
+	// 需要其它组合的用例自行改三个开关（见 setBilling* 辅助）。
 	app := models.App{
-		UUID:           "APP-1",
-		Name:           "测试应用",
-		Secret:         "SECRET",
-		Status:         1,
+		UUID:              "APP-1",
+		Name:              "测试应用",
+		Secret:            "SECRET",
+		Status:            1,
+		BillTimeEnabled:   1,
+		BillPointsEnabled: 0,
+		LevelGateEnabled:  1,
+		RequiredLevel:     1,
 	}
 	if err := db.Create(&app).Error; err != nil {
 		t.Fatalf("seed app: %v", err)
@@ -441,7 +445,7 @@ func TestCardRegisterPointsMode(t *testing.T) {
 	// 卡密注册：注册即按卡面值发放点数（与计费模式无关，面值有哪个发哪个）
 	setPolicy(t, map[string]interface{}{"register_enabled": 1, "card_register_enabled": 1})
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").
-		Update("billing_mode", models.BillingModePoints)
+		Updates(map[string]interface{}{"billing_mode": models.BillingModePoints, "bill_points_enabled": 1, "bill_time_enabled": 0})
 
 	card := models.Card{CardNo: "KM-CRPTS", Points: 500, Status: models.CardStatusUnused}
 	db.Create(&card)
@@ -526,7 +530,7 @@ func TestFreeModeUsableWhenExpired(t *testing.T) {
 	}
 
 	// 对照：切回会员模式后，同一过期账号登录仍成功，但激活应被拒
-	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{"free_mode": 0, "billing_mode": models.BillingModeMember})
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{"free_mode": 0, "billing_mode": models.BillingModeMember, "bill_time_enabled": 1, "bill_points_enabled": 0, "level_gate_enabled": 1})
 	memLogin, err := AccountLogin("APP-1", "free@test.com", "pw123456", "MC-1", "1.2.3.4", "1.0.0", "")
 	if err != nil {
 		t.Fatalf("login should still succeed (identity only): %v", err)
@@ -747,6 +751,8 @@ func TestMemberLevelRebateAndUpgrade(t *testing.T) {
 	db := setupPublicTestDB(t)
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
 		"billing_mode":       models.BillingModePoints,
+			"bill_points_enabled": 1,
+			"bill_time_enabled":   0,
 		"points_per_login": 0, // 登录不扣点，便于断言面值
 	})
 	pkg := models.CardPackage{
@@ -995,7 +1001,7 @@ func TestClaimTrialRequiresExhausted(t *testing.T) {
 	}
 
 	// 一号通：账号有余额即视为「仍可用」，不能领试用（与计费模式无关）
-	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Update("billing_mode", models.BillingModePoints)
+	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{"billing_mode": models.BillingModePoints, "bill_points_enabled": 1, "bill_time_enabled": 0})
 	if _, err := AccountRegister("APP-1", "pt@test.com", "pw123456", "", "", "1.2.3.4", ""); err != nil {
 		t.Fatalf("register pt: %v", err)
 	}
@@ -1802,6 +1808,8 @@ func TestPointsPerCountMode(t *testing.T) {
 	// 点数模式 + 按次(登录扣1点) + 开启充值
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
 		"billing_mode":       models.BillingModePoints,
+			"bill_points_enabled": 1,
+			"bill_time_enabled":   0,
 		"points_charge_mode": models.PointsChargePerCount,
 		"points_per_login":   1,
 	})
@@ -1852,6 +1860,8 @@ func TestPointsPerCountLoginRejectedWhenEmpty(t *testing.T) {
 	db := setupPublicTestDB(t)
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
 		"billing_mode":       models.BillingModePoints,
+			"bill_points_enabled": 1,
+			"bill_time_enabled":   0,
 		"points_charge_mode": models.PointsChargePerCount,
 		"points_per_login":   1,
 	})
@@ -1882,6 +1892,8 @@ func TestPointsPerTimeMode(t *testing.T) {
 	// 点数模式 + 按时：每 60 分钟扣 1 点
 	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
 		"billing_mode":       models.BillingModePoints,
+			"bill_points_enabled": 1,
+			"bill_time_enabled":   0,
 		"points_charge_mode":    models.PointsChargePerTime,
 		"points_per_period":     1,
 		"points_period_minutes": 60,

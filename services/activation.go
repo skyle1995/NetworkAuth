@@ -53,6 +53,11 @@ type ActivationInfo struct {
 	Type     int    `json:"type"`
 
 	// 计费与钱包态
+	//
+	// 三个开关是真实门禁；mode 仅为兼容展示（由开关推导），不要用它做判定。
+	TimeEnabled   bool `json:"time_enabled"`   // 要求账号有效期
+	PointsEnabled bool `json:"points_enabled"` // 按点数扣费
+	LevelGate     bool `json:"level_gate"`     // 要求会员等级 ≥ required_level
 	Mode              int       `json:"mode"`
 	Free              bool      `json:"free"`
 	RequiredLevel     int       `json:"required_level"`
@@ -139,6 +144,8 @@ func checkActivationGate(db *gorm.DB, billing *Billing, m *models.Member) error 
 // chargeActivationOnce 激活时的扣费（按次一次 / 按时一周期）。
 // 返回是否实际扣费。
 func chargeActivationOnce(tx *gorm.DB, billing *Billing, m *models.Member, act *models.AppActivation) (bool, error) {
+	// 取价必须走事务句柄：单连接池下走全局池会和当前事务互等
+	billing = billing.WithDB(tx)
 	if !billing.UsesPoints() {
 		return false, nil
 	}
@@ -186,6 +193,8 @@ func chargeActivationOnce(tx *gorm.DB, billing *Billing, m *models.Member, act *
 // chargePeriod 扣一个按时周期并推进 activation.PeriodEnd。
 // 只动激活的周期，不动 members.expired_at。
 func chargePeriod(tx *gorm.DB, billing *Billing, m *models.Member, act *models.AppActivation) (bool, error) {
+	// 同上：取价必须走事务句柄
+	billing = billing.WithDB(tx)
 	if billing.IsMerged() {
 		return chargePeriodMerged(tx, billing, m, act)
 	}
@@ -796,6 +805,9 @@ func buildActivationInfo(db *gorm.DB, app *models.App, billing *Billing, m *mode
 		AppName:           app.Name,
 		Username:          m.Username,
 		Type:              m.Type,
+		TimeEnabled:       billing.TimeEnabled,
+		PointsEnabled:     billing.PointsEnabled,
+		LevelGate:         billing.LevelGate,
 		Mode:              billing.Mode,
 		Free:              billing.Free,
 		RequiredLevel:     billing.RequiredLevel,
@@ -828,6 +840,7 @@ func renewLeaseOrImplicit(db *gorm.DB, appUUID, token string) (*models.Member, *
 // 与单独计费的区别：周期账本记在 **账号 + 应用** 维度（app_account_billings），
 // 而不是某个 activation 上——同一账号 3 台设备共享同一个 period_end，只付一份。
 func chargePeriodMerged(tx *gorm.DB, billing *Billing, m *models.Member, act *models.AppActivation) (bool, error) {
+	billing = billing.WithDB(tx)
 	now := time.Now()
 	period := time.Duration(billing.PointsPeriodMinutes()) * time.Minute
 

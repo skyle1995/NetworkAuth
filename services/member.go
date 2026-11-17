@@ -348,7 +348,7 @@ func BatchRecharge(ids []uint, all bool, minutes int, points float64) (*BatchRec
 	return res, nil
 }
 
-// ResetMemberPassword 重置账号密码（重新生成盐值）。
+// ResetMemberPassword 重置账号密码，并在同一事务中吊销全部账号令牌与激活。
 func ResetMemberPassword(id uint, newPassword string) error {
 	if strings.TrimSpace(newPassword) == "" {
 		return errors.New("新密码不能为空")
@@ -365,10 +365,19 @@ func ResetMemberPassword(id uint, newPassword string) error {
 	if err != nil {
 		return err
 	}
-	return db.Model(&models.Member{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"password":      hashed,
-		"password_salt": salt,
-	}).Error
+	return db.Transaction(func(tx *gorm.DB) error {
+		var member models.Member
+		if err := tx.First(&member, id).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&member).Updates(map[string]interface{}{
+			"password":      hashed,
+			"password_salt": salt,
+		}).Error; err != nil {
+			return err
+		}
+		return RevokeMemberAccountTokens(tx, member.UUID)
+	})
 }
 
 // UpdateMemberRemark 更新账号备注。

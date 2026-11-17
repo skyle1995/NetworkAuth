@@ -129,15 +129,18 @@ onMounted(load);
 <template>
   <div class="version-list">
     <el-alert
-      class="mb-3"
+      style="margin-bottom: 16px"
       type="info"
       :closable="false"
       show-icon
       title="更新检查只读这里的版本列表：取「已启用」中的最高版本，download_type 决定强制或自由更新。"
     />
 
+    <!-- gutter 会给 row 加 margin:0 -6px，比容器宽 12px；
+         外层 overflow-y-auto 会把 overflow-x 计算成 auto，12px 溢出即产生
+         横向滚动条并带动整个弹窗内容平移，因此这里不用 gutter -->
     <el-form :model="form" label-width="90px" class="mb-3">
-      <el-row :gutter="12">
+      <el-row>
         <el-col :span="8">
           <el-form-item label="版本号" required>
             <el-input v-model="form.version" placeholder="如 3.0.2" clearable />
@@ -182,26 +185,30 @@ onMounted(load);
       </el-form-item>
     </el-form>
 
-    <el-table v-loading="loading" :data="rows" border size="small">
-      <el-table-column prop="version" label="版本" width="110" />
-      <el-table-column label="更新方式" width="110">
+    <el-table v-loading="loading" :data="rows" border size="small" style="width: 100%" :scrollbar-always-on="false">
+      <el-table-column prop="version" label="版本" width="90" />
+      <el-table-column label="更新方式" width="96">
         <template #default="{ row }">
           <el-tag :type="typeTag(row.download_type)" size="small">
             {{ typeText(row.download_type) }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="download_url" label="下载地址" min-width="220" show-overflow-tooltip />
-      <el-table-column prop="changelog" label="更新公告" min-width="180" show-overflow-tooltip />
-      <el-table-column label="启用" width="80">
+      <el-table-column prop="download_url" label="下载地址" min-width="240" show-overflow-tooltip />
+      <el-table-column prop="changelog" label="更新公告" min-width="220" show-overflow-tooltip />
+      <el-table-column label="启用" width="70">
         <template #default="{ row }">
           <el-switch v-model="row.enabled" @change="toggle(row)" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="130" fixed="right">
+      <el-table-column label="操作" width="130" align="center">
         <template #default="{ row }">
-          <el-button link type="primary" @click="editRow(row)">编辑</el-button>
-          <el-button link type="danger" @click="remove(row)">删除</el-button>
+          <el-button link type="primary" size="small" @click="editRow(row)">
+            编辑
+          </el-button>
+          <el-button link type="danger" size="small" @click="remove(row)">
+            删除
+          </el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -209,8 +216,11 @@ onMounted(load);
 </template>
 
 <style scoped>
+/* 滚动统一由 ReDialog 外层容器负责（overflow-y-auto + max-height），
+   这里再加 max-height/overflow 会形成嵌套滚动，
+   横向溢出时还会带着整个弹窗一起平移。 */
 .version-list {
-  max-height: 66vh;
-  overflow: auto;
+  width: 100%;
+  max-width: 100%;
 }
 </style>

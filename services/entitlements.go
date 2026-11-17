@@ -27,8 +27,13 @@ import (
 
 // EntitlementBilling 单个应用的收费信息（供客户端展示「收费模式/消耗方式/会员限制」）
 type EntitlementBilling struct {
-	Mode            int     `json:"mode"`             // 0 计时 / 1 点数 / 2 高级
-	ModeName        string  `json:"mode_name"`        // 计时模式 / 点数模式 / 高级模式
+	// 三个正交开关：真实门禁依据，可任意组合
+	TimeEnabled   bool `json:"time_enabled"`   // 要求账号有效期（卖时长）
+	PointsEnabled bool `json:"points_enabled"` // 按点数扣费
+	LevelGate     bool `json:"level_gate"`     // 要求会员等级 ≥ required_level
+
+	Mode            int     `json:"mode"`             // 兼容展示：由三个开关推导
+	ModeName        string  `json:"mode_name"`        // 兼容展示：同上
 	Free            bool    `json:"free"`             // 免费应用：跳过门禁与扣费
 	RequiredLevel   int     `json:"required_level"`   // 最低会员等级（1 = 默认，无额外限制）
 	Scope           int     `json:"scope"`            // 0 按设备单独 / 1 账号合并
@@ -52,8 +57,11 @@ type EntitlementItem struct {
 	Name        string `json:"name"`
 	Version     string `json:"version"`
 	MinVersion  string `json:"min_version,omitempty"`
-	Mode        int    `json:"mode"`
-	Free        bool   `json:"free"`
+	Mode          int  `json:"mode"`           // 兼容展示：由三个开关推导
+	Free          bool `json:"free"`
+	TimeEnabled   bool `json:"time_enabled"`   // 是否要求账号有效期
+	PointsEnabled bool `json:"points_enabled"` // 是否按点数扣费
+	LevelGate     bool `json:"level_gate"`     // 是否要求会员等级
 
 	// —— 等级门禁 ——
 	RequiredLevel     int    `json:"required_level"`      // 本应用要求的最低权限等级（1=不限）
@@ -163,6 +171,9 @@ func ListEntitlements(db *gorm.DB, acct *models.MemberAccountToken, fingerprint 
 			UUID:          app.UUID,
 			Name:          app.Name,
 			Version:       LatestAppVersionField(app),
+			TimeEnabled:   billing.TimeEnabled,
+			PointsEnabled: billing.PointsEnabled,
+			LevelGate:     billing.LevelGate,
 			Mode:          billing.Mode,
 			Free:          billing.Free,
 			RequiredLevel: billing.RequiredLevel,
@@ -172,6 +183,9 @@ func ListEntitlements(db *gorm.DB, acct *models.MemberAccountToken, fingerprint 
 			item.PluginID = *app.PluginID
 		}
 		item.Billing = &EntitlementBilling{
+				TimeEnabled:     billing.TimeEnabled,
+				PointsEnabled:   billing.PointsEnabled,
+				LevelGate:       billing.LevelGate,
 				Mode:            billing.Mode,
 				ModeName:        models.BillingModeName(billing.Mode),
 				Free:            billing.Free,

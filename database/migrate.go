@@ -48,6 +48,66 @@ func MigrateVariablePerApp() error {
 	return nil
 }
 
+// MigrateBillingFlags 把旧的单一 billing_mode 枚举拆成三个正交开关：
+//
+//	bill_time_enabled   计时（要账号有效期）
+//	bill_points_enabled 点数（扣点）
+//	level_gate_enabled  会员限制（要求等级 ≥ required_level）
+//
+// 旧 → 新映射：
+//
+//	mode 0 计时 → time=1, points=0, level=(required_level>1)
+//	mode 1 点数 → time=0, points=1, level=(required_level>1)
+//	mode 2 高级 → time=0, points=1, level=1
+//
+// 幂等：完成后写 settings 标记 billing_flags_migrated，之后不再执行，
+// 避免把用户后来手动关掉的开关又打开。
+func MigrateBillingFlags() error {
+	db, err := GetDB()
+	if err != nil {
+		return err
+	}
+	if !db.Migrator().HasTable(&models.App{}) || !db.Migrator().HasTable(&models.Settings{}) {
+		return nil
+	}
+
+	const marker = "billing_flags_migrated"
+	var done int64
+	if err := db.Model(&models.Settings{}).Where("name = ?", marker).Count(&done).Error; err != nil {
+		return err
+	}
+	if done > 0 {
+		return nil
+	}
+
+	stmts := []string{
+		`UPDATE apps SET bill_time_enabled = 1, bill_points_enabled = 0,
+		        level_gate_enabled = CASE WHEN required_level > 1 THEN 1 ELSE 0 END
+		   WHERE billing_mode = 0`,
+		`UPDATE apps SET bill_time_enabled = 0, bill_points_enabled = 1,
+		        level_gate_enabled = CASE WHEN required_level > 1 THEN 1 ELSE 0 END
+		   WHERE billing_mode = 1`,
+		`UPDATE apps SET bill_time_enabled = 0, bill_points_enabled = 1, level_gate_enabled = 1
+		   WHERE billing_mode = 2`,
+	}
+	for _, sql := range stmts {
+		if err := db.Exec(sql).Error; err != nil {
+			logrus.WithError(err).Error("拆分计费开关失败")
+			return err
+		}
+	}
+
+	if err := db.Create(&models.Settings{
+		Name:        marker,
+		Value:       "1",
+		Description: "计费模式已拆分为计时/点数/会员限制三个开关，标记防止重复迁移",
+	}).Error; err != nil {
+		return err
+	}
+	logrus.Info("计费模式已拆分为三个开关（计时/点数/会员限制）")
+	return nil
+}
+
 // BackfillDefaultMemberLevel 给「未分配等级」的账号补上默认档。
 //
 // 背景：门槛为 0 的等级是全站免费档，任何账号都该属于它。

@@ -225,6 +225,8 @@ func isPermanent(expiredAt time.Time) bool {
 //
 // 免费豁免时全部跳过。
 func checkMemberUsable(db *gorm.DB, billing *Billing, m *models.Member) error {
+	// db 可能是事务句柄：取价必须跟着走，否则单连接池下会与事务互等
+	billing = billing.WithDB(db)
 	if billing.Free {
 		return nil
 	}

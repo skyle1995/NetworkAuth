@@ -1,4 +1,4 @@
-﻿package models
+package models
 
 import (
 	"strings"
@@ -57,6 +57,13 @@ type AppActivation struct {
 	// 心跳续期；到期未续 → 视为失效，名额自动回收。
 	LeaseExpiresAt time.Time `gorm:"index:idx_activation_lease;comment:租约到期时间" json:"lease_expires_at"`
 
+	// OnlineAt：本次会话的上线时间。
+	//
+	// 与 CreatedAt 的区别：同一设备重复启动同一插件会**复用**激活记录，
+	// CreatedAt 始终是首次激活时间（留着做审计），而 OnlineAt 每次启动都刷新，
+	// 才是「这个插件这次是什么时候上线的」。
+	OnlineAt time.Time `gorm:"comment:本次会话上线时间，每次激活刷新" json:"online_at"`
+
 	// ChargeBasis：计费计时基准（0=FROM_CREATION 激活即计时 / 1=FROM_FIRST_PING 首次心跳计时）。
 	// 取值来自应用当时的 PointsHeartbeatCharge，快照进激活记录，避免后续改配置影响已存在的占用。
 	ChargeBasis int `gorm:"default:0;not null;comment:计费基准，0=激活即计时，1=首次心跳计时" json:"charge_basis"`
@@ -99,9 +106,9 @@ func (a *AppActivation) IsReleased() bool {
 	return a.DeactivatedAt != nil && !a.DeactivatedAt.IsZero()
 }
 
-// IsLeaseExpired 租约是否已过期
+// IsLeaseExpired 判断租约是否已过期；缺失期限或到达截止时刻均视为失效。
 func (a *AppActivation) IsLeaseExpired(now time.Time) bool {
-	return !a.LeaseExpiresAt.IsZero() && a.LeaseExpiresAt.Before(now)
+	return !a.LeaseExpiresAt.After(now)
 }
 
 // IsDead 是否已失效（显式释放 或 租约过期）。

@@ -20,10 +20,30 @@ import (
 // 因此登出 / 踢号 / 到期查询都按令牌与激活处理，不再碰 member_sessions。
 // ============================================================================
 
+// DeactivateForApp 释放指定应用的激活，拒绝账号令牌与其他应用的令牌。
+// 已释放但仍存在的激活可重复释放，保持接口幂等。
+func DeactivateForApp(appUUID, token string) error {
+	db, err := database.GetDB()
+	if err != nil {
+		return err
+	}
+	var activation models.AppActivation
+	if err := db.Where("token = ?", strings.TrimSpace(token)).First(&activation).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("激活令牌无效")
+		}
+		return err
+	}
+	if activation.AppUUID != strings.TrimSpace(appUUID) {
+		return errors.New("激活令牌不属于当前应用")
+	}
+	return Deactivate(db, activation.Token)
+}
+
 // MemberLogout 登出：释放该令牌名下的激活；账号令牌额外吊销自身。
 //
 //   - 激活令牌 → 只释放这一个应用实例
-//   - 账号令牌 → 释放该账号的全部激活，并删掉账号令牌（等于这台设备退出）
+//   - 账号令牌 → 仅释放当前账号令牌名下的激活，并吊销该令牌
 func MemberLogout(appUUID, token string) error {
 	db, err := database.GetDB()
 	if err != nil {
@@ -35,19 +55,22 @@ func MemberLogout(appUUID, token string) error {
 	}
 
 	// 激活令牌：直接释放
-	if _, _, err := AuthActivation(db, token); err == nil {
+	var activation models.AppActivation
+	if err := db.Where("token = ?", token).First(&activation).Error; err == nil {
+		if activation.AppUUID != strings.TrimSpace(appUUID) {
+			return errors.New("激活令牌不属于当前应用")
+		}
 		return Deactivate(db, token)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
 	}
 
-	// 账号令牌：释放账号名下全部激活并吊销令牌
-	acct, err := AuthAccountToken(db, token)
+	// 账号令牌：只吊销这次登录，其他设备不受影响。
+	_, err = AuthAccountToken(db, token)
 	if err != nil {
 		return errors.New("会话无效")
 	}
-	if err := DeactivateByMember(db, acct.MemberUUID); err != nil {
-		return err
-	}
-	return db.Where("token = ?", token).Delete(&models.MemberAccountToken{}).Error
+	return RevokeAccountToken(db, token)
 }
 
 // DeactivateByMember 释放某账号的全部活跃激活（登出/强制下线用）。
@@ -71,7 +94,7 @@ func KickSession(appUUID, username, password string, sessionID uint, ip string) 
 	if err != nil {
 		return err
 	}
-	member, err := authMemberByCredential(db, username, password)
+	member, err := authMemberByCredential(db, username, password, ip)
 	if err != nil {
 		return err
 	}

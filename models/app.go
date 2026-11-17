@@ -111,10 +111,23 @@ type App struct {
 	//   0=计时模式：账号有效 + 会员权限等级 ≥ RequiredLevel，不扣点
 	//   1=点数模式：消耗账号点数
 	//   2=高级模式：等级 ≥ RequiredLevel，并按该等级在本应用配置的点数扣点
+	//
+	// ⚠️ 已退化为「兼容展示值」：真正的门禁由下面三个开关决定，
+	// 保存时由 models.DeriveBillingMode 推导写回，判定逻辑不要读它。
 	BillingMode int `gorm:"default:0;not null;comment:计费模式，0=会员，1=点数，2=混合" json:"billing_mode"`
 
+	// BillTimeEnabled：计时开关。1=要求账号有效期（卖时长），到期即不可用。
+	BillTimeEnabled int `gorm:"default:0;not null;comment:计时门禁：1=要求账号有效期" json:"bill_time_enabled"`
+
+	// BillPointsEnabled：点数开关。1=按点数扣费（扣法见 PointsChargeMode）。
+	BillPointsEnabled int `gorm:"default:0;not null;comment:点数门禁：1=按点数扣费" json:"bill_points_enabled"`
+
+	// LevelGateEnabled：会员限制开关。1=要求会员权限等级 ≥ RequiredLevel。
+	// 与计时/点数彼此独立，可任意组合。
+	LevelGateEnabled int `gorm:"default:0;not null;comment:等级门禁：1=启用会员等级限制" json:"level_gate_enabled"`
+
 	// RequiredLevel：要求的最低会员权限等级（1=不限，即默认档）。
-	// 仅计时模式与高级模式生效；按 MemberLevel.Level 比较。
+	// 仅 LevelGateEnabled=1 时生效；按 MemberLevel.Level 比较。
 	RequiredLevel int `gorm:"default:1;not null;comment:要求的最低会员权限等级，1=不限" json:"required_level"`
 
 	// BillingScope：计费范围（0=按设备单独计费，1=账号合并计费）。仅点数模式与高级模式生效

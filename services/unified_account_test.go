@@ -48,6 +48,7 @@ func setupUnifiedTestDB(t *testing.T) *gorm.DB {
 			Name:                 "应用 " + uuid,
 			Secret:               "SECRET-" + uuid,
 			Status:               1,
+			BillPointsEnabled:    1, // 纯点数计费
 			BillingMode:          models.BillingModePoints,
 			RequiredLevel:        1,
 			PointsChargeMode:     models.PointsChargePerCount,
@@ -235,8 +236,11 @@ func TestHybridModeUsesLevelPoints(t *testing.T) {
 
 	// 把 A 改成混合模式，要求等级 2
 	if err := db.Model(&models.App{}).Where("uuid = ?", "APP-A").Updates(map[string]interface{}{
-		"billing_mode":   models.BillingModeHybrid,
-		"required_level": 2,
+		"billing_mode":       models.BillingModeHybrid,
+		"bill_time_enabled":   0,
+		"bill_points_enabled": 1,
+		"level_gate_enabled":  1,
+		"required_level":     2,
 	}).Error; err != nil {
 		t.Fatalf("update app: %v", err)
 	}

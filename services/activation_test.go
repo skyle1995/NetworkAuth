@@ -66,7 +66,7 @@ func seedAccountMember(t *testing.T, db *gorm.DB, username string, points float6
 func TestLoginDoesNotActivateOrCharge(t *testing.T) {
 	db := setupActivationDB(t)
 	app := seedApp(t, db, "APP-L1", func(a *models.App) {
-		a.BillingMode = models.BillingModePoints
+		a.ApplyBillingFlags(models.BillingModePoints)
 		a.PointsChargeMode = models.PointsChargePerCount
 		a.PointsPerLogin = 5
 	})
@@ -109,7 +109,7 @@ func TestLoginDoesNotActivateOrCharge(t *testing.T) {
 func TestActivationChargesPoints(t *testing.T) {
 	db := setupActivationDB(t)
 	app := seedApp(t, db, "APP-C1", func(a *models.App) {
-		a.BillingMode = models.BillingModePoints
+		a.ApplyBillingFlags(models.BillingModePoints)
 		a.PointsChargeMode = models.PointsChargePerCount
 		a.PointsPerLogin = 3
 	})
@@ -135,7 +135,7 @@ func TestActivationChargesPoints(t *testing.T) {
 func TestActivationIdempotent(t *testing.T) {
 	db := setupActivationDB(t)
 	app := seedApp(t, db, "APP-I1", func(a *models.App) {
-		a.BillingMode = models.BillingModePoints
+		a.ApplyBillingFlags(models.BillingModePoints)
 		a.PointsChargeMode = models.PointsChargePerCount
 		a.PointsPerLogin = 4
 	})
@@ -179,7 +179,7 @@ func TestActivationIdempotent(t *testing.T) {
 func TestActivationPerFingerprint(t *testing.T) {
 	db := setupActivationDB(t)
 	app := seedApp(t, db, "APP-F1", func(a *models.App) {
-		a.BillingMode = models.BillingModePoints
+		a.ApplyBillingFlags(models.BillingModePoints)
 		a.PointsChargeMode = models.PointsChargePerCount
 		a.PointsPerLogin = 2
 	})
@@ -211,12 +211,12 @@ func TestActivationPerFingerprint(t *testing.T) {
 func TestActivationAcrossAppsSharesWallet(t *testing.T) {
 	db := setupActivationDB(t)
 	appA := seedApp(t, db, "APP-X1", func(a *models.App) {
-		a.BillingMode = models.BillingModePoints
+		a.ApplyBillingFlags(models.BillingModePoints)
 		a.PointsChargeMode = models.PointsChargePerCount
 		a.PointsPerLogin = 2
 	})
 	appB := seedApp(t, db, "APP-X2", func(a *models.App) {
-		a.BillingMode = models.BillingModePoints
+		a.ApplyBillingFlags(models.BillingModePoints)
 		a.PointsChargeMode = models.PointsChargePerCount
 		a.PointsPerLogin = 3
 	})
@@ -401,13 +401,13 @@ func TestLogoutRevokesActivations(t *testing.T) {
 func TestPerTimeBillingUsesActivationPeriod(t *testing.T) {
 	db := setupActivationDB(t)
 	appA := seedApp(t, db, "APP-P1", func(a *models.App) {
-		a.BillingMode = models.BillingModePoints
+		a.ApplyBillingFlags(models.BillingModePoints)
 		a.PointsChargeMode = models.PointsChargePerTime
 		a.PointsPeriodMinutes = 60
 		a.PointsPerPeriod = 1
 	})
 	appB := seedApp(t, db, "APP-P2", func(a *models.App) {
-		a.BillingMode = models.BillingModePoints
+		a.ApplyBillingFlags(models.BillingModePoints)
 		a.PointsChargeMode = models.PointsChargePerTime
 		a.PointsPeriodMinutes = 60
 		a.PointsPerPeriod = 1
@@ -460,7 +460,7 @@ func TestPerTimeBillingUsesActivationPeriod(t *testing.T) {
 func TestAccountTokenCannotCallAppAPI(t *testing.T) {
 	db := setupActivationDB(t)
 	app := seedApp(t, db, "APP-IM", func(a *models.App) {
-		a.BillingMode = models.BillingModePoints
+		a.ApplyBillingFlags(models.BillingModePoints)
 		a.PointsChargeMode = models.PointsChargePerCount
 		a.PointsPerLogin = 2
 	})
@@ -523,11 +523,11 @@ func TestActivationTokenAppMismatchRejected(t *testing.T) {
 func TestEntitlementsHidesSecretWhenUnusable(t *testing.T) {
 	db := setupActivationDB(t)
 	usable := seedApp(t, db, "APP-EN1", func(a *models.App) {
-		a.BillingMode = models.BillingModeMember
+		a.ApplyBillingFlags(models.BillingModeMember)
 		a.RequiredLevel = 1
 	})
 	locked := seedApp(t, db, "APP-EN2", func(a *models.App) {
-		a.BillingMode = models.BillingModeMember
+		a.ApplyBillingFlags(models.BillingModeMember)
 		a.RequiredLevel = 99 // 任何账号都达不到
 	})
 	m := seedAccountMember(t, db, "ent@test", 0, 24*time.Hour)

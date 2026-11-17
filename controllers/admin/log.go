@@ -109,7 +109,7 @@ func LoginLogsListHandler(c *gin.Context) {
 			"status":     log.Status,
 			"message":    log.Message,
 			"user_agent": log.UserAgent,
-			"created_at": log.CreatedAt,
+			"created_at": fmtTime(log.CreatedAt),
 		})
 	}
 

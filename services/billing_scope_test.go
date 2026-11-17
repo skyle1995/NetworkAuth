@@ -13,7 +13,7 @@ import (
 func TestMergedBillingPerCountChargesOncePerAccount(t *testing.T) {
 	db := setupActivationDB(t)
 	app := seedApp(t, db, "APP-MG-CNT", func(a *models.App) {
-		a.BillingMode = models.BillingModePoints
+		a.ApplyBillingFlags(models.BillingModePoints)
 		a.BillingScope = models.BillingScopeAccount
 		a.PointsChargeMode = models.PointsChargePerCount
 		a.PointsPerLogin = 2
@@ -67,7 +67,7 @@ func TestMergedBillingPerCountChargesOncePerAccount(t *testing.T) {
 func TestDeviceBillingPerCountChargesPerDevice(t *testing.T) {
 	db := setupActivationDB(t)
 	app := seedApp(t, db, "APP-SP-CNT", func(a *models.App) {
-		a.BillingMode = models.BillingModePoints
+		a.ApplyBillingFlags(models.BillingModePoints)
 		a.BillingScope = models.BillingScopeDevice
 		a.PointsChargeMode = models.PointsChargePerCount
 		a.PointsPerLogin = 2
@@ -91,7 +91,7 @@ func TestDeviceBillingPerCountChargesPerDevice(t *testing.T) {
 func TestMergedBillingPerTimeSharesOnePeriod(t *testing.T) {
 	db := setupActivationDB(t)
 	app := seedApp(t, db, "APP-MG-TIME", func(a *models.App) {
-		a.BillingMode = models.BillingModePoints
+		a.ApplyBillingFlags(models.BillingModePoints)
 		a.BillingScope = models.BillingScopeAccount
 		a.PointsChargeMode = models.PointsChargePerTime
 		a.PointsPerPeriod = 3
@@ -150,7 +150,7 @@ func TestMergedBillingPerTimeSharesOnePeriod(t *testing.T) {
 func TestDeviceBillingPerTimeHasOwnPeriods(t *testing.T) {
 	db := setupActivationDB(t)
 	app := seedApp(t, db, "APP-SP-TIME", func(a *models.App) {
-		a.BillingMode = models.BillingModePoints
+		a.ApplyBillingFlags(models.BillingModePoints)
 		a.BillingScope = models.BillingScopeDevice
 		a.PointsChargeMode = models.PointsChargePerTime
 		a.PointsPerPeriod = 3

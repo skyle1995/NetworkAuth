@@ -112,10 +112,13 @@ func TouchAccountToken(db *gorm.DB, tokenUUID string) {
 		Update("last_active_at", time.Now())
 }
 
-// RefreshAccountToken 用刷新令牌换一对新令牌（令牌轮换）。
+// RefreshAccountToken 在有效期与正常账号状态内，用刷新令牌原子换一对新令牌。
 //
 // 旧令牌立即失效 —— 这是标准做法，可限制令牌泄漏的影响面。
 func RefreshAccountToken(db *gorm.DB, refreshToken string) (*models.MemberAccountToken, error) {
+	if db == nil {
+		return nil, errors.New("数据库未初始化")
+	}
 	refreshToken = strings.TrimSpace(refreshToken)
 	if refreshToken == "" {
 		return nil, ErrAccountTokenInvalid
@@ -128,8 +131,9 @@ func RefreshAccountToken(db *gorm.DB, refreshToken string) (*models.MemberAccoun
 		}
 		return nil, err
 	}
-	// 刷新令牌本身不过期（只要账号令牌还在有效期内或刚过期都能续），
-	// 但账号被删除时记录会一并清掉。
+	if record.IsExpired(time.Now()) {
+		return nil, ErrAccountTokenInvalid
+	}
 	newToken, err := generateSecureToken()
 	if err != nil {
 		return nil, err
@@ -140,15 +144,22 @@ func RefreshAccountToken(db *gorm.DB, refreshToken string) (*models.MemberAccoun
 	}
 
 	now := time.Now()
-	if err := db.Model(&models.MemberAccountToken{}).
-		Where("uuid = ?", record.UUID).
+	// 将旧刷新令牌、期限和账号状态纳入更新条件，并发消费只允许一个成功。
+	result := db.Model(&models.MemberAccountToken{}).
+		Where("uuid = ? AND refresh_token = ? AND expires_at > ?", record.UUID, refreshToken, now).
+		Where("member_uuid IN (?)", db.Model(&models.Member{}).Select("uuid").
+			Where("status = ?", models.MemberStatusNormal)).
 		Updates(map[string]any{
 			"token":          newToken,
 			"refresh_token":  newRefresh,
 			"expires_at":     now.Add(AccountTokenTTL),
 			"last_active_at": now,
-		}).Error; err != nil {
-		return nil, err
+		})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return nil, ErrAccountTokenInvalid
 	}
 
 	record.Token = newToken

@@ -365,7 +365,7 @@ func TestE2ERebindAndKick(t *testing.T) {
 	}, "31 手动顶号")
 }
 
-// TestE2EAdminOps 管理类：60 封停 / 61 拉黑 / 62 扣时长
+// TestE2EAdminOps 客户端签名不得执行全站封停、拉黑或扣减操作。
 func TestE2EAdminOps(t *testing.T) {
 	e := newE2EEnv(t)
 
@@ -376,15 +376,25 @@ func TestE2EAdminOps(t *testing.T) {
 		"username": "adm@test.com", "password": "pw123456", "machine_code": "MC-ADM", "version": "1.0.0",
 	}, "20 登录")
 
-	e.mustCall(t, models.APITypeDisableUser, map[string]any{
-		"username": "adm@test.com",
-	}, "60 封停")
-	e.mustCall(t, models.APITypeBlackUser, map[string]any{
-		"username": "adm@test.com",
-	}, "61 拉黑")
-	e.mustCall(t, models.APITypeUserDeductedTime, map[string]any{
-		"username": "adm@test.com", "minutes": 10,
-	}, "62 扣时长")
+	var before models.Member
+	if err := e.db.Where("username = ?", "adm@test.com").First(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, apiType := range []int{models.APITypeDisableUser, models.APITypeBlackUser, models.APITypeUserDeductedTime} {
+		code, _, _ := e.call(t, apiType, map[string]any{
+			"username": before.Username, "minutes": 10,
+		})
+		if code == 0 {
+			t.Fatalf("客户端签名不应获得管理权限：type=%d", apiType)
+		}
+	}
+	var after models.Member
+	if err := e.db.First(&after, before.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != before.Status || !after.ExpiredAt.Equal(before.ExpiredAt) || after.Points != before.Points {
+		t.Fatal("被拒绝的管理操作改变了账号状态或资源")
+	}
 }
 
 // TestE2EEmailCodeEndpoints 23/25 邮件验证码：未配置邮件服务时必须是明确的业务错误，而不是 panic 或 500

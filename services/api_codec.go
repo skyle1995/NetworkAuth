@@ -3,8 +3,11 @@ package services
 import (
 	"NetworkAuth/models"
 	"NetworkAuth/utils/encrypt"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"strings"
+	"golang.org/x/crypto/nacl/box"
 )
 
 // ============================================================================
@@ -71,6 +74,11 @@ func encodeByAlgorithm(algorithm int, publicKey, privateKey, plain string) (stri
 			return "", errors.New("返回动态密钥无效")
 		}
 		return enc.Encrypt(plain)
+	case models.AlgorithmBox:
+		// 返回方向：服务器暂不需要返回加密，因为响应体自带 Ed25519 验签（由客户端 ktrw_loader 处理）。
+		// 但如果配置了 Box，就用明文返回，或者用相同的机制？
+		// 为了极简，如果返回算法是 Box，目前先按明文返回，由业务层单独加签名。
+		return plain, nil
 	default:
 		return "", errors.New("不支持的返回算法")
 	}
@@ -106,6 +114,8 @@ func decodeByAlgorithm(algorithm int, publicKey, privateKey, cipher string) (str
 			return "", errors.New("提交动态密钥无效")
 		}
 		return enc.Decrypt(cipher)
+	case models.AlgorithmBox:
+		return decodeBox(privateKey, cipher)
 	default:
 		return "", errors.New("不支持的提交算法")
 	}
@@ -130,4 +140,37 @@ func easyCodec(keyStr string) (*encrypt.EasyEncrypt, error) {
 		return nil, errors.New("易加密密钥为空")
 	}
 	return encrypt.NewEasyEncrypt(key, key), nil
+}
+
+// decodeBox 解密 Curve25519 Box 密文
+func decodeBox(privateKeyHex, cipherBase64 string) (string, error) {
+	if privateKeyHex == "" {
+		return "", errors.New("Box私钥为空")
+	}
+	skBytes, err := hex.DecodeString(strings.TrimSpace(privateKeyHex))
+	if err != nil || len(skBytes) != 32 {
+		return "", errors.New("Box私钥格式错误，需为64位hex")
+	}
+	var sk [32]byte
+	copy(sk[:], skBytes)
+
+	raw, err := base64.StdEncoding.DecodeString(cipherBase64)
+	if err != nil {
+		return "", errors.New("Box密文Base64解码失败")
+	}
+	if len(raw) < 24+32+box.Overhead {
+		return "", errors.New("Box密文过短")
+	}
+
+	var nonce [24]byte
+	copy(nonce[:], raw[:24])
+	var epk [32]byte
+	copy(epk[:], raw[24:56])
+	boxCipher := raw[56:]
+
+	plain, ok := box.Open(nil, boxCipher, &nonce, &epk, &sk)
+	if !ok {
+		return "", errors.New("Box解密失败(MAC校验不通过)")
+	}
+	return string(plain), nil
 }

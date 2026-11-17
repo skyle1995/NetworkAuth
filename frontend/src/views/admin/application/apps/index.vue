@@ -71,6 +71,9 @@ function openDialog(title = "新增", row?: any) {
         version: row?.version ?? "1.0.0",
         status: row?.status ?? 1,
             free_mode: row?.free_mode ?? 0,
+            bill_time_enabled: row?.bill_time_enabled ?? 0,
+            bill_points_enabled: row?.bill_points_enabled ?? 0,
+            level_gate_enabled: row?.level_gate_enabled ?? 0,
             billing_mode: row?.billing_mode ?? 0,
             required_level: row?.required_level ?? 1,
         points_charge_mode: row?.points_charge_mode ?? 0,
@@ -273,7 +276,7 @@ async function openTextConfigDialog(
 async function openVersionDialog(row: any) {
   addDialog({
     title: `版本列表 · ${row.name ?? row.uuid}`,
-    width: "900px",
+    width: "960px",
     hideFooter: true,
     props: {
       app: { uuid: row.uuid, name: row.name }

@@ -296,7 +296,11 @@ func handleBulletin(app *models.App) (any, error) {
 		// 能力/模式开关：客户端据此决定界面（如注册是否需验证码、是否显示卡密登录）
 		"config": gin.H{
 			"free":                    app.FreeMode,
-			"billing_mode":            billing.Mode,
+			// 三个正交开关：真实门禁依据，可任意组合
+			"time_enabled":            billing.TimeEnabled,
+			"points_enabled":          billing.PointsEnabled,
+			"level_gate":              billing.LevelGate,
+			"billing_mode":            billing.Mode, // 兼容展示：由开关推导
 			"required_level":          billing.RequiredLevel,
 			"operation_mode":          billing.Mode, // 兼容旧字段名
 			"points_charge_mode":      billing.ChargeMode,

@@ -31,7 +31,13 @@ type Billing struct {
 	// Free 为 true 时跳过全部门禁与扣费
 	Free bool
 
-	Mode          int // models.BillingModeMember / BillingModePoints / BillingModeHybrid
+	// 三个正交门禁开关：真实判定依据，可任意组合
+	TimeEnabled   bool // 要求账号有效期（卖时长）
+	PointsEnabled bool // 按点数扣费
+	LevelGate     bool // 要求会员等级 ≥ RequiredLevel
+
+	// Mode 仅为兼容展示：由上面三个开关推导（models.DeriveBillingMode），不做判定
+	Mode          int
 	RequiredLevel int // 要求的最低权限等级（1=不限）
 	ChargeMode    int // PointsChargePerCount / PointsChargePerTime
 	// Scope：计费范围（0=按设备单独计费，1=账号合并计费）
@@ -41,7 +47,13 @@ type Billing struct {
 	PerPeriod     float64 // 点数模式：按时每周期扣点（支持小数）
 	HeartbeatCharge int // HeartbeatChargeOnLogin / HeartbeatChargeOnBeat
 
-	// levelPoints 高级模式：(MemberLevel.UUID → Points) 快照
+	// db 计算单价时使用的连接句柄。
+	//
+	// 事务内必须传 tx：SQLite 连接池只有 1 条连接（database.go: SetMaxOpenConns(1)），
+	// 在事务里再调 database.GetDB() 会去抢那条已被事务占用的连接，互等死锁。
+	db *gorm.DB
+
+	// levelPoints：(MemberLevel.UUID → Points) 快照，点数开关打开时按等级取价
 	levelPoints map[string]float64
 	// loaded 表示 levelPoints 已加载（避免每次调用重复查库）
 	loaded bool
@@ -56,7 +68,9 @@ func EffectiveBilling(app *models.App) *Billing {
 	b := &Billing{
 		AppUUID:         app.UUID,
 		Free:            app.FreeMode == 1,
-		Mode:            app.BillingMode,
+		TimeEnabled:     app.BillTimeEnabled == 1,
+		PointsEnabled:   app.BillPointsEnabled == 1,
+		LevelGate:       app.LevelGateEnabled == 1,
 		RequiredLevel:   app.RequiredLevel,
 		ChargeMode:      app.PointsChargeMode,
 		Scope:           app.BillingScope,
@@ -65,10 +79,9 @@ func EffectiveBilling(app *models.App) *Billing {
 		PerPeriod:       app.PointsPerPeriod,
 		HeartbeatCharge: app.PointsHeartbeatCharge,
 	}
+	// 兼容展示值：由三个开关推导，不再读 app.BillingMode
+	b.Mode = models.DeriveBillingMode(b.TimeEnabled, b.PointsEnabled, b.LevelGate)
 	// 安全兜底：非法值收敛到最保守的默认，避免「扣 0 点」或除零
-	if !models.IsValidBillingMode(b.Mode) {
-		b.Mode = models.BillingModeMember
-	}
 	if b.RequiredLevel < models.DefaultMemberLevel {
 		b.RequiredLevel = models.DefaultMemberLevel
 	}
@@ -90,22 +103,28 @@ func EffectiveBilling(app *models.App) *Billing {
 // ============================================================================
 // 门禁判定
 // ============================================================================
+//
+// 三个开关彼此独立，可任意组合：
+//   计时 + 点数 → 既不能过期，也要扣点
+//   仅计时      → 卖时长
+//   仅点数      → 纯点数，账号到期也能用
+//   两个都关    → 不按时长/点数收费（仍可能受会员限制）
+// 会员限制可以叠加在任意组合之上。
 
-// RequiresLevel 本模式是否要求会员等级（计时模式与高级模式）
+// RequiresLevel 是否要求会员等级（只看 LevelGate）
 func (b *Billing) RequiresLevel() bool {
-	return !b.Free && (b.Mode == models.BillingModeMember || b.Mode == models.BillingModeHybrid)
+	return !b.Free && b.LevelGate
 }
 
-// RequiresValidPeriod 本模式是否要求账号有效期（计时模式）
-// 点数/高级模式只认点数与等级，到期时间不参与门禁——
-// 这样账号即便时长到期，仍可通过点数在点数应用里继续使用。
+// RequiresValidPeriod 是否要求账号有效期（只看计时开关）
+// 只开点数时，账号即便时长到期，仍可通过点数继续使用。
 func (b *Billing) RequiresValidPeriod() bool {
-	return !b.Free && b.Mode == models.BillingModeMember
+	return !b.Free && b.TimeEnabled
 }
 
-// UsesPoints 本模式是否消耗点数（点数模式与高级模式）
+// UsesPoints 是否消耗点数（只看点数开关）
 func (b *Billing) UsesPoints() bool {
-	return !b.Free && (b.Mode == models.BillingModePoints || b.Mode == models.BillingModeHybrid)
+	return !b.Free && b.PointsEnabled
 }
 
 // IsPointsChargeMode 是否按次扣点（否则按时）
@@ -114,10 +133,25 @@ func (b *Billing) IsPointsChargeMode() bool {
 }
 
 // ============================================================================
-// 等级点数（高级模式）
+// 等级点数（点数开关打开时按等级取价）
 // ============================================================================
 
-// loadLevelPoints 惰性加载该应用的等级点数配置（高级模式才需要）。
+// WithDB 返回绑定了指定连接句柄的副本。
+//
+// 事务内取价时必须先调用它（如 chargeActivationOnce / chargePeriod），
+// 否则惰性加载会走全局连接池，在单连接配置下与事务互等。
+func (b *Billing) WithDB(db *gorm.DB) *Billing {
+	if b == nil || db == nil {
+		return b
+	}
+	c := *b
+	c.db = db
+	return &c
+}
+
+// loadLevelPoints 惰性加载该应用的等级点数配置。
+// 只要点数开关打开就加载：等级点数不再是「高级模式专属」，
+// 而是点数计费的一种定价覆盖（按等级给不同价格）。
 // 直接查库；如需热点路径优化可再加进程内缓存（配置变更时失效）。
 func (b *Billing) loadLevelPoints() {
 	if b.loaded {
@@ -125,12 +159,17 @@ func (b *Billing) loadLevelPoints() {
 	}
 	b.loaded = true
 	b.levelPoints = map[string]float64{}
-	if b.Free || b.Mode != models.BillingModeHybrid || b.AppUUID == "" {
+	if !b.UsesPoints() || b.AppUUID == "" {
 		return
 	}
-	db, err := database.GetDB()
-	if err != nil || db == nil {
-		return
+	// 优先用调用方给的句柄（事务内即 tx）；只有真正没有句柄时才回落全局池
+	db := b.db
+	if db == nil {
+		global, err := database.GetDB()
+		if err != nil || global == nil {
+			return
+		}
+		db = global
 	}
 	if !db.Migrator().HasTable(&models.AppLevelPoint{}) {
 		return
@@ -151,10 +190,11 @@ func (b *Billing) IsMerged() bool {
 	return b.Scope == models.BillingScopeAccount
 }
 
-// PointsCostForLevel 返回本模式下的点数消耗：
-//   - 点数模式：PerLogin / PerPeriod
-//   - 高级模式：该等级在本应用配置的点数，未配置则回退 PerLogin / PerPeriod
+// PointsCostForLevel 返回本次扣费的点数：
+//   - 该等级在「等级点数」里配了价 → 用配的价
+//   - 没配 → 回退应用默认的 PerLogin / PerPeriod
 //
+// 等级点数对所有按点数计费的应用生效，不再限定旧「高级模式」。
 // levelUUID 为账号当前会员等级（空表示无等级，即默认档）。
 func (b *Billing) PointsCostForLevel(levelUUID string, perPeriod bool) float64 {
 	if !b.UsesPoints() {
@@ -164,13 +204,7 @@ func (b *Billing) PointsCostForLevel(levelUUID string, perPeriod bool) float64 {
 	if perPeriod {
 		fallback = b.PerPeriod
 	}
-	if b.Mode != models.BillingModeHybrid {
-		return fallback
-	}
 	b.loadLevelPoints()
-	if b.levelPoints == nil {
-		return fallback
-	}
 	if pts, ok := b.levelPoints[levelUUID]; ok {
 		return pts
 	}
