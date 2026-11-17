@@ -89,10 +89,16 @@ func newE2EEnv(t *testing.T) *e2eEnv {
 
 	// 点数模式应用：按次 1 点
 	db.Create(&models.App{
-		UUID: "APP-1", Name: "回归应用", Secret: "SECRET", Status: 1, Version: "1.0.0",
+		UUID: "APP-1", Name: "回归应用", Secret: "SECRET", Status: 1,
 		BillingMode: models.BillingModePoints, PointsChargeMode: models.PointsChargePerCount,
 		PointsPerLogin: 1, CheckInterval: 10, OfflineTimeout: 30,
 		CleanInterval: 1, LeaseTTLMinutes: 30,
+	})
+	// 版本信息在独立的版本列表里（更新检查只读这张表）
+	db.Create(&models.AppVersion{
+		AppUUID: "APP-1", Version: "1.0.0", DownloadType: models.DownloadTypeFree,
+		DownloadURL: "http://127.0.0.1/app.zex", Changelog: "回归用版本",
+		Enabled: true, PublishedAt: time.Now().UnixMilli(),
 	})
 
 	// 全部 30 个接口启用、不加密，保证路由可达

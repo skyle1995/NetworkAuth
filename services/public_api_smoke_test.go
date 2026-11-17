@@ -148,7 +148,7 @@ func setupPublicTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.App{}, &models.Card{}, &models.Member{}, &models.Binding{}, &models.API{}, &models.Variable{}, &models.Function{}, &models.AppActivation{}, &models.CardPackage{}, &models.MemberLevel{}, &models.AppLevelPoint{}, &models.Settings{}, &models.MemberAccountToken{}, &models.AppActivation{}); err != nil {
+	if err := db.AutoMigrate(&models.App{}, &models.Card{}, &models.Member{}, &models.Binding{}, &models.API{}, &models.Variable{}, &models.Function{}, &models.AppActivation{}, &models.CardPackage{}, &models.MemberLevel{}, &models.AppLevelPoint{}, &models.Settings{}, &models.MemberAccountToken{}, &models.AppVersion{}, &models.AppActivation{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
 	seedTestQuota(db)
@@ -171,6 +171,24 @@ func setupPublicTestDB(t *testing.T) *gorm.DB {
 	// 每个用例独立库，但 SettingsService 是单例缓存，必须重置，否则读到上一个用例的配置
 	ResetSettingsService()
 	return db
+}
+
+// seedAppVersion 往版本列表插一条记录。
+// 版本号、更新方式、下载地址、更新公告都只存在 app_versions 里，apps 表不再有这些列。
+func seedAppVersion(t *testing.T, db *gorm.DB, appUUID, version string, downloadType int, url, changelog string, enabled bool) {
+	t.Helper()
+	v := models.AppVersion{
+		AppUUID:      appUUID,
+		Version:      version,
+		DownloadType: downloadType,
+		DownloadURL:  url,
+		Changelog:    changelog,
+		Enabled:      enabled,
+		PublishedAt:  time.Now().UnixMilli(),
+	}
+	if err := db.Create(&v).Error; err != nil {
+		t.Fatalf("seed version %s: %v", version, err)
+	}
 }
 
 func TestAPICodecRoundTrip(t *testing.T) {
@@ -540,57 +558,10 @@ func TestFreeModeUsableWhenExpired(t *testing.T) {
 	}
 }
 
-func TestNormalizeUpdateStrategy(t *testing.T) {
-	db := setupPublicTestDB(t)
-	// 模拟旧库：补一个已废弃的 force_update 列
-	if err := db.Exec("ALTER TABLE apps ADD COLUMN force_update integer NOT NULL DEFAULT 0").Error; err != nil {
-		t.Fatalf("add legacy column: %v", err)
-	}
-	// 造旧数据：download_type(旧:1自动/2手动) × force_update(0/1)
-	seed := func(uuid string, dt, fu int) {
-		if err := db.Exec(
-			"INSERT INTO apps (uuid, name, secret, status, download_type, force_update) VALUES (?,?,?,?,?,?)",
-			uuid, uuid, "S", 1, dt, fu).Error; err != nil {
-			t.Fatalf("seed %s: %v", uuid, err)
-		}
-	}
-	seed("UP-A", 1, 1) // 自动+强制 → 强制(1)
-	seed("UP-B", 1, 0) // 自动+非强制 → 自由(2)
-	seed("UP-C", 2, 1) // 手动+强制 → 强制(1)
-	seed("UP-D", 2, 0) // 手动+非强制 → 自由(2)
-	seed("UP-E", 0, 1) // 未启用 → 不启用(0)
-
-	if err := database.NormalizeUpdateStrategy(); err != nil {
-		t.Fatalf("normalize: %v", err)
-	}
-	// 幂等：列已删，再跑应直接跳过、不报错
-	if err := database.NormalizeUpdateStrategy(); err != nil {
-		t.Fatalf("normalize idempotent: %v", err)
-	}
-	// force_update 列应已被删除
-	if db.Migrator().HasColumn(&models.App{}, "force_update") {
-		t.Fatalf("force_update column should be dropped")
-	}
-
-	want := map[string]int{"UP-A": 1, "UP-B": 2, "UP-C": 1, "UP-D": 2, "UP-E": 0}
-	for uuid, w := range want {
-		var dt int
-		if err := db.Raw("SELECT download_type FROM apps WHERE uuid = ?", uuid).Scan(&dt).Error; err != nil {
-			t.Fatalf("read %s: %v", uuid, err)
-		}
-		if dt != w {
-			t.Fatalf("%s: got download_type=%v, want %v", uuid, dt, w)
-		}
-	}
-}
 
 func TestLoginVersionUpdate(t *testing.T) {
 	db := setupPublicTestDB(t)
-	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
-		"version":       "2.0.0",
-		"download_type": models.DownloadTypeFree,
-		"download_url":  "http://x/app",
-	})
+	seedAppVersion(t, db, "APP-1", "2.0.0", models.DownloadTypeFree, "http://x/app", "修复若干问题", true)
 	card := models.Card{CardNo: "KM-VER", Duration: 24 * 60, Status: models.CardStatusUnused}
 	db.Create(&card)
 
@@ -616,9 +587,8 @@ func TestLoginVersionUpdate(t *testing.T) {
 		t.Fatalf("up-to-date client should not need update: %+v", res2.Update)
 	}
 
-	// 关闭更新（download_type=0）→ 登录不带 update 信息
-	db.Model(&models.App{}).Where("uuid = ?", "APP-1").
-		Update("download_type", models.DownloadTypeDisabled)
+	// 停用全部版本 → 没有可更新版本，登录不带 update 信息
+	db.Model(&models.AppVersion{}).Where("app_uuid = ?", "APP-1").Update("enabled", false)
 	res3, err := CardLogin("APP-1", "KM-VER", "", "1.2.3.4", "1.0.0", "")
 	if err != nil {
 		t.Fatalf("login3: %v", err)
@@ -630,11 +600,7 @@ func TestLoginVersionUpdate(t *testing.T) {
 
 func TestForceUpdateRejectsOldClient(t *testing.T) {
 	db := setupPublicTestDB(t)
-	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
-		"version":       "2.0.0",
-		"download_type": models.DownloadTypeForce,
-		"download_url":  "http://x/app",
-	})
+	seedAppVersion(t, db, "APP-1", "2.0.0", models.DownloadTypeForce, "http://x/app", "必须升级", true)
 	card := models.Card{CardNo: "KM-FU", Duration: 24 * 60, Status: models.CardStatusUnused}
 	db.Create(&card)
 
@@ -1395,9 +1361,7 @@ func TestRebindDisabledRejected(t *testing.T) {
 
 func TestVersionAndCardInfo(t *testing.T) {
 	db := setupPublicTestDB(t)
-	db.Model(&models.App{}).Where("uuid = ?", "APP-1").Updates(map[string]interface{}{
-		"version": "1.2.0", "download_url": "https://dl", "download_type": 1,
-	})
+	seedAppVersion(t, db, "APP-1", "1.2.0", models.DownloadTypeForce, "https://dl", "版本说明", true)
 
 	// 旧版本需要更新
 	r, err := CheckVersion("APP-1", "1.1.0")

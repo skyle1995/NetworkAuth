@@ -3,7 +3,7 @@ package models
 import "time"
 
 // AppVersion 应用/插件的版本列表：一个应用可以有多条历史版本，
-// 更新检查取「已启用」里的最高版本；apps.version 仍作为兼容回退。
+// 更新检查取「已启用」里的最高版本；apps 表不再存版本号与下载地址。
 type AppVersion struct {
 	ID          uint      `gorm:"primaryKey" json:"id"`
 	AppUUID     string    `gorm:"size:64;not null;index:idx_app_version,priority:1" json:"app_uuid"`

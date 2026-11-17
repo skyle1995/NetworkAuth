@@ -99,10 +99,7 @@ func runServer(cmd *cobra.Command, args []string) {
 			if err := database.AutoMigrate(); err != nil {
 				logrus.WithError(err).Fatal("数据库自动迁移失败")
 			}
-			// 规整更新策略字段（旧版 force_update + download_type 合并为新三态，幂等）
-			if err := database.NormalizeUpdateStrategy(); err != nil {
-				logrus.WithError(err).Error("更新策略字段规整失败")
-			}
+
 			// 旧的单一计费模式拆成计时/点数/会员限制三个开关（幂等）
 			if err := database.MigrateBillingFlags(); err != nil {
 				logrus.WithError(err).Error("拆分计费开关失败")
