@@ -55,7 +55,9 @@ func APIListHandler(c *gin.Context) {
 	}
 
 	// 泛型分页查询
-	apis, total, err := services.Paginate[models.API](query, page, limit, "created_at DESC")
+	// 按 id 排序：接口是按分类顺序创建的，id 即分类顺序，
+	// 用 api_type 排序会因为 70/71/72（应用激活）数值最大而被甩到末尾，ID 列看起来跳号
+	apis, total, err := services.Paginate[models.API](query, page, limit, "id ASC")
 	if err != nil {
 		logrus.WithError(err).Error("Failed to fetch APIs")
 		apiBaseController.HandleInternalError(c, "获取接口列表失败", err)
@@ -66,6 +68,7 @@ func APIListHandler(c *gin.Context) {
 	// 构建响应数据
 	type APIResponse struct {
 		models.API
+		Category       string `json:"category"`
 		APITypeName    string `json:"api_type_name"`
 		StatusName     string `json:"status_name"`
 		AlgorithmNames struct {
@@ -75,12 +78,20 @@ func APIListHandler(c *gin.Context) {
 	}
 
 	var responseAPIs []APIResponse
+	categories := models.GetAPITypesByCategory()
+	categoryByType := make(map[int]string)
+	for name, types := range categories {
+		for _, t := range types {
+			categoryByType[t] = name
+		}
+	}
 	for _, api := range apis {
 		if api.SubmitAlgorithm == models.AlgorithmBox {
 			api.SubmitPrivateKey = ""
 		}
 		responseAPI := APIResponse{
 			API:         api,
+			Category:    categoryByType[api.APIType],
 			APITypeName: models.GetAPITypeName(api.APIType),
 			StatusName:  getAPIStatusName(api.Status),
 		}
@@ -206,7 +217,7 @@ func APIExportKeysHandler(c *gin.Context) {
 	}
 
 	var apis []models.API
-	if err := db.Order("api_type ASC").Find(&apis).Error; err != nil {
+	if err := db.Order("id ASC").Find(&apis).Error; err != nil {
 		logrus.WithError(err).Error("Failed to fetch APIs for export")
 		apiBaseController.HandleInternalError(c, "查询接口失败", err)
 		return

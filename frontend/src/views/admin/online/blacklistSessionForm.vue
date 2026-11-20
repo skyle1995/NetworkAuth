@@ -43,7 +43,7 @@ const hasRegion = computed(() => !!(f.value.province && f.value.city));
       :closable="false"
       type="warning"
       show-icon
-      class="mb-3"
+      style="margin-bottom: 16px"
       title="拉黑后命中的设备/网络将无法用任何账号登录本应用，并立即踢掉在线会话。"
     />
     <el-checkbox v-model="f.blacklist_device" :disabled="!f.machine_code">

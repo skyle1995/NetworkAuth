@@ -68,7 +68,6 @@ function openDialog(title = "新增", row?: any) {
         id: row?.id,
         name: row?.name ?? "",
         plugin_id: row?.plugin_id ?? "",
-        version: row?.version ?? "1.0.0",
         status: row?.status ?? 1,
             free_mode: row?.free_mode ?? 0,
             bill_time_enabled: row?.bill_time_enabled ?? 0,

@@ -11,7 +11,6 @@ export interface FormProps {
     id?: number;
     name: string;
     plugin_id?: string;
-    version: string;
     status: number;
           free_mode: number;
     billing_mode: number;
@@ -31,7 +30,6 @@ const props = withDefaults(defineProps<FormProps>(), {
   formInline: () => ({
     name: "",
     plugin_id: "",
-    version: "1.0.0",
     status: 1,
           free_mode: 0,
     billing_mode: 0,

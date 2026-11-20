@@ -28,7 +28,7 @@ const newFormInline = ref(props.formInline);
       :closable="false"
       type="warning"
       show-icon
-      class="mb-3"
+      style="margin-bottom: 16px"
       :title="`即将拉黑账号「${newFormInline.username}」`"
       description="拉黑后该账号立即掉线且无法登录。可额外勾选下列维度，把它绑定的设备/IP/地区一并加入黑名单——命中的设备或网络将无法用任何账号登录本应用。"
     />

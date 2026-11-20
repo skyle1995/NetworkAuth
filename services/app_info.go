@@ -52,6 +52,9 @@ func GetUpdateInfo(appUUID string) (any, error) {
 }
 
 // CheckVersion 检测最新版本（type 3）：比对客户端版本与版本列表里的最高版本。
+//
+// 查的是**请求签名对应的应用**。插件更新检查要走 CheckVersionByPlugin，
+// 否则会拿插件版本去和宿主模块应用的版本比大小。
 func CheckVersion(appUUID, clientVersion string) (any, error) {
 	db, err := database.GetDB()
 	if err != nil {
@@ -61,6 +64,44 @@ func CheckVersion(appUUID, clientVersion string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	return versionPayload(db, app, clientVersion), nil
+}
+
+// CheckVersionByPlugin 按插件 ID 检测版本（type 3 传 plugin_id 时走这条）。
+//
+// 插件与应用的对应关系存在 apps.plugin_id 上（唯一索引），版本仍按应用维度维护
+// （app_versions.app_uuid），所以这里先按 plugin_id 定位应用，再取它的最高版本。
+//
+// 找不到应用（后台还没登记这个插件，或该应用已停用）时返回 plugin_found=false 的
+// 「无更新」结果而不是报错：插件没登记不该让客户端更新流程直接失败。
+func CheckVersionByPlugin(pluginID, clientVersion string) (any, error) {
+	pluginID = strings.TrimSpace(pluginID)
+	db, err := database.GetDB()
+	if err != nil {
+		return nil, err
+	}
+
+	var app models.App
+	if err := db.Where("plugin_id = ? AND status = 1", pluginID).First(&app).Error; err != nil {
+		return map[string]any{
+			"plugin_id":           pluginID,
+			"plugin_found":        false,
+			"latest_version":      "",
+			"need_update":         false,
+			"download_type":       models.DownloadTypeDisabled,
+			"download_url":        "",
+			"update_announcement": "",
+		}, nil
+	}
+
+	payload := versionPayload(db, &app, clientVersion)
+	payload["plugin_id"] = pluginID
+	payload["plugin_found"] = true
+	return payload, nil
+}
+
+// versionPayload 组装版本检测的返回体（两个入口共用，保证字段一致）。
+func versionPayload(db *gorm.DB, app *models.App, clientVersion string) map[string]any {
 	ver := latestVersion(db, app)
 	needUpdate := strings.TrimSpace(ver.Version) != "" &&
 		compareVersion(clientVersion, ver.Version) < 0 && ver.DownloadType != models.DownloadTypeDisabled
@@ -70,7 +111,7 @@ func CheckVersion(appUUID, clientVersion string) (any, error) {
 		"download_type":       ver.DownloadType,
 		"download_url":        ver.DownloadURL,
 		"update_announcement": ver.Changelog,
-	}, nil
+	}
 }
 
 // GetCardInfo 获取卡密信息（type 4）：返回卡密的状态与面值。

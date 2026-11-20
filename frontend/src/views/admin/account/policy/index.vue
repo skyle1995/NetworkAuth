@@ -135,7 +135,7 @@ onMounted(loadPolicy);
     <el-alert
       type="info"
       :closable="false"
-      class="mb-3"
+      style="margin-bottom: 16px"
       title="以下策略全站生效，不区分应用"
       description="注册、卡密登录、充值、试用、设备绑定产生或消耗的都是全局账号资源，故统一在此配置。各应用自己怎么计费，请到「应用管理 → 应用程序」里设置。"
     />

@@ -14,6 +14,7 @@ import { addDialog } from "@/components/ReDialog";
 import editForm from "./form.vue";
 import batchForm from "./batchForm.vue";
 
+/** 管理按接口编号排序的接口列表及其配置操作。 */
 export function useApi() {
   const dataList = ref([]);
   const loading = ref(true);
@@ -35,6 +36,12 @@ export function useApi() {
     {
       type: "selection",
       width: 55,
+      align: "center"
+    },
+    {
+      label: "接口分类",
+      prop: "category",
+      width: 110,
       align: "center"
     },
     {

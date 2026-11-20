@@ -189,6 +189,14 @@ func seedAppVersion(t *testing.T, db *gorm.DB, appUUID, version string, download
 	if err := db.Create(&v).Error; err != nil {
 		t.Fatalf("seed version %s: %v", version, err)
 	}
+	// 模型上 download_type 带 default:2，零值插入会被 GORM 替换成默认值，
+	// 需要 0（不启用更新）时单独写一次
+	if downloadType == models.DownloadTypeDisabled {
+		if err := db.Model(&models.AppVersion{}).Where("id = ?", v.ID).
+			Update("download_type", models.DownloadTypeDisabled).Error; err != nil {
+			t.Fatalf("force download_type=0 for %s: %v", version, err)
+		}
+	}
 }
 
 func TestAPICodecRoundTrip(t *testing.T) {
@@ -2000,5 +2008,80 @@ func TestManualTopLoginKickSession(t *testing.T) {
 	// 踢掉后重新激活应成功
 	if _, err := activateForTest(t, "APP-1", loginB.Token, "MC-B"); err != nil {
 		t.Fatalf("reactivation after kick: %v", err)
+	}
+}
+// TestCheckVersionByPlugin 插件自检更新：必须比「插件自己的版本」，而不是宿主应用的版本。
+//
+// 回归点：type 3 曾经只认请求签名对应的应用，插件把自身版本塞进去等于和宿主比大小，
+// 后台给插件配的版本号完全读不到，导致「版本相同/更高却提示更新」。
+func TestCheckVersionByPlugin(t *testing.T) {
+	db := setupPublicTestDB(t)
+
+	// 宿主应用：3.0.1，强制更新
+	seedAppVersion(t, db, "APP-1", "3.0.1", models.DownloadTypeForce, "http://x/host", "宿主更新", true)
+
+	// 插件应用：com.example.esp，最高版本 2.1.0，先设成「不启用更新」
+	pluginID := "com.example.esp"
+	pluginApp := models.App{
+		UUID: "APP-PLUGIN", Name: "演示插件", Secret: "SECRET-P", Status: 1, PluginID: &pluginID,
+	}
+	if err := db.Create(&pluginApp).Error; err != nil {
+		t.Fatalf("seed plugin app: %v", err)
+	}
+	seedAppVersion(t, db, pluginApp.UUID, "2.1.0", models.DownloadTypeDisabled, "", "插件更新", true)
+
+	// ① 不传 plugin_id：沿用旧语义，比宿主应用（3.0.1）→ 2.1.0 必须提示更新（就是旧 bug 的表现）
+	legacy, err := CheckVersion("APP-1", "2.1.0")
+	if err != nil {
+		t.Fatalf("CheckVersion: %v", err)
+	}
+	if need := legacy.(map[string]any)["need_update"].(bool); !need {
+		t.Fatalf("legacy check should compare against host app (3.0.1) and need update")
+	}
+
+	// ② 传 plugin_id：比插件自身（2.1.0）→ 相同版本不需更新
+	byPlugin, err := CheckVersionByPlugin(pluginID, "2.1.0")
+	if err != nil {
+		t.Fatalf("CheckVersionByPlugin: %v", err)
+	}
+	m := byPlugin.(map[string]any)
+	if m["plugin_found"] != true {
+		t.Fatalf("plugin should be found: %+v", m)
+	}
+	if m["latest_version"] != "2.1.0" {
+		t.Fatalf("latest_version should be plugin's 2.1.0, got %v", m["latest_version"])
+	}
+	if m["need_update"].(bool) {
+		t.Fatalf("same version must not need update: %+v", m)
+	}
+
+	// ③ 低版本插件客户端：dt=0（不启用更新）→ 仍不提示
+	low, _ := CheckVersionByPlugin(pluginID, "1.0.0")
+	if low.(map[string]any)["need_update"].(bool) {
+		t.Fatalf("download_type=0 must not ask for update: %+v", low)
+	}
+
+	// ④ 改成自由更新 → 低版本提示，最新版不提示
+	db.Model(&models.AppVersion{}).Where("app_uuid = ?", pluginApp.UUID).
+		Update("download_type", models.DownloadTypeFree)
+	free, _ := CheckVersionByPlugin(pluginID, "1.0.0")
+	fm := free.(map[string]any)
+	if !fm["need_update"].(bool) || fm["download_type"] != models.DownloadTypeFree ||
+		fm["download_url"] != "" || fm["update_announcement"] != "插件更新" {
+		t.Fatalf("free update payload unexpected: %+v", fm)
+	}
+	same, _ := CheckVersionByPlugin(pluginID, "2.1.0")
+	if same.(map[string]any)["need_update"].(bool) {
+		t.Fatalf("up-to-date plugin must not need update: %+v", same)
+	}
+
+	// ⑤ 后台没登记这个插件 → 正常的「无更新」结果，不报错
+	unknown, err := CheckVersionByPlugin("com.not.registered", "1.0.0")
+	if err != nil {
+		t.Fatalf("unknown plugin should not error: %v", err)
+	}
+	um := unknown.(map[string]any)
+	if um["plugin_found"] != false || um["need_update"].(bool) || um["download_type"] != models.DownloadTypeDisabled {
+		t.Fatalf("unknown plugin should return no-update payload: %+v", um)
 	}
 }

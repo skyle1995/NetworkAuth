@@ -562,9 +562,16 @@ func handleUpdatePassword(app *models.App, plainParams string) (any, error) {
 func handleCheckVersion(app *models.App, plainParams string) (any, error) {
 	var params struct {
 		Version string `json:"version"`
+		// PluginID 可选：插件自检更新时传自己的插件 ID，
+		// 服务端按 apps.plugin_id 定位到对应应用再比版本；
+		// 不传则维持原语义（比请求签名对应的应用）。
+		PluginID string `json:"plugin_id"`
 	}
 	if err := parseParams(plainParams, &params); err != nil {
 		return nil, errBadParams
+	}
+	if pluginID := strings.TrimSpace(params.PluginID); pluginID != "" {
+		return services.CheckVersionByPlugin(pluginID, params.Version)
 	}
 	return services.CheckVersion(app.UUID, params.Version)
 }

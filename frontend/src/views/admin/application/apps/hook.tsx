@@ -68,11 +68,7 @@ export function useApp() {
       prop: "secret",
       width: 320
     },
-    {
-      label: "版本",
-      prop: "version",
-      width: 100
-    },
+
     {
       label: "状态",
       prop: "status",

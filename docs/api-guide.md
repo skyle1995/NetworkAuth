@@ -210,8 +210,21 @@ sign      = HEX_UPPER( SHA256(raw) )
 - 返回：`{ download_type, download_url }`（`download_type` **更新方式**：0 不启用 / 1 强制更新 / 2 自由更新）
 
 #### `3` 检测最新版本
-- 请求：`{ version: "客户端当前版本" }`
-- 返回：`{ latest_version, need_update(bool), download_type, download_url }`
+
+**两种查询方式，由是否传 `plugin_id` 决定：**
+
+| 用途 | 请求 | 比较对象 |
+|---|---|---|
+| 宿主/模块自检 | `{ version }` | 请求签名对应的应用 |
+| **插件自检（推荐）** | `{ version, plugin_id }` | `plugin_id` 映射到的应用（`apps.plugin_id`） |
+
+- 请求：`{ version: "当前版本", plugin_id?: "com.example.esp" }`
+  - `plugin_id` 可选。传了则按插件查它自己的版本列表；**不传则沿用旧语义**（查签名应用），老客户端行为不变。
+  - ⚠️ 不传 `plugin_id` 时，宿主应用与各插件版本不同会**必然误报**：例如插件 2.1.0、宿主 3.0.1，会把 2.1.0 判成需要更新。
+- 返回：`{ latest_version, need_update(bool), download_type, download_url, update_announcement, plugin_id?, plugin_found? }`
+  - 传了 `plugin_id` 时额外返回 `plugin_id` 与 `plugin_found`：
+    - `plugin_found=true`：后台存在该插件对应的应用（且已启用），`latest_version` 取自它的版本列表。
+    - `plugin_found=false`：后台没登记这个插件，`need_update` 恒为 false、`download_type=0`。**这是正常的「无更新」结果，不是错误**，客户端不要弹更新框。
   - `download_type`：更新方式（0 不启用 / 1 强制更新 / 2 自由更新）。**是否必须更新看 `download_type==1`**。
   - ⚠️ 语义已变更：原「强制更新开关(`force_update`) + 更新方式(自动/手动)」已合并为单一 `download_type` 三态。`force_update` 字段**已移除**，不再下发；客户端改用 `download_type`（=1 强制、=2 自由）判断，拿到 `download_url` 自行处理下载。
 
@@ -836,7 +849,9 @@ await call(41, { token: login.token });
 
 ```text
 # 1) 启动：检测更新 / 公告（免登录）
-call(3, {version: localVersion})   -> 若 need_update 则提示/更新
+call(3, {version: localVersion})                  # 宿主自身版本（比签名应用）
+call(3, {version: pluginVersion, plugin_id: pid}) # 插件自检：比该插件自己的版本列表
+                                                  # plugin_found=false 视为无更新
 call(1, {})                        -> 展示公告
 
 # 2) 登录：只拿授权码，不计费、不占名额
@@ -873,6 +888,10 @@ call(30, {token: accountToken}) # 登出当前登录（失效该令牌名下的�
 list = call(72, {token: accountToken, fingerprint: machine_code})
 for p in list.plugins:
     if p.usable == 0: 置灰该插件，悬浮显示 p.reason
+
+# 3.5) 逐个插件检查更新（免登录即可，必须在登录前也能用）
+u = call(3, {version: p.localVersion, plugin_id: p.plugin_id})
+if u.plugin_found and u.need_update: 标记该插件「有更新」
 
 # 4) 用户点开某个插件 → 用「该插件的 uuid」激活
 act = call(70, {token: accountToken, fingerprint: machine_code},

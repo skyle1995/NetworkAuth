@@ -1,9 +1,12 @@
 package database
 
 import (
+	"strconv"
+
 	"NetworkAuth/models"
 
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 // AutoMigrate 自动迁移数据库模型
@@ -140,6 +143,93 @@ func BackfillDefaultMemberLevel() error {
 		logrus.Infof("已为 %d 个账号回填默认等级「%s」", res.RowsAffected, lv.Name)
 	}
 	return nil
+}
+// ReorderAPIIDs 把 apis 表的自增 id 按「接口分类顺序」重排成 1..N。
+//
+// 背景：接口是安装时按分类顺序批量创建的，id 天然就是分类顺序；
+// 但旧库如果经历过删除/重建某些条目，id 会出现跳号，
+// 后台按 id 排序时就会看到 1、2、5、7 这种不连贯的编号。
+//
+// 幂等：已经是 1..N 且顺序与分类一致时直接跳过，不会每次启动都改。
+func ReorderAPIIDs() error {
+	db, err := GetDB()
+	if err != nil {
+		return err
+	}
+	if !db.Migrator().HasTable(&models.API{}) {
+		return nil
+	}
+
+	type apiRow struct {
+		ID      uint
+		APIType int
+	}
+	var rows []apiRow
+	if err := db.Table("apis").Select("id, api_type").Order("id ASC").Scan(&rows).Error; err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+
+	// 目标顺序：先按接口分类顺序，再是分类表里没有的历史条目（保持原 id 相对顺序）
+	rank := make(map[int]int, len(rows))
+	for i, t := range models.GetDefaultAPITypes() {
+		rank[t] = i
+	}
+	ordered := make([]apiRow, 0, len(rows))
+	for _, t := range models.GetDefaultAPITypes() {
+		for _, r := range rows {
+			if r.APIType == t {
+				ordered = append(ordered, r)
+				break
+			}
+		}
+	}
+	for _, r := range rows {
+		if _, known := rank[r.APIType]; !known {
+			ordered = append(ordered, r)
+		}
+	}
+
+	// 已就位（id 依次为 1..N 且顺序一致）→ 跳过
+	aligned := true
+	for i, r := range ordered {
+		if r.ID != uint(i+1) {
+			aligned = false
+			break
+		}
+	}
+	if aligned {
+		return nil
+	}
+
+	// 两段式重排：先把 id 整体上移到一个足够大的偏移（避开主键冲突且不产生负数，
+	// MySQL 的 bigint unsigned 不接受负值），再逐行写回目标 id。
+	const idOffset = 100000
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("UPDATE apis SET id = id + ?", idOffset).Error; err != nil {
+			return err
+		}
+		for i, r := range ordered {
+			if err := tx.Exec("UPDATE apis SET id = ? WHERE id = ?", i+1, r.ID+idOffset).Error; err != nil {
+				return err
+			}
+		}
+		// 自增起点跟到 N+1，下一步新增不会跳号
+		switch tx.Dialector.Name() {
+		case "sqlite":
+			if err := tx.Exec("UPDATE sqlite_sequence SET seq = ? WHERE name = 'apis'", len(ordered)).Error; err != nil {
+				logrus.WithError(err).Debug("重置 sqlite_sequence 失败（可忽略）")
+			}
+		default:
+			if err := tx.Exec("ALTER TABLE apis AUTO_INCREMENT = " + strconv.Itoa(len(ordered)+1)).Error; err != nil {
+				logrus.WithError(err).Debug("重置 AUTO_INCREMENT 失败（可忽略）")
+			}
+		}
+		logrus.WithField("count", len(ordered)).Info("已按分类顺序重排接口 id")
+		return nil
+	})
 }
 // AllModels 返回参与迁移与结构整理的全部模型清单。
 // AutoMigrate 与 db tidy 维护命令共用此清单，避免两处各维护一份导致遗漏。

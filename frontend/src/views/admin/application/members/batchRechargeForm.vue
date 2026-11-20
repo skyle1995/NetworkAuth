@@ -30,7 +30,7 @@ const model = ref(props.formInline);
       :closable="false"
       type="info"
       show-icon
-      class="mb-3"
+      style="margin-bottom: 16px"
       title="维护补偿等场景批量加时/点"
       description="时长模式账号加时长、点数模式账号加点数（按各自应用模式自动选择）。永久账号加时会自动跳过。"
     />

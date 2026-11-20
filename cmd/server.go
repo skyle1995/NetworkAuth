@@ -126,6 +126,11 @@ func runServer(cmd *cobra.Command, args []string) {
 				logrus.WithError(err).Fatal("全局接口密钥初始化失败")
 			}
 
+			// 接口 id 按分类顺序重排成 1..N（旧库删建过的条目会跳号，已就位则跳过）
+			if err := database.ReorderAPIIDs(); err != nil {
+				logrus.WithError(err).Error("接口 id 重排失败")
+			}
+
 			// 初始化加密管理器
 			// 从数据库设置中获取加密密钥
 			encryptionKey := services.GetSettingsService().GetEncryptionKey()

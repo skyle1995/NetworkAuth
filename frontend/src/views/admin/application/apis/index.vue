@@ -25,6 +25,19 @@ const {
   handleCurrentChange
 } = useApi();
 
+function categorySpan({ column, rowIndex }: {
+  column: { property?: string };
+  rowIndex: number;
+}) {
+  if (column.property !== "category") return [1, 1];
+  const rows = dataList.value;
+  const category = rows[rowIndex].category;
+  if (rowIndex > 0 && rows[rowIndex - 1].category === category) return [0, 0];
+  let end = rowIndex + 1;
+  while (end < rows.length && rows[end].category === category) end++;
+  return [end - rowIndex, 1];
+}
+
 // 导出全站统一的接口配置
 async function handleExport() {
   exporting.value = true;
@@ -89,6 +102,7 @@ async function handleExport() {
             :size="size"
             :data="dataList"
             :columns="dynamicColumns"
+            :span-method="categorySpan"
             :header-cell-style="{
               background: 'var(--el-fill-color-light)',
               color: 'var(--el-text-color-primary)'
