@@ -26,10 +26,12 @@ func AutoMigrate() error {
 }
 
 
-// MigrateVariablePerApp 把变量表从「alias 全局唯一」改成「(app_uuid, alias) 唯一」，
-// 让每个应用可以各有一把 zex_key。
-// 幂等：索引已是新形态时直接跳过。
-func MigrateVariablePerApp() error {
+// EnsureVariableAppAliasIndex 确保变量别名的唯一性作用在 (app_uuid, alias) 上。
+//
+// 唯一索引由 models.Variable 的 tag 声明，AutoMigrate 会建好；
+// 这里只处理一种情况：库里还留着更早期「alias 全局唯一」的单列索引，
+// 那会让不同应用不能使用相同别名。存在就删，不存在就跳过（幂等）。
+func EnsureVariableAppAliasIndex() error {
 	db, err := GetDB()
 	if err != nil {
 		return err
@@ -37,21 +39,16 @@ func MigrateVariablePerApp() error {
 	if !db.Migrator().HasTable(&models.Variable{}) {
 		return nil
 	}
-	// 旧索引名由 GORM 按字段生成：idx_variables_alias（唯一）
-	if db.Migrator().HasIndex(&models.Variable{}, "idx_variables_alias") {
-		if err := db.Exec("DROP INDEX IF EXISTS idx_variables_alias").Error; err != nil {
-			logrus.WithError(err).Warn("删除 variables.alias 唯一索引失败（可忽略）")
-		}
+	if !db.Migrator().HasIndex(&models.Variable{}, "idx_variables_alias") {
+		return nil
 	}
-	if !db.Migrator().HasIndex(&models.Variable{}, "idx_var_app_alias") {
-		if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_var_app_alias ON variables(app_uuid, alias)").Error; err != nil {
-			return err
-		}
+	if err := db.Exec("DROP INDEX IF EXISTS idx_variables_alias").Error; err != nil {
+		logrus.WithError(err).Warn("删除 variables.alias 单列唯一索引失败（可忽略）")
 	}
 	return nil
 }
 
-// MigrateBillingFlags 把旧的单一 billing_mode 枚举拆成三个正交开关：
+// MigrateBillingFlags 把旧的单一 billing_mode 枚举拆成三个正交开关（**唯一保留的一次性迁移**）：
 //
 //	bill_time_enabled   计时（要账号有效期）
 //	bill_points_enabled 点数（扣点）
@@ -63,8 +60,11 @@ func MigrateVariablePerApp() error {
 //	mode 1 点数 → time=0, points=1, level=(required_level>1)
 //	mode 2 高级 → time=0, points=1, level=1
 //
-// 幂等：完成后写 settings 标记 billing_flags_migrated，之后不再执行，
-// 避免把用户后来手动关掉的开关又打开。
+// 为什么必须靠 settings 标记而不是「数据特征」判断：
+//   「老库默认计时」和「用户主动把三个开关全关」在数据上完全一样
+//   （billing_mode 都会是 0、三个开关都是 0），无法区分。
+//   若不做标记，每次启动都会把用户主动关掉的计时模式又打开。
+// 因此这里保留一次性标记，其余规整逻辑（变量索引、接口 id）都改成了无标记的幂等实现。
 func MigrateBillingFlags() error {
 	db, err := GetDB()
 	if err != nil {
@@ -256,8 +256,7 @@ func AllModels() []any {
 		&models.Member{},
 		&models.Binding{},
 		
-		// 二级令牌：账号令牌（身份）+ 应用激活（使用权/租约）。
-		// 与 member_sessions 并存期：member_sessions 退场前两者都要建表。
+		// 二级令牌：账号令牌（身份）+ 应用激活（使用权/租约）
 		&models.MemberAccountToken{},
 		&models.AppActivation{}, &models.AppAccountBilling{},
 		&models.MemberLog{},

@@ -29,10 +29,10 @@ type Variable struct {
 
 
 	// AppUUID：变量所属应用；空串=全局变量（所有应用都能读到）
-	AppUUID string `gorm:"index;size:36;comment:所属应用UUID；空=全局" json:"app_uuid"`
+	AppUUID string `gorm:"uniqueIndex:idx_var_app_alias,priority:1;size:36;comment:所属应用UUID；空=全局" json:"app_uuid"`
 
 	// Alias：变量别名；同一应用内唯一（配合 AppUUID 组成唯一键）
-	Alias string `gorm:"index;size:100;not null;comment:变量别名" json:"alias"`
+	Alias string `gorm:"uniqueIndex:idx_var_app_alias,priority:2;size:100;not null;comment:变量别名（应用内唯一）" json:"alias"`
 
 	// Data：变量数据内容
 	Data string `gorm:"type:text;comment:变量数据" json:"data"`

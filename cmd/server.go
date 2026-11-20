@@ -100,15 +100,16 @@ func runServer(cmd *cobra.Command, args []string) {
 				logrus.WithError(err).Fatal("数据库自动迁移失败")
 			}
 
-			// 旧的单一计费模式拆成计时/点数/会员限制三个开关（幂等）
+			// 旧的单一计费模式拆成计时/点数/会员限制三个开关（一次性，标记写入后自动跳过）
 			if err := database.MigrateBillingFlags(); err != nil {
 				logrus.WithError(err).Error("拆分计费开关失败")
 			}
+			// 变量别名唯一性作用在 (app_uuid, alias)：删掉更早期的单列唯一索引（幂等）
+			if err := database.EnsureVariableAppAliasIndex(); err != nil {
+				logrus.WithError(err).Warn("变量索引规整失败（不影响启动）")
+			}
 			// 给历史账号补默认会员等级（门槛为 0 的等级，幂等）
-			if err := database.MigrateVariablePerApp(); err != nil {
-		logrus.WithError(err).Warn("变量表按应用迁移失败（不影响启动）")
-	}
-	if err := database.BackfillDefaultMemberLevel(); err != nil {
+			if err := database.BackfillDefaultMemberLevel(); err != nil {
 				logrus.WithError(err).Error("回填默认会员等级失败")
 			}
 			// 初始化默认系统设置
