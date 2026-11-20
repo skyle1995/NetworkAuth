@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"NetworkAuth/database"
 	"NetworkAuth/models"
 	"NetworkAuth/services"
 	"NetworkAuth/utils"
@@ -269,28 +268,4 @@ func ProfileUpdateHandler(c *gin.Context) {
 		"nickname": nickname,
 		"avatar":   avatar,
 	})
-}
-
-// 辅助函数：更新设置项
-func updateSetting(db interface{}, name, value string) error {
-	// 类型断言
-	gormDB, ok := db.(*gorm.DB)
-	if !ok {
-		// 如果断言失败，尝试重新获取连接
-		var err error
-		gormDB, err = database.GetDB()
-		if err != nil {
-			return err
-		}
-	}
-
-	var setting models.Settings
-	if err := gormDB.Where("name = ?", name).First(&setting).Error; err != nil {
-		// 如果不存在则创建
-		setting = models.Settings{Name: name, Value: value}
-		return gormDB.Create(&setting).Error
-	}
-
-	// 存在则更新
-	return gormDB.Model(&setting).Update("value", value).Error
 }
