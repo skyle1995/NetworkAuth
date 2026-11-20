@@ -22,22 +22,13 @@ import (
 // 更新准备（下载/校验/替换/重启）
 // ============================================================================
 
-// Prepare 下载并准备指定版本的更新包
-// 输入参数：
-//   - ctx: 上下文
-//   - version: 目标版本号
-//   - downloadURL: 下载链接
-//   - expectedSHA256: 期望的 SHA256 哈希值
-//
-// 返回值：
-//   - SelfUpdateStatus: 当前更新状态
-func (m *SelfUpdateManager) Prepare(ctx context.Context, version, downloadURL, expectedSHA256 string) SelfUpdateStatus {
+// Prepare 从已配置的存储桶查找目标版本，异步校验并准备更新包。
+func (m *SelfUpdateManager) Prepare(version string) SelfUpdateStatus {
 	m.mu.Lock()
 	m.ensureLoadedLocked()
 	if m.running {
-		st := m.GetStatus()
 		m.mu.Unlock()
-		return st
+		return m.GetStatus()
 	}
 	m.running = true
 	m.clearPreparedLocked()
@@ -47,7 +38,7 @@ func (m *SelfUpdateManager) Prepare(ctx context.Context, version, downloadURL, e
 	m.mu.Unlock()
 
 	go func() {
-		err := m.prepare(context.Background(), version, downloadURL, expectedSHA256)
+		err := m.prepare(context.Background(), strings.TrimSpace(version))
 
 		m.mu.Lock()
 		if err != nil {
@@ -65,14 +56,20 @@ func (m *SelfUpdateManager) Prepare(ctx context.Context, version, downloadURL, e
 }
 
 // prepare 下载、校验、解压、替换二进制的实际执行逻辑
-func (m *SelfUpdateManager) prepare(ctx context.Context, version, downloadURL, expectedSHA256 string) error {
-	url := strings.TrimSpace(downloadURL)
-	if url == "" {
-		return errors.New("无可用下载地址")
+func (m *SelfUpdateManager) prepare(ctx context.Context, version string) error {
+	items, err := m.ScanVersions(ctx)
+	if err != nil {
+		return err
 	}
-	expected := strings.TrimSpace(expectedSHA256)
-	if expected == "" {
-		return errors.New("缺少 SHA256，无法校验更新包")
+	var url, expected string
+	for _, item := range items {
+		if item.Version == version {
+			url, expected = item.DownloadURL, item.SHA256
+			break
+		}
+	}
+	if url == "" || expected == "" {
+		return errors.New("版本清单中没有当前平台的更新包或 SHA256")
 	}
 
 	workDir, err := ensureSelfUpdateWorkDir()

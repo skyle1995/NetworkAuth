@@ -185,9 +185,7 @@ const handlePrepare = async (item: SelfUpdateVersionItem) => {
   preparing.value = true;
   try {
     const res = await prepareSelfUpdate({
-      version: item.version,
-      download_url: item.download_url,
-      sha256: item.sha256
+      version: item.version
     });
     if (res.ok && res.data) {
       status.value = res.data;

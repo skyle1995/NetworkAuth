@@ -101,7 +101,7 @@ function levelOptions() {
                 :disabled="row.free_mode === 1"
               />
               <el-select
-                v-if="usesLevel(row)"
+                v-if="usesLevel(row as BillingRow)"
                 v-model="row.required_level"
                 class="!w-[130px] ml-1"
               >
@@ -121,7 +121,7 @@ function levelOptions() {
           <template #default="{ row }">
             <el-select
               v-model="row.billing_scope"
-              :disabled="!usesPoints(row)"
+              :disabled="!usesPoints(row as BillingRow)"
               placeholder="—"
             >
               <el-option label="按设备单独" :value="0" />
@@ -134,7 +134,7 @@ function levelOptions() {
           <template #default="{ row }">
             <el-select
               v-model="row.points_charge_mode"
-              :disabled="!usesPoints(row)"
+              :disabled="!usesPoints(row as BillingRow)"
               placeholder="—"
             >
               <el-option label="按次数" :value="0" />
@@ -145,7 +145,7 @@ function levelOptions() {
 
         <el-table-column label="单价" min-width="230">
           <template #default="{ row }">
-            <template v-if="!usesPoints(row)">
+            <template v-if="!usesPoints(row as BillingRow)">
               <span class="text-xs text-gray-400">不扣点</span>
             </template>
             <template v-else-if="row.points_charge_mode === 0">
@@ -184,7 +184,7 @@ function levelOptions() {
           <template #default="{ row }">
             <el-select
               v-model="row.points_heartbeat_charge"
-              :disabled="!usesPoints(row) || row.points_charge_mode === 0"
+              :disabled="!usesPoints(row as BillingRow) || row.points_charge_mode === 0"
               placeholder="—"
             >
               <el-option label="登录预扣" :value="0" />
@@ -200,7 +200,7 @@ function levelOptions() {
                 type="primary"
                 size="small"
                 :icon="useRenderIcon('ep:check')"
-                @click="saveRow(row)"
+                @click="saveRow(row as BillingRow)"
               >
                 保存
               </el-button>
@@ -209,7 +209,7 @@ function levelOptions() {
                 link
                 size="small"
                 class="!ml-2"
-                @click="resetRow(row)"
+                @click="resetRow(row as BillingRow)"
               >
                 默认值
               </el-button>

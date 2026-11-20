@@ -211,7 +211,7 @@ export function useApi() {
             }
 
             // 返回数据加密生成
-            if (curData.return_algorithm > 0) {
+            if (curData.return_algorithm > 0 && curData.return_algorithm !== 5) {
               try {
                 const { code, data } = await generateApiKeys({
                   side: "return",

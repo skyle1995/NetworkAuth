@@ -94,7 +94,7 @@ defineExpose({ getRef, getPayload });
       v-if="billingMode !== 2"
       type="info"
       :closable="false"
-      class="mb-3"
+      style="margin-bottom: 16px"
       title="当前应用不是高级模式"
       description="等级点数仅在「高级模式」下生效：等级达标后按该等级配置的点数扣点。会员/点数模式忽略此配置。"
     />
@@ -102,7 +102,7 @@ defineExpose({ getRef, getPayload });
       v-else
       type="success"
       :closable="false"
-      class="mb-3"
+      style="margin-bottom: 16px"
       :title="`${appName || '本应用'}：高级模式等级点数`"
       description="每个等级在本应用扣多少点。留空或点「恢复默认」表示不单独设置，跟随应用默认点数。按时扣费时每个周期至少按 1 点结算，填 0 等同于 1。"
     />
@@ -126,7 +126,7 @@ defineExpose({ getRef, getPayload });
             :precision="3"
             size="small"
             controls-position="right"
-            @change="onPointsChange(row)"
+            @change="onPointsChange(row as Row)"
           />
         </template>
       </el-table-column>
@@ -148,7 +148,7 @@ defineExpose({ getRef, getPayload });
             type="primary"
             size="small"
             class="ml-2"
-            @click="resetToDefault(row)"
+            @click="resetToDefault(row as Row)"
           >
             改回默认
           </el-button>

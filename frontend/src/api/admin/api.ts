@@ -16,9 +16,9 @@ export const getApiTypes = () => {
   return http.request<ApiResult>("get", "/api/admin/apis/types");
 };
 
-/** 导出应用对接密钥（应用密钥 + 各接口算法与密钥） */
-export const exportApiKeys = (params?: object) => {
-  return http.request<ApiResult>("get", "/api/admin/apis/export", { params });
+/** 导出全站接口的算法与对接密钥，不含应用信息。 */
+export const exportApiKeys = () => {
+  return http.request<ApiResult>("get", "/api/admin/apis/export");
 };
 
 /** 更新接口配置 */

@@ -11,9 +11,6 @@ import (
 
 // DevModeConfig 开发模式配置
 type DevModeConfig struct {
-	// 是否跳过验证码验证（【已废弃】dev_mode 不再影响验证码；
-	// 现在只有配置文件中显式开启 security.skip_captcha 才会跳过，字段保留以兼容结构体解析）
-	SkipCaptcha bool
 	// 是否显示详细错误信息
 	ShowDetailedErrors bool
 	// 是否启用调试日志
@@ -60,10 +57,6 @@ func GetDevModeConfig() DevModeConfig {
 	}
 
 	return DevModeConfig{
-		// 安全修复：开发模式不再跳过登录验证码。历史行为会让「生产环境误留 dev_mode=true」
-		// 直接失去验证码防线（攻击日志里只出现「密码错误」、没有「验证码错误」正是此特征）。
-		// 需要本地调试时请显式开启配置 security.skip_captcha（启动时会打印严重安全警告）。
-		SkipCaptcha:        false,
 		ShowDetailedErrors: true, // 开发模式下显示详细错误
 		EnableDebugLog:     true, // 开发模式下启用调试日志
 	}

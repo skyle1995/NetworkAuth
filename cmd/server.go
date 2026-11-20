@@ -122,7 +122,9 @@ func runServer(cmd *cobra.Command, args []string) {
 			}
 
 			// 补齐全局缺失的接口条目（一号通：接口全站唯一，新增 api_type 后幂等补齐）
-			services.EnsureGlobalAPIs()
+			if err := services.EnsureGlobalAPIs(); err != nil {
+				logrus.WithError(err).Fatal("全局接口密钥初始化失败")
+			}
 
 			// 初始化加密管理器
 			// 从数据库设置中获取加密密钥
@@ -209,8 +211,10 @@ func createHTTPServer(addr string) *http.Server {
 	registerRoutes(r)
 
 	return &http.Server{
-		Addr:    addr,
-		Handler: r,
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
 	}
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { formRules } from "./rule";
 
 export interface FormProps {
@@ -34,6 +34,11 @@ const props = withDefaults(defineProps<FormProps>(), {
 
 const ruleFormRef = ref();
 const newFormInline = ref(props.formInline);
+watch(() => newFormInline.value.submit_algorithm, submit => {
+  if (submit !== 5 && newFormInline.value.return_algorithm === 5) {
+    newFormInline.value.return_algorithm = 0;
+  }
+});
 
 // 定义算法选项
 const algorithms = [
@@ -91,6 +96,7 @@ defineExpose({ getRef });
             placeholder="请选择提交数据加密算法"
             class="w-full"
           >
+            <el-option :value="5" label="Curve25519 Box" />
             <el-option
               v-for="item in algorithms"
               :key="item.value"
@@ -101,6 +107,14 @@ defineExpose({ getRef });
         </el-form-item>
       </el-col>
     </el-row>
+
+    <el-form-item v-if="newFormInline.submit_algorithm === 5" label="Box 公钥">
+      <el-input
+        :model-value="/^[0-9a-f]{64}$/i.test(newFormInline.submit_public_key) ? newFormInline.submit_public_key : ''"
+        readonly
+        placeholder="尚无 Box 公钥，请使用「一键生成密钥」后保存"
+      />
+    </el-form-item>
 
     <el-row
       v-if="
@@ -163,6 +177,7 @@ defineExpose({ getRef });
             placeholder="请选择返回数据加密算法"
             class="w-full"
           >
+            <el-option :value="5" label="Curve25519 Box（使用本次请求密钥）" :disabled="newFormInline.submit_algorithm !== 5" />
             <el-option
               v-for="item in algorithms"
               :key="item.value"
@@ -173,6 +188,10 @@ defineExpose({ getRef });
         </el-form-item>
       </el-col>
     </el-row>
+
+    <el-form-item v-if="newFormInline.return_algorithm === 5" label="返回密钥">
+      使用上方 Box 公钥和客户端本次请求的临时密钥，无需单独配置返回公钥。
+    </el-form-item>
 
     <el-row
       v-if="

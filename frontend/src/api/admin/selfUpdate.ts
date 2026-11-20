@@ -82,11 +82,9 @@ export const getSelfUpdateVersions = () => {
   );
 };
 
-// 准备更新
+// 准备更新，只提交版本号，由服务端确定更新包及摘要
 export const prepareSelfUpdate = (data: {
   version: string;
-  download_url: string;
-  sha256: string;
 }) => {
   return http.request<{ ok: boolean; data: SelfUpdateStatus }>(
     "post",

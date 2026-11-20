@@ -3,10 +3,12 @@ package services
 import (
 	"NetworkAuth/models"
 	"NetworkAuth/utils/encrypt"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"strings"
+	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/nacl/box"
 )
 
@@ -24,9 +26,11 @@ import (
 //   - RSA / RSA动态：public_key / private_key 存 PEM
 //   - 易加密：private_key 存逗号分隔整数
 
-// APICodec 绑定单个接口配置的编解码器
+// APICodec 只用于单次请求，持有通过认证后才能使用的响应上下文。
 type APICodec struct {
 	api *models.API
+	boxKey *[32]byte
+	requestNonce [24]byte
 }
 
 // NewAPICodec 基于接口配置构造编解码器
@@ -36,11 +40,36 @@ func NewAPICodec(api *models.API) *APICodec {
 
 // DecryptRequest 用提交算法解密客户端上报的密文
 func (co *APICodec) DecryptRequest(cipher string) (string, error) {
+	co.boxKey = nil
+	if co.api.SubmitAlgorithm == models.AlgorithmBox {
+		return co.decodeBox(co.api.SubmitPrivateKey, cipher)
+	}
+	if co.api.ReturnAlgorithm == models.AlgorithmBox {
+		return "", errors.New("Box 返回要求 Box 提交")
+	}
 	return decodeByAlgorithm(co.api.SubmitAlgorithm, co.api.SubmitPublicKey, co.api.SubmitPrivateKey, cipher)
 }
 
 // EncryptResponse 用返回算法加密服务端返回的明文
 func (co *APICodec) EncryptResponse(plain string) (string, error) {
+	if co.api.ReturnAlgorithm == models.AlgorithmBox {
+		if co.boxKey == nil {
+			return "", errors.New("缺少已认证的 Box 请求")
+		}
+		var nonce [24]byte
+		for {
+			if _, err := rand.Read(nonce[:]); err != nil {
+				return "", err
+			}
+			if nonce != co.requestNonce {
+				break
+			}
+		}
+		// 认证方向和请求 nonce，客户端不能把原请求或其他响应误当成结果。
+		payload := append([]byte("NetworkAuth/response/v1\x00"), co.requestNonce[:]...)
+		body := box.SealAfterPrecomputation(nonce[:], append(payload, plain...), &nonce, co.boxKey)
+		return base64.StdEncoding.EncodeToString(body), nil
+	}
 	return encodeByAlgorithm(co.api.ReturnAlgorithm, co.api.ReturnPublicKey, co.api.ReturnPrivateKey, plain)
 }
 
@@ -74,11 +103,6 @@ func encodeByAlgorithm(algorithm int, publicKey, privateKey, plain string) (stri
 			return "", errors.New("返回动态密钥无效")
 		}
 		return enc.Encrypt(plain)
-	case models.AlgorithmBox:
-		// 返回方向：服务器暂不需要返回加密，因为响应体自带 Ed25519 验签（由客户端 ktrw_loader 处理）。
-		// 但如果配置了 Box，就用明文返回，或者用相同的机制？
-		// 为了极简，如果返回算法是 Box，目前先按明文返回，由业务层单独加签名。
-		return plain, nil
 	default:
 		return "", errors.New("不支持的返回算法")
 	}
@@ -114,8 +138,6 @@ func decodeByAlgorithm(algorithm int, publicKey, privateKey, cipher string) (str
 			return "", errors.New("提交动态密钥无效")
 		}
 		return enc.Decrypt(cipher)
-	case models.AlgorithmBox:
-		return decodeBox(privateKey, cipher)
 	default:
 		return "", errors.New("不支持的提交算法")
 	}
@@ -143,7 +165,7 @@ func easyCodec(keyStr string) (*encrypt.EasyEncrypt, error) {
 }
 
 // decodeBox 解密 Curve25519 Box 密文
-func decodeBox(privateKeyHex, cipherBase64 string) (string, error) {
+func (co *APICodec) decodeBox(privateKeyHex, cipherBase64 string) (string, error) {
 	if privateKeyHex == "" {
 		return "", errors.New("Box私钥为空")
 	}
@@ -168,9 +190,15 @@ func decodeBox(privateKeyHex, cipherBase64 string) (string, error) {
 	copy(epk[:], raw[24:56])
 	boxCipher := raw[56:]
 
-	plain, ok := box.Open(nil, boxCipher, &nonce, &epk, &sk)
+	if _, err := curve25519.X25519(sk[:], epk[:]); err != nil {
+		return "", errors.New("Box临时公钥无效")
+	}
+	var shared [32]byte
+	box.Precompute(&shared, &epk, &sk)
+	plain, ok := box.OpenAfterPrecomputation(nil, boxCipher, &nonce, &shared)
 	if !ok {
 		return "", errors.New("Box解密失败(MAC校验不通过)")
 	}
+	co.boxKey, co.requestNonce = &shared, nonce
 	return string(plain), nil
 }

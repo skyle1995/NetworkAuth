@@ -237,9 +237,6 @@ func LogoutHandler(c *gin.Context) {
 		}
 	}
 
-	// 清理JWT Cookie
-	clearInvalidJWTCookie(c)
-
 	authBaseController.HandleSuccess(c, "已退出登录", gin.H{
 		"redirect": "/admin/login",
 	})
@@ -313,7 +310,6 @@ func RefreshTokenHandler(c *gin.Context) {
 	// 4. 重用检测：已撤销的 token 被再次使用 -> 整族撤销
 	if rec.Revoked {
 		_ = refreshSvc.RevokeFamily(rec.FamilyID)
-		clearInvalidJWTCookie(c)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"code": 1,
 			"msg":  "检测到刷新令牌重用，会话已强制失效",
@@ -350,7 +346,6 @@ func RefreshTokenHandler(c *gin.Context) {
 	adminUserPtr, ok := loadAndValidateAdmin(claims, c)
 	if !ok {
 		_ = refreshSvc.RevokeFamily(rec.FamilyID)
-		clearInvalidJWTCookie(c)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"code": 1,
 			"msg":  "会话已失效，请重新登录",
@@ -451,12 +446,6 @@ func validateCSRFToken(c *gin.Context, requestToken string) bool {
 // ============================================================================
 // 辅助函数
 // ============================================================================
-
-// clearInvalidJWTCookie 已废弃：当前使用纯 Bearer Token 模式，无需清理 Cookie
-// 保留空实现以兼容历史调用
-func clearInvalidJWTCookie(c *gin.Context) {
-	_ = c
-}
 
 // getJWTSecret 动态获取当前的JWT密钥
 // 修复安全漏洞：确保每次都从最新配置中获取密钥，而不是使用启动时的全局变量
@@ -741,14 +730,11 @@ func IsAdminAuthenticatedWithCleanup(c *gin.Context) bool {
 	// 解析并验证JWT令牌
 	claims, err := parseJWTToken(cookie)
 	if err != nil {
-		// JWT解析失败，清理失效Cookie
-		clearInvalidJWTCookie(c)
 		return false
 	}
 
 	// 验证密码哈希
 	if !validateAdminPasswordHash(claims, c) {
-		clearInvalidJWTCookie(c)
 		return false
 	}
 
@@ -815,9 +801,6 @@ func AdminAuthRequired() gin.HandlerFunc {
 		// 尝试获取用户信息并自动刷新令牌
 		claims, refreshed, err := GetCurrentAdminUserWithRefresh(c)
 		if err != nil {
-			// 自动清理失效的JWT Cookie，提升安全性和用户体验
-			clearInvalidJWTCookie(c)
-
 			// API 请求直接返回 401 JSON
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,

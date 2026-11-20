@@ -3,8 +3,11 @@ package services
 import (
 	"NetworkAuth/database"
 	"NetworkAuth/models"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 
-	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/nacl/box"
 	"gorm.io/gorm"
 )
 
@@ -19,65 +22,56 @@ import (
 
 // EnsureGlobalAPIs 补齐全局缺失的接口条目（幂等）。
 //   - 已存在的 api_type 跳过，不覆盖已有配置（算法/密钥/启用状态）
-//   - 新建的条目默认**启用**且不加密：接口是协议能力，装完即可联调；
-//     需要加固时在后台逐条配置算法与密钥
-func EnsureGlobalAPIs() {
+//   - 新建条目默认启用双向 Box，每个接口独立生成密钥对；失败时回滚本次初始化。
+func EnsureGlobalAPIs() error {
 	db, err := database.GetDB()
-	if err != nil || db == nil {
-		return
+	if err != nil {
+		return err
 	}
-	if !db.Migrator().HasTable(&models.API{}) {
-		return
+	if db == nil {
+		return errors.New("数据库未连接")
 	}
+	return db.Transaction(seedMissingAPIs)
+}
 
+func seedMissingAPIs(db *gorm.DB) error {
 	var existing []int
 	if err := db.Model(&models.API{}).Pluck("api_type", &existing).Error; err != nil {
-		return
+		return err
 	}
 	have := make(map[int]struct{}, len(existing))
 	for _, t := range existing {
 		have[t] = struct{}{}
 	}
 
-	created := 0
 	for _, t := range models.GetDefaultAPITypes() {
 		if _, ok := have[t]; ok {
 			continue
+		}
+		pub, priv, err := GenerateBoxKeys()
+		if err != nil {
+			return err
 		}
 		api := models.API{
 			APIType:         t,
 			Status:          1, // 默认启用（全站生效）
 			SubmitAlgorithm: models.AlgorithmBox,
-			SubmitPrivateKey: "26da6d1bea2a132377445b2c05fe76b3a1ac51d835289f0b0a4fc18ca5a1616d", // 预置测试私钥
-			ReturnAlgorithm: models.AlgorithmNone,
+			SubmitPublicKey: pub,
+			SubmitPrivateKey: priv,
+			ReturnAlgorithm: models.AlgorithmBox,
 		}
-		if err := db.Create(&api).Error; err == nil {
-			created++
-		} else {
-			logrus.WithError(err).WithField("api_type", t).Warn("创建全局接口条目失败")
+		if err := db.Create(&api).Error; err != nil {
+			return err
 		}
 	}
-	if created > 0 {
-		logrus.Infof("全局接口初始化：新增 %d 条接口记录", created)
-	}
-
-	purgeLegacyRebindAPI(db)
+	return nil
 }
 
-// purgeLegacyRebindAPI 彻底移除历史「IP转绑(52)」接口记录（转绑已统一为 51）。幂等。
-func purgeLegacyRebindAPI(db *gorm.DB) {
-	res := db.Where("api_type = ?", models.LegacyAPITypeIPChangeBind).Delete(&models.API{})
-	if res.Error == nil && res.RowsAffected > 0 {
-		logrus.Infof("接口清理：移除 %d 条历史 IP转绑(52) 记录（转绑已统一为 51）", res.RowsAffected)
+// GenerateBoxKeys 使用系统随机源生成提交加密所需的十六进制公私钥对。
+func GenerateBoxKeys() (string, string, error) {
+	pub, priv, err := box.GenerateKey(rand.Reader)
+	if err != nil {
+		return "", "", err
 	}
-}
-
-// LoadEnabledGlobalAPI 按 api_type 读取已启用的全局接口配置。
-// 接口配置全站共用，调用方无需再关心应用维度。
-func LoadEnabledGlobalAPI(db *gorm.DB, apiType int) (*models.API, error) {
-	var api models.API
-	if err := db.Where("api_type = ?", apiType).First(&api).Error; err != nil {
-		return nil, err
-	}
-	return &api, nil
+	return hex.EncodeToString(pub[:]), hex.EncodeToString(priv[:]), nil
 }

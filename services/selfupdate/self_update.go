@@ -218,7 +218,8 @@ func (m *SelfUpdateManager) ScanVersions(ctx context.Context) ([]SelfUpdateVersi
 		if err == nil && len(files) > 0 {
 			filtered := selfUpdateFilterByPlatform(files)
 			if len(filtered) == 0 {
-				filtered = files
+				items = append(items, item)
+				continue
 			}
 			selected := filtered[0]
 			item.Size = selected.Size
@@ -252,7 +253,7 @@ func selfUpdateFilterByPlatform(files []storage.FileInfo) []storage.FileInfo {
 	var matched []storage.FileInfo
 	for _, f := range files {
 		name := strings.ToLower(f.Name)
-		if strings.Contains(name, "-"+goos+"-"+goarch) {
+		if strings.Contains(name, "-"+goos+"-"+goarch+"-") && strings.HasSuffix(name, ".zip") {
 			matched = append(matched, f)
 		}
 	}

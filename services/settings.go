@@ -171,11 +171,6 @@ func (s *SettingsService) GetEncryptionKey() string {
 	return s.GetString("encryption_key", "")
 }
 
-// GetJWTRefresh 已废弃，请使用 GetRefreshTokenExpireDays
-func (s *SettingsService) GetJWTRefresh() int {
-	return 0
-}
-
 // GetJWTExpire 获取 accessToken 有效期（小时）
 func (s *SettingsService) GetJWTExpire() int {
 	v := s.GetInt("jwt_expire", 2)

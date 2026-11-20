@@ -3,6 +3,8 @@ package services
 import (
 	"NetworkAuth/database"
 	"NetworkAuth/models"
+	"crypto/ecdh"
+	"encoding/hex"
 	"testing"
 	"time"
 
@@ -206,8 +208,27 @@ func TestAppSecretIsolatesSignature(t *testing.T) {
 func TestEnsureGlobalAPIsCreatesOnePerType(t *testing.T) {
 	db := setupUnifiedTestDB(t)
 
-	EnsureGlobalAPIs()
+	if err := EnsureGlobalAPIs(); err != nil {
+		t.Fatal(err)
+	}
 	want := len(models.GetDefaultAPITypes())
+	var seeded []models.API
+	if err := db.Find(&seeded).Error; err != nil {
+		t.Fatal(err)
+	}
+	keys := make(map[string]bool)
+	for _, api := range seeded {
+		raw, err := hex.DecodeString(api.SubmitPrivateKey)
+		if err != nil {
+			t.Fatal("提交私钥不是 hex")
+		}
+		priv, err := ecdh.X25519().NewPrivateKey(raw)
+		if err != nil || hex.EncodeToString(priv.PublicKey().Bytes()) != api.SubmitPublicKey ||
+			api.SubmitAlgorithm != models.AlgorithmBox || keys[api.SubmitPublicKey] {
+			t.Fatal("接口必须有独立且匹配的 Box 密钥对")
+		}
+		keys[api.SubmitPublicKey] = true
+	}
 
 	var count int64
 	db.Model(&models.API{}).Count(&count)
@@ -216,7 +237,15 @@ func TestEnsureGlobalAPIsCreatesOnePerType(t *testing.T) {
 	}
 
 	// 幂等：再次调用不应产生重复（唯一索引 + 跳过已存在）
-	EnsureGlobalAPIs()
+	if err := EnsureGlobalAPIs(); err != nil {
+		t.Fatal(err)
+	}
+	for _, original := range seeded {
+		var current models.API
+		if err := db.First(&current, original.ID).Error; err != nil || original.SubmitPrivateKey != current.SubmitPrivateKey || original.SubmitPublicKey != current.SubmitPublicKey {
+			t.Fatal("再次初始化不得替换已有密钥")
+		}
+	}
 	db.Model(&models.API{}).Count(&count)
 	if int(count) != want {
 		t.Fatalf("EnsureGlobalAPIs must be idempotent: want %v, got %v", want, count)

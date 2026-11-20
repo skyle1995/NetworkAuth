@@ -80,9 +80,7 @@ func SelfUpdateVersionsHandler(c *gin.Context) {
 
 // SelfUpdatePrepareRequest 更新准备请求
 type SelfUpdatePrepareRequest struct {
-	Version     string `json:"version" binding:"required"`      // 目标版本号
-	DownloadURL string `json:"download_url" binding:"required"` // 下载链接
-	SHA256      string `json:"sha256" binding:"required"`       // SHA256 哈希
+	Version string `json:"version" binding:"required"` // 从服务端清单选择的版本号
 }
 
 // SelfUpdatePrepareHandler 下载并准备指定版本的更新
@@ -97,7 +95,7 @@ func SelfUpdatePrepareHandler(c *gin.Context) {
 	}
 
 	mgr := selfupdate.GetSelfUpdateManager()
-	st := mgr.Prepare(c.Request.Context(), req.Version, req.DownloadURL, req.SHA256)
+	st := mgr.Prepare(req.Version)
 	c.JSON(http.StatusOK, gin.H{
 		"ok":   true,
 		"data": st,

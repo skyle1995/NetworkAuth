@@ -54,17 +54,12 @@ func (lm *LoggingMiddleware) Handler() gin.HandlerFunc {
 
 		start := time.Now()
 		path := c.Request.URL.Path
-		raw := c.Request.URL.RawQuery
 
 		// 处理请求
 		c.Next()
 
 		// 计算响应时间
 		duration := time.Since(start)
-
-		if raw != "" {
-			path = path + "?" + raw
-		}
 
 		// 记录请求日志
 		lm.logger.LogRequestWithHeaders(

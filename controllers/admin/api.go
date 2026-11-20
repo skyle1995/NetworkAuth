@@ -28,7 +28,7 @@ var apiBaseController = controllers.NewBaseController()
 // API处理器
 // ============================================================================
 
-// APIListHandler 接口列表API处理器
+// APIListHandler 分页列出当前版本支持的接口配置。
 func APIListHandler(c *gin.Context) {
 	// 获取分页参数
 	page, limit := apiBaseController.GetPaginationParams(c)
@@ -46,8 +46,8 @@ func APIListHandler(c *gin.Context) {
 		return
 	}
 
-	// 构建基础查询
-	query := db.Model(&models.API{})
+	// 在计数和分页前排除不再支持的接口，保留数据库中的原始记录。
+	query := db.Model(&models.API{}).Where("api_type IN ?", models.GetDefaultAPITypes())
 
 	// 如果指定了接口类型，则按接口类型筛选
 	if apiType > 0 {
@@ -76,6 +76,9 @@ func APIListHandler(c *gin.Context) {
 
 	var responseAPIs []APIResponse
 	for _, api := range apis {
+		if api.SubmitAlgorithm == models.AlgorithmBox {
+			api.SubmitPrivateKey = ""
+		}
 		responseAPI := APIResponse{
 			API:         api,
 			APITypeName: models.GetAPITypeName(api.APIType),
@@ -141,7 +144,7 @@ func APIUpdateHandler(c *gin.Context) {
 		return
 	}
 
-	if !models.IsValidAlgorithm(req.SubmitAlgorithm) || !models.IsValidAlgorithm(req.ReturnAlgorithm) {
+	if !validAlgorithmPair(req.SubmitAlgorithm, req.ReturnAlgorithm) {
 		apiBaseController.HandleValidationError(c, "无效的算法类型")
 		return
 	}
@@ -160,16 +163,25 @@ func APIUpdateHandler(c *gin.Context) {
 	}
 
 	// 更新字段（不允许修改 APIType）
+	if req.SubmitAlgorithm != api.SubmitAlgorithm {
+		if req.SubmitAlgorithm != models.AlgorithmNone && req.SubmitPrivateKey == "" {
+			apiBaseController.HandleValidationError(c, "切换提交算法前请生成新密钥")
+			return
+		}
+		api.SubmitPrivateKey, api.SubmitPublicKey = "", ""
+	}
 	api.Status = req.Status
 	api.SubmitAlgorithm = req.SubmitAlgorithm
 	api.ReturnAlgorithm = req.ReturnAlgorithm
 
 	// 可选更新密钥/证书（当提供时）
-	if req.SubmitPublicKey != "" || req.SubmitPrivateKey != "" {
+	if req.SubmitPrivateKey != "" || (req.SubmitAlgorithm != models.AlgorithmBox && req.SubmitPublicKey != "") {
 		api.SubmitPublicKey = req.SubmitPublicKey
 		api.SubmitPrivateKey = req.SubmitPrivateKey
 	}
-	if req.ReturnPublicKey != "" || req.ReturnPrivateKey != "" {
+	if req.ReturnAlgorithm == models.AlgorithmBox {
+		api.ReturnPublicKey, api.ReturnPrivateKey = "", ""
+	} else if req.ReturnPublicKey != "" || req.ReturnPrivateKey != "" {
 		api.ReturnPublicKey = req.ReturnPublicKey
 		api.ReturnPrivateKey = req.ReturnPrivateKey
 	}
@@ -180,42 +192,19 @@ func APIUpdateHandler(c *gin.Context) {
 		return
 	}
 
+	if api.SubmitAlgorithm == models.AlgorithmBox {
+		api.SubmitPrivateKey = ""
+	}
 	apiBaseController.HandleSuccess(c, "接口更新成功", api)
 }
 
-// APIExportKeysHandler 导出对接密钥。
-//
-// 两种用法：
-//   · 不传 app_uuid → 导出**全部应用**的 uuid/secret（接口配置全站统一，只导一份）
-//   · 传 app_uuid   → 只导出该应用（保留给脚本按需调用）
-//
-// 前端「接口设置」页的导出按钮已改为导出全部，因为接口条目在全站是同一套，
-// 逐个应用导出既费事又容易漏。
+// APIExportKeysHandler 导出全站接口的对接配置，不查询或导出应用信息。
 func APIExportKeysHandler(c *gin.Context) {
-	appUUID := strings.TrimSpace(c.Query("app_uuid"))
-
 	db, ok := apiBaseController.GetDB(c)
 	if !ok {
 		return
 	}
 
-	// 查询应用：指定 uuid 时校验存在，否则取全部
-	var apps []models.App
-	if appUUID != "" {
-		var app models.App
-		if err := db.Where("uuid = ?", appUUID).First(&app).Error; err != nil {
-			apiBaseController.HandleValidationError(c, "应用不存在")
-			return
-		}
-		apps = []models.App{app}
-	} else {
-		if err := db.Order("name ASC").Find(&apps).Error; err != nil {
-			apiBaseController.HandleInternalError(c, "查询应用失败", err)
-			return
-		}
-	}
-
-	// 一号通：接口条目全站唯一，导出该应用的对接信息时复用同一套全局接口配置
 	var apis []models.API
 	if err := db.Order("api_type ASC").Find(&apis).Error; err != nil {
 		logrus.WithError(err).Error("Failed to fetch APIs for export")
@@ -233,13 +222,17 @@ func APIExportKeysHandler(c *gin.Context) {
 		ReturnAlgorithm     int    `json:"return_algorithm"`
 		ReturnAlgorithmName string `json:"return_algorithm_name"`
 		SubmitPublicKey     string `json:"submit_public_key"`
-		SubmitPrivateKey    string `json:"submit_private_key"`
+		SubmitPrivateKey    string `json:"submit_private_key,omitempty"`
 		ReturnPublicKey     string `json:"return_public_key"`
 		ReturnPrivateKey    string `json:"return_private_key"`
 	}
 
 	interfaces := make([]ifaceExport, 0, len(apis))
 	for _, api := range apis {
+		// 只有对称提交算法需要客户端持有同一密钥。
+		if api.SubmitAlgorithm != models.AlgorithmRC4 && api.SubmitAlgorithm != models.AlgorithmEasy {
+			api.SubmitPrivateKey = ""
+		}
 		interfaces = append(interfaces, ifaceExport{
 			APIType:             api.APIType,
 			APITypeName:         models.GetAPITypeName(api.APIType),
@@ -270,25 +263,12 @@ func APIExportKeysHandler(c *gin.Context) {
 	}
 	baseURL := scheme + "://" + host
 
-	// 应用清单：客户端按 name 找到自己要用的那个，取 uuid + secret
-	appItems := make([]gin.H, 0, len(apps))
-	for _, a := range apps {
-		appItems = append(appItems, gin.H{
-			"name":    a.Name,
-			"uuid":    a.UUID,
-			"secret":  a.Secret,
-			"version": "",
-		})
-	}
-
 	payload := gin.H{
 		"server": gin.H{
 			"base_url":     baseURL,
 			"api_endpoint": baseURL + "/api/open",
 			"method":       "POST",
 		},
-		"apps":        appItems,
-		"app_count":   len(appItems),
 		"sign_rule":   "sign = SHA256(app_uuid|api_type|data|timestamp|app_secret) 转大写HEX",
 		"exported_at": time.Now().Format("2006-01-02 15:04:05"),
 		// shared=true 表示下面的 interfaces 是全站统一的一套，所有应用共用
@@ -296,13 +276,13 @@ func APIExportKeysHandler(c *gin.Context) {
 		"interfaces": interfaces,
 	}
 
-	// 导出含应用密钥与私钥，属敏感操作，记入操作日志
+	// 部分算法的对接配置含解密密钥，保留操作审计。
 	operator := c.GetString("admin_username")
 	if operator == "" {
 		operator = "unknown"
 	}
 	services.RecordOperationLog("导出对接密钥", operator, c.GetString("admin_uuid"),
-		fmt.Sprintf("导出对接密钥：%d 个应用、%d 条接口配置", len(apps), len(interfaces)))
+		fmt.Sprintf("导出对接密钥：%d 条接口配置", len(interfaces)))
 
 	apiBaseController.HandleSuccess(c, "导出成功", payload)
 }
@@ -380,6 +360,7 @@ func APIUpdateStatusHandler(c *gin.Context) {
 	apiBaseController.HandleSuccess(c, "接口"+statusText+"成功", nil)
 }
 
+// APIGenerateKeysHandler 为指定传输方向生成对应算法的密钥。
 func APIGenerateKeysHandler(c *gin.Context) {
 	var req struct {
 		Side      string `json:"side"`      // submit | return
@@ -394,7 +375,7 @@ func APIGenerateKeysHandler(c *gin.Context) {
 		apiBaseController.HandleValidationError(c, "side参数必须为submit或return")
 		return
 	}
-	if !models.IsValidAlgorithm(req.Algorithm) {
+	if !models.IsValidAlgorithm(req.Algorithm) || (req.Side == "return" && req.Algorithm == models.AlgorithmBox) {
 		apiBaseController.HandleValidationError(c, "无效的算法类型")
 		return
 	}
@@ -416,6 +397,8 @@ func APIGenerateKeysHandler(c *gin.Context) {
 // RC4/易加密只有私钥；RSA/RSA动态返回 PEM 公私钥。
 func generateAlgorithmKeys(algorithm int) (string, string, error) {
 	switch algorithm {
+	case models.AlgorithmBox:
+		return services.GenerateBoxKeys()
 	case models.AlgorithmNone:
 		return "", "", nil
 	case models.AlgorithmRC4:
@@ -470,7 +453,7 @@ func APIBatchSetAlgorithmHandler(c *gin.Context) {
 		apiBaseController.HandleValidationError(c, "请选择要设置的接口")
 		return
 	}
-	if !models.IsValidAlgorithm(req.SubmitAlgorithm) || !models.IsValidAlgorithm(req.ReturnAlgorithm) {
+	if !validAlgorithmPair(req.SubmitAlgorithm, req.ReturnAlgorithm) {
 		apiBaseController.HandleValidationError(c, "无效的算法类型")
 		return
 	}
@@ -493,10 +476,13 @@ func APIBatchSetAlgorithmHandler(c *gin.Context) {
 			apiBaseController.HandleInternalError(c, "生成提交算法密钥失败", err)
 			return
 		}
-		returnPub, returnPriv, err := generateAlgorithmKeys(req.ReturnAlgorithm)
-		if err != nil {
-			apiBaseController.HandleInternalError(c, "生成返回算法密钥失败", err)
-			return
+		var returnPub, returnPriv string
+		if req.ReturnAlgorithm != models.AlgorithmBox {
+			returnPub, returnPriv, err = generateAlgorithmKeys(req.ReturnAlgorithm)
+			if err != nil {
+				apiBaseController.HandleInternalError(c, "生成返回算法密钥失败", err)
+				return
+			}
 		}
 		// 用 map 更新以保证空字符串（不加密）也能写入，覆盖旧密钥
 		if err := db.Model(&models.API{}).Where("id = ?", apis[i].ID).Updates(map[string]interface{}{
@@ -521,4 +507,9 @@ func APIBatchSetAlgorithmHandler(c *gin.Context) {
 		fmt.Sprintf("批量设置 %d 个接口的加密算法并重新生成密钥", updated))
 
 	apiBaseController.HandleSuccess(c, fmt.Sprintf("已设置 %d 个接口", updated), gin.H{"updated": updated})
+}
+
+func validAlgorithmPair(submit, response int) bool {
+	return models.IsValidAlgorithm(submit) && models.IsValidAlgorithm(response) &&
+		(response != models.AlgorithmBox || submit == models.AlgorithmBox)
 }

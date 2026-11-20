@@ -207,7 +207,7 @@ func buildGormLogger(level string) gLogger.Interface {
 	default:
 		logLevel = gLogger.Warn
 	}
-	return gLogger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), gLogger.Config{SlowThreshold: 2 * time.Second, LogLevel: logLevel, IgnoreRecordNotFoundError: true, Colorful: false})
+	return gLogger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), gLogger.Config{SlowThreshold: 2 * time.Second, LogLevel: logLevel, IgnoreRecordNotFoundError: true, ParameterizedQueries: true, Colorful: false})
 }
 
 func initSQLite(sqliteConfig *appconfig.SQLiteConfig, logLevel string) error {

@@ -11,12 +11,8 @@ import {
   resetAppSecret,
   getAppData,
   updateAppData,
-  getAppAnnouncement,
-  updateAppAnnouncement,
   getAppMultiConfig,
   updateAppMultiConfig,
-  getAppBindConfig,
-  updateAppBindConfig,
   getAppRegisterConfig,
   updateAppRegisterConfig
 } from "@/api/admin/app";

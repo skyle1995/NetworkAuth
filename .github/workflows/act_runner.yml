@@ -85,6 +85,7 @@ jobs:
       - name: 编译前端
         run: |
           cd frontend
+          pnpm run typecheck
           BROWSERSLIST_IGNORE_OLD_DATA=true NODE_OPTIONS="--max-old-space-size=4096" \
             pnpm exec vite build
 

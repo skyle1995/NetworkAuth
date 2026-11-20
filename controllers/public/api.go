@@ -50,16 +50,28 @@ func fail(c *gin.Context, msg string) {
 // 二级令牌改造后，客户端需要区分「令牌过期 → 重新登录」「租约过期 → 重新激活」
 // 「等级不足 → 提示升级」等情形，靠解析中文既不可靠也不利于多语言。
 func failErr(c *gin.Context, err error) {
+	c.JSON(http.StatusOK, businessError(err))
+}
+
+func businessError(err error) gin.H {
+	var fue *services.ForceUpdateError
+	if errors.As(err, &fue) {
+		return forceUpdatePayload(fue)
+	}
+	var sfe *services.SessionsFullError
+	if errors.As(err, &sfe) {
+		return sessionsFullPayload(sfe)
+	}
 	resp := gin.H{"code": 1, "msg": err.Error()}
 	if code := services.ErrorCodeOf(err); code != "" {
 		resp["err"] = code
 	}
-	c.JSON(http.StatusOK, resp)
+	return resp
 }
 
 // failForceUpdate 强制更新拦截响应：code=2 表示「须强制更新，登录被拒」，
 // 附带更新信息（明文，与失败通道的 msg 一致；下载地址非敏感）供客户端弹更新引导。
-func failForceUpdate(c *gin.Context, e *services.ForceUpdateError) {
+func forceUpdatePayload(e *services.ForceUpdateError) gin.H {
 	resp := gin.H{"code": 2, "msg": e.Error()}
 	if u := e.Update; u != nil {
 		resp["update"] = gin.H{
@@ -69,19 +81,19 @@ func failForceUpdate(c *gin.Context, e *services.ForceUpdateError) {
 			"download_url":   u.DownloadURL,
 		}
 	}
-	c.JSON(http.StatusOK, resp)
+	return resp
 }
 
 // failSessionsFull 手动顶号满员拦截响应：code=3 表示「在线数已满，需手动选择踢出」，
 // 附带当前在线会话列表（明文，与失败通道的 msg 一致），供客户端弹窗让用户选择踢出。
-func failSessionsFull(c *gin.Context, e *services.SessionsFullError) {
+func sessionsFullPayload(e *services.SessionsFullError) gin.H {
 	resp := gin.H{"code": 3, "msg": e.Error()}
 	sessions := e.Sessions
 	if sessions == nil {
 		sessions = []services.SessionInfo{}
 	}
 	resp["sessions"] = sessions
-	c.JSON(http.StatusOK, resp)
+	return resp
 }
 
 // OpenAPIHandler 公开 API 分发入口
@@ -148,19 +160,15 @@ func OpenAPIHandler(c *gin.Context) {
 
 	// 按接口类型分发业务
 	result, bizErr := dispatch(c, &app, envelope.APIType, plainParams)
+	if api.ReturnAlgorithm == models.AlgorithmBox {
+		payload := gin.H{"code": 0, "data": result}
+		if bizErr != nil {
+			payload = businessError(bizErr)
+		}
+		respondEncrypted(c, codec, payload)
+		return
+	}
 	if bizErr != nil {
-		// 强制更新拦截：返回专用 code 与更新信息，客户端据此引导升级后再登录
-		var fue *services.ForceUpdateError
-		if errors.As(bizErr, &fue) {
-			failForceUpdate(c, fue)
-			return
-		}
-		// 手动顶号满员拦截：返回专用 code 与在线会话列表，客户端据此弹窗选择踢出
-		var sfe *services.SessionsFullError
-		if errors.As(bizErr, &sfe) {
-			failSessionsFull(c, sfe)
-			return
-		}
 		failErr(c, bizErr)
 		return
 	}

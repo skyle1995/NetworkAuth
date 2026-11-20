@@ -5,6 +5,9 @@ import (
 	"NetworkAuth/models"
 	"NetworkAuth/services"
 	"bytes"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"golang.org/x/crypto/nacl/box"
 	"gorm.io/gorm"
 )
 
@@ -54,6 +58,63 @@ func doOpen(r *gin.Engine, body map[string]any) (int, map[string]any) {
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	return w.Code, resp
+}
+
+// TestOpenAPIDuplexBox 验证本次请求的临时私钥能解开成功结果和业务错误。
+func TestOpenAPIDuplexBox(t *testing.T) {
+	r := setupOpenAPITest(t)
+	db, err := database.GetDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, sk, err := box.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.API{}).Where("api_type = ?", models.APITypeSingleLogin).Updates(map[string]any{
+		"submit_algorithm": models.AlgorithmBox, "return_algorithm": models.AlgorithmBox,
+		"submit_private_key": hex.EncodeToString(sk[:]), "submit_public_key": hex.EncodeToString(server[:]),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		params string
+		success bool
+	}{
+		{`{"card":"KM-1","machine_code":"MC-1","version":"1.0.0"}`, true},
+		{`{}`, false},
+	} {
+		pub, priv, err := box.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var nonce [24]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			t.Fatal(err)
+		}
+		data := base64.StdEncoding.EncodeToString(box.Seal(append(nonce[:], pub[:]...), []byte(tc.params), &nonce, server, priv))
+		ts := time.Now().Unix()
+		_, resp := doOpen(r, map[string]any{"app_uuid": "APP-1", "api_type": models.APITypeSingleLogin, "data": data, "timestamp": ts,
+			"sign": services.SignOpenRequest("APP-1", models.APITypeSingleLogin, data, ts, "SECRET")})
+		encoded, ok := resp["data"].(string)
+		if !ok || len(resp) != 2 || resp["code"] != float64(0) {
+			t.Fatal("未返回加密信封")
+		}
+		raw, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil || len(raw) < 24+box.Overhead {
+			t.Fatal("响应密文格式错误")
+		}
+		responseNonce := (*[24]byte)(raw[:24])
+		plain, ok := box.Open(nil, raw[24:], responseNonce, server, priv)
+		prefix := append([]byte("NetworkAuth/response/v1\x00"), nonce[:]...)
+		var inner map[string]any
+		if !ok || *responseNonce == nonce || !bytes.HasPrefix(plain, prefix) || json.Unmarshal(plain[len(prefix):], &inner) != nil {
+			t.Fatal("响应认证或请求绑定错误")
+		}
+		if (inner["code"] == float64(0)) != tc.success || (tc.success && inner["data"] == nil) || (!tc.success && inner["msg"] == nil) {
+			t.Fatal("内层业务状态错误")
+		}
+	}
 }
 
 func TestOpenAPIEnvelopeCardLogin(t *testing.T) {
@@ -101,5 +162,20 @@ func TestOpenAPIEnvelopeCardLogin(t *testing.T) {
 	})
 	if notcfg["code"].(float64) != 1 {
 		t.Fatalf("unconfigured interface should return code 1")
+	}
+
+	db, err := database.GetDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.API{}).Where("api_type = ?", models.APITypeSingleLogin).Update("status", 0).Error; err != nil {
+		t.Fatal(err)
+	}
+	_, disabled := doOpen(r, map[string]any{
+		"app_uuid": "APP-1", "api_type": models.APITypeSingleLogin,
+		"data": data, "timestamp": ts, "sign": sign,
+	})
+	if disabled["msg"] != "接口已停用" || disabled["data"] != nil {
+		t.Fatal("停用接口不应返回业务数据")
 	}
 }

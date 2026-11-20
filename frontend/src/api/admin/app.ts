@@ -1,5 +1,5 @@
 import { http } from "@/utils/http";
-
+import type { ApiResult } from "./api";
 
 export const getAppsList = (params?: object) => {
   return http.request<any>("get", "/api/admin/apps/list", { params });
@@ -53,8 +53,6 @@ export const getAppAnnouncement = (params?: object) => {
   });
 };
 
-;
-
 export const getAppMultiConfig = (params?: object) => {
   return http.request<any>("get", "/api/admin/apps/get_multi_config", {
     params
@@ -96,10 +94,10 @@ export const saveAppLevelPoints = (data?: object) => {
 
 /** 计费策略：列出所有应用的计费配置 */
 export const getAppBillingList = () => {
-  return http.request<Result>("get", "/api/admin/apps/list_billing");
+  return http.request<ApiResult>("get", "/api/admin/apps/list_billing");
 };
 
 /** 计费策略：保存单个应用的计费配置 */
 export const updateAppBilling = (data?: object) => {
-  return http.request<Result>("post", "/api/admin/apps/update_billing", { data });
+  return http.request<ApiResult>("post", "/api/admin/apps/update_billing", { data });
 };

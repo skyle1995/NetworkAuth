@@ -1,4 +1,4 @@
-﻿package models
+package models
 
 import (
 	"strings"
@@ -74,11 +74,6 @@ const (
 	// APITypeEntitlements 权益清单（entitlements，含 secret 下发）
 	APITypeEntitlements = 72
 	// APITypePluginUpdates 批量查询插件签名更新清单（不计费）。
-)
-
-// 已移除的历史接口类型：仅用于启动时清理数据库中的遗留记录，不再作为有效接口。
-const (
-	LegacyAPITypeIPChangeBind = 52 // 原「IP转绑」，已并入统一转绑(51)
 )
 
 // 算法类型常量

@@ -31,7 +31,7 @@ Content-Type: application/json
 - 失败：`{ "code": 1, "msg": "错误信息（明文，可直接展示给用户）" }`
 - 强制更新拦截（仅登录接口 `10`/`20`）：`{ "code": 2, "msg": "...", "update": { download_type, need_update, latest_version, download_url } }`——客户端须据此弹更新引导，升级后再登录（`update` 为明文，便于未解密即可展示）。
 
-> **接口条目全站唯一**：安装时自动写入 27 条 `api_type` 记录，**默认全部启用且不加密**，装完即可联调；需要加固时在后台「接口设置」里统一配置算法与密钥（27 条共用一套，可用「批量设置算法」一次性生成，用「导出密钥」按应用导出对接信息）。
+> **新安装默认值**：新建接口默认提交、返回均为 Curve25519 Box。每个 `api_type` 独立生成服务端密钥对；重启不更换已有配置。客户端按 `api_type` 取得可信的 `submit_public_key`。接口导出不含应用凭据，但部分算法的对接密钥仍需保密。生产环境仍须使用 HTTPS。
 > **应用身份由 `sign` 区分**：服务端先按 `app_uuid` 取出该应用的 `secret` 重算签名，签名不符直接拒绝。因此「同一套接口配置」不会让 A 应用能冒充 B 应用。
 
 ---
@@ -51,7 +51,7 @@ sign = SHA256( app_uuid | api_type | data | timestamp | app_secret ) 的大写�
 ```
 
 - `|` 为字面竖线分隔符；`api_type`、`timestamp` 按十进制字符串拼接；`data` 用信封里的密文串（不加密时即明文 JSON）。
-- `app_secret` 为应用密钥（后台「导出密钥」可获取），**只参与本地计算，绝不上传**。
+- `app_secret` 为对应应用单独配置的密钥，不包含在接口导出中，**只参与本地计算，绝不上传**。
 - 服务端用同一算法重算比对（常量时间比较），并校验 `timestamp` 在 ±300 秒窗口内。
 
 **示例（伪代码）**
@@ -75,6 +75,14 @@ sign      = HEX_UPPER( SHA256(raw) )
 | 2 | RSA | base64（分块 OAEP） | PEM | **提交**用 `submit_public_key` 加密；**返回**用 `return_private_key` 解密 |
 | 3 | RSA（动态） | base64 | PEM | 提交/返回用对应的动态公私钥 |
 | 4 | 易加密 | base64 | `private_key`=逗号分隔整数 | 提交/返回都用该密钥 |
+| 5 | Curve25519 Box | 标准 base64 | 32 字节提交公钥，以 hex 编码 | 每次请求生成新的临时密钥对和随机 24 字节 nonce；用临时私钥、接口公钥和 nonce 执行 NaCl `box`，按 `nonce ‖ 临时公钥(32字节) ‖ 带认证标签的密文` 拼接后编码 |
+
+**Box 返回协议 v1**（仅在 `return_algorithm=5` 时使用，要求 `submit_algorithm=5`）：
+
+1. 客户端保留本次请求的临时私钥和请求 nonce。外层 `{ "code": 0, "data": "..." }` 只表示密文信封，不代表业务成功。
+2. 标准 Base64 解码 `data`，取前 24 字节为响应 nonce，余下为带认证标签的密文。用响应 nonce、本次临时私钥和接口提交公钥执行 `box.Open`。不另发返回密钥。
+3. 解密结果必须依次为 ASCII `NetworkAuth/response/v1`、一个零字节、本次请求的 24 字节原始 nonce、UTF-8 JSON。验证认证标签、方向前缀和请求 nonce 后才可解析 JSON；不匹配一律拒绝。
+4. 内层成功为 `{ "code": 0, "data": <业务结果> }`；业务错误保留原 `code/msg/err/update/sessions` 语义。请求校验或解密失败等协议错误可能只有明文错误提示，不得据此接受授权、执行升级或处理其他业务指令。每次请求只接受一次有效响应。
 
 **方向约定（重要）**：
 - 提交方向：服务端用 `submit_*` 密钥**解密**你上报的 `data`。RSA 提交时服务端持**私钥**，故客户端用 `submit_public_key` **加密**。
@@ -925,7 +933,7 @@ call(71, {token: appToken})
 | RSA（动态） | PEM | PEM | base64 |
 | 易加密 | — | 逗号分隔整数 | base64 |
 
-> 全部密钥可在后台「接口设置 → 导出密钥」一键导出为 JSON（含 `server.api_endpoint`、`app.uuid/secret` 及每个接口的算法与四类密钥），交给对接开发直接使用。
+> 后台「接口设置 → 导出密钥」导出接口地址、算法与客户端所需的接口密钥，不含应用列表、UUID 或应用密钥。Box 的服务端公钥是 `submit_public_key`，双向 Box 无需单独的返回公钥。
 
 ---
 

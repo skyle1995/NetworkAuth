@@ -140,7 +140,10 @@ func InstallSubmitHandler(c *gin.Context) {
 	// 初始化全局接口条目（一号通：接口全站唯一，27 条一次生成并默认启用）
 	// 必须紧跟建表之后执行：新库没有迁移兜底，遗漏会导致「有表无数据」，
 	// 后台接口页空白且 /api/open 全部返回「接口未配置」。
-	services.EnsureGlobalAPIs()
+	if err := services.EnsureGlobalAPIs(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "msg": "全局接口密钥初始化失败"})
+		return
+	}
 
 	// 3. 生成新的管理员密码哈希和盐值
 	adminSalt, err := utils.GenerateRandomSalt()

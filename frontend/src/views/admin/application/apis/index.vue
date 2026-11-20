@@ -25,23 +25,22 @@ const {
   handleCurrentChange
 } = useApi();
 
-// 导出对接密钥：一次拿到「全部应用的 uuid/secret」+「全站统一的接口配置」
+// 导出全站统一的接口配置
 async function handleExport() {
   exporting.value = true;
   try {
-    const { code, msg, data } = await exportApiKeys({});
+    const { code, msg, data } = await exportApiKeys();
     if (code !== 0) {
       ElMessage.error(msg || "导出失败");
       return;
     }
-    const count = data?.app_count ?? data?.apps?.length ?? 0;
     const blob = new Blob([JSON.stringify(data, null, 2)], {
       type: "application/json"
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `对接密钥_${count}个应用.json`;
+    a.download = "接口对接配置.json";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
