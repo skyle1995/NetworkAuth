@@ -4,17 +4,36 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"errors"
+	"strings"
 	"time"
 
 	"NetworkAuth/database"
 	"NetworkAuth/models"
 )
 
-// API 密钥能力(scope)常量。脚手架仅提供通用读/写两档，
-// 业务项目可在此登记自有能力（如 inventory:generate、mail:read）。
+// API 密钥能力(scope)常量。
+//
+// 分两层：
+//   - 通用档 api:read / api:write：授予后可用所有只读/写入接口（老密钥继续有效）
+//   - 业务档 xxx:read / xxx:write：最小权限，只放行对应资源
+//
+// 鉴权时精确匹配优先；没有精确能力时，通用档按后缀兜底（见 apiKeyAllows）。
 const (
-	ScopeAPIRead  = "api:read"  // 只读类接口
-	ScopeAPIWrite = "api:write" // 写入类接口
+	ScopeAPIRead  = "api:read"  // 通用只读
+	ScopeAPIWrite = "api:write" // 通用写入
+
+	ScopeAppRead      = "app:read"      // 应用：读取
+	ScopeAppWrite     = "app:write"     // 应用：创建/修改
+	ScopeBillingWrite = "billing:write" // 应用：调整计费策略
+
+	ScopeVariableRead  = "var:read"  // 变量：读取
+	ScopeVariableWrite = "var:write" // 变量：增删改
+
+	ScopeFunctionRead  = "fn:read"  // 函数：读取
+	ScopeFunctionWrite = "fn:write" // 函数：增删改
+
+	ScopeMemberRead  = "member:read"  // 终端账号：读取
+	ScopeMemberWrite = "member:write" // 终端账号：增删改、充值扣减
 )
 
 // ApiScopeMeta scope 元信息（供后台展示选择）。
@@ -26,9 +45,39 @@ type ApiScopeMeta struct {
 // AvailableAPIScopes 返回所有可分配的能力（后台密钥管理用）。
 func AvailableAPIScopes() []ApiScopeMeta {
 	return []ApiScopeMeta{
-		{Value: ScopeAPIRead, Label: "只读接口"},
-		{Value: ScopeAPIWrite, Label: "写入接口"},
+		{Value: ScopeAPIRead, Label: "通用只读（放行所有读取接口）"},
+		{Value: ScopeAPIWrite, Label: "通用写入（放行所有写入接口）"},
+		{Value: ScopeAppRead, Label: "应用 · 读取"},
+		{Value: ScopeAppWrite, Label: "应用 · 创建/修改"},
+		{Value: ScopeBillingWrite, Label: "应用 · 调整计费"},
+		{Value: ScopeVariableRead, Label: "变量 · 读取"},
+		{Value: ScopeVariableWrite, Label: "变量 · 增删改"},
+		{Value: ScopeFunctionRead, Label: "函数 · 读取"},
+		{Value: ScopeFunctionWrite, Label: "函数 · 增删改"},
+		{Value: ScopeMemberRead, Label: "终端账号 · 读取"},
+		{Value: ScopeMemberWrite, Label: "终端账号 · 增删改/充值"},
 	}
+}
+
+// apiKeyAllows 判断密钥是否满足 required 能力。
+//
+// 规则：精确匹配优先；缺精确能力时按后缀由通用档兜底——
+// 有 api:read 即可用所有 *:read，有 api:write 即可用所有 *:write。
+// 这样老密钥（只发了 api:read/api:write）不会因为细分能力而失效。
+func apiKeyAllows(key *models.ApiKey, required string) bool {
+	if key == nil {
+		return false
+	}
+	if key.HasScope(required) || key.HasScope("*") {
+		return true
+	}
+	switch {
+	case strings.HasSuffix(required, ":read"):
+		return key.HasScope(ScopeAPIRead)
+	case strings.HasSuffix(required, ":write"):
+		return key.HasScope(ScopeAPIWrite)
+	}
+	return false
 }
 
 // 鉴权可能返回的错误，便于上层区分提示。
@@ -80,7 +129,7 @@ func AuthAPIKey(raw, scope, ip string) (*models.ApiKey, error) {
 	if key.Expired() {
 		return nil, ErrAPIKeyExpired
 	}
-	if scope != "" && !key.HasScope(scope) {
+	if scope != "" && !apiKeyAllows(&key, scope) {
 		return nil, ErrAPIKeyScope
 	}
 	touchAPIKey(&key, ip)

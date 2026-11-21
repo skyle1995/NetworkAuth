@@ -5,6 +5,7 @@ networkauth*.exe*
 
 # 数据库文件
 *.db
+database.db.bak-*
 *.db-shm
 *.db-wal
 

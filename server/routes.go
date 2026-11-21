@@ -28,6 +28,7 @@ func RegisterRoutes(r *gin.Engine) {
 	RegisterInstallRoutes(apiGroup)
 	RegisterDefaultRoutes(apiGroup)
 	RegisterAdminRoutes(apiGroup)
+	RegisterOpenAPIRoutes(apiGroup)
 
 	// 2. 注册前端静态资源及兜底路由
 	registerFrontendRoutes(r)

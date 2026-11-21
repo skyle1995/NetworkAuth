@@ -15,6 +15,7 @@
 - **卡密与会员**: 全站卡池 + 卡密套餐（面值快照）+ 会员等级（累充自动升级、充值返利、额外多开、赠送换绑、按等级点数折扣）
 - **变量管理**: 变量可按应用隔离（`app_uuid`）或留空作为全站变量，别名在应用内唯一
 - **函数管理**: 自定义函数代码全站共用，别名全局唯一，在 goja 沙箱执行
+- **对外 API（API 密钥）**: `/api/openapi` 提供建应用、调计费、变量/函数维护、终端账号增删改与充值扣减，按 scope 最小授权，写操作进操作日志
 - **用户管理**: 完整的用户认证和权限管理系统
 - **系统设置**: 灵活的系统配置和参数管理
 - **系统初始化**: 提供引导式的数据表初始化和默认设置注入
@@ -25,6 +26,7 @@
 > - [docs/architecture.md](docs/architecture.md) — **架构总览，唯一入口**（数据归属 / 计费模型 / 会话模型 / 不变量 / 代码地图）
 > - [docs/flows.md](docs/flows.md) — **各场景工作流程表**（请求流水线 / 登录 / 激活 / 心跳 / 清理）
 > - [docs/app-settings.md](docs/app-settings.md) — 后台每个开关的逐项说明（运维向）
+> - [docs/openapi.md](docs/openapi.md) — **对外 API（API 密钥）**：建应用 / 调计费 / 变量 / 函数 / 终端账号
 > - [docs/plan-unified-account.md](docs/plan-unified-account.md) — 一号通改造的设计与实施记录
 > - [docs/plan-host-plugin-session.md](docs/plan-host-plugin-session.md) — 外壳 + 插件方案（设计过程记录，字段以 api-guide 为准）
 
